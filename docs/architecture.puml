@@ -1,0 +1,34 @@
+@startuml architecture
+
+skinparam componentStyle rectangle
+skinparam backgroundColor white
+skinparam defaultFontName Arial
+skinparam arrowColor #666666
+
+package "Datastore" {
+    database "Postgres" as postgres #1869ff
+    queue "RabbitMQ" as rabbit #FC6D26
+    database "Redis" as redis #D82C20
+}
+
+package "Backend" {
+    [HTTP backend] as backend #00ADD8
+    [Email worker] as emailWorker #00ADD8
+    [Container runner] as containerRunner #00ADD8
+}
+
+package "Frontend" {
+    [Web app] as webApp #FF6F61
+}
+
+webApp --> backend : "HTTP requests"
+backend --> postgres : "Read/Write data"
+backend --> rabbit : "Emails to send"
+backend --> redis : "Cache data"
+
+rabbit --> emailWorker : "Consume email tasks"
+
+rabbit --> containerRunner : "Consume container tasks"
+containerRunner --> postgres : "Status of container"
+
+@enduml
