@@ -5,10 +5,17 @@ skinparam backgroundColor white
 skinparam defaultFontName Arial
 skinparam arrowColor #666666
 
+cloud Runtime {
+    [Proxmox] as proxmox #ff7300
+    [Docker] as docker #0db7ed
+    [Kubernetes] as kubernetes #326ce5
+}
+
 package "Datastore" {
     database "Postgres" as postgres #1869ff
-    queue "RabbitMQ" as rabbit #FC6D26
+    queue "Nats" as mq #FC6D26
     database "Redis" as redis #D82C20
+    database "Minio" as minio #CF163D
 }
 
 package "Backend" {
@@ -23,12 +30,17 @@ package "Frontend" {
 
 webApp --> backend : "HTTP requests"
 backend --> postgres : "Read/Write data"
-backend --> rabbit : "Emails to send"
+backend --> minio : "Create presigned URLs"
+frontend --> minio : "Download/upload files"
+backend --> mq : "Emails to send"
+backend --> mq : "Container actions\nsend user:task:action"
 backend --> redis : "Cache data"
 
-rabbit --> emailWorker : "Consume email tasks"
+containerRunner --> Runtime : "Run tasks"
 
-rabbit --> containerRunner : "Consume container tasks"
+mq --> emailWorker : "Consume email tasks"
+
+mq --> containerRunner : "Consume container tasks"
 containerRunner --> postgres : "Status of container"
 
 @enduml
