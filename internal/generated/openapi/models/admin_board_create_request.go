@@ -31,10 +31,6 @@ type AdminBoardCreateRequest struct {
 	// Format: date-time
 	EndsAt *strfmt.DateTime `json:"endsAt,omitempty"`
 
-	// mode
-	// Required: true
-	Mode *BoardMode `json:"mode"`
-
 	// name
 	// Required: true
 	// Max Length: 128
@@ -60,11 +56,6 @@ type AdminBoardCreateRequest struct {
 	// starts at
 	// Format: date-time
 	StartsAt *strfmt.DateTime `json:"startsAt,omitempty"`
-
-	// task instance settings
-	TaskInstanceSettings struct {
-		TaskInstanceBoardSettings
-	} `json:"taskInstanceSettings,omitempty"`
 
 	// team settings
 	TeamSettings struct {
@@ -92,10 +83,6 @@ func (m *AdminBoardCreateRequest) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateMode(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.validateName(formats); err != nil {
 		res = append(res, err)
 	}
@@ -117,10 +104,6 @@ func (m *AdminBoardCreateRequest) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateStartsAt(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateTaskInstanceSettings(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -186,30 +169,6 @@ func (m *AdminBoardCreateRequest) validateEndsAt(formats strfmt.Registry) error 
 
 	if err := validate.FormatOf("endsAt", "body", "date-time", m.EndsAt.String(), formats); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-func (m *AdminBoardCreateRequest) validateMode(formats strfmt.Registry) error {
-
-	if err := validate.Required("mode", "body", m.Mode); err != nil {
-		return err
-	}
-
-	if m.Mode != nil {
-		if err := m.Mode.Validate(formats); err != nil {
-			ve := new(errors.Validation)
-			if stderrors.As(err, &ve) {
-				return ve.ValidateName("mode")
-			}
-			ce := new(errors.CompositeError)
-			if stderrors.As(err, &ce) {
-				return ce.ValidateName("mode")
-			}
-
-			return err
-		}
 	}
 
 	return nil
@@ -340,14 +299,6 @@ func (m *AdminBoardCreateRequest) validateStartsAt(formats strfmt.Registry) erro
 	return nil
 }
 
-func (m *AdminBoardCreateRequest) validateTaskInstanceSettings(formats strfmt.Registry) error {
-	if typeutils.IsZero(m.TaskInstanceSettings) { // not required
-		return nil
-	}
-
-	return nil
-}
-
 func (m *AdminBoardCreateRequest) validateTeamSettings(formats strfmt.Registry) error {
 	if typeutils.IsZero(m.TeamSettings) { // not required
 		return nil
@@ -388,10 +339,6 @@ func (m *AdminBoardCreateRequest) ContextValidate(ctx context.Context, formats s
 		res = append(res, err)
 	}
 
-	if err := m.contextValidateMode(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.contextValidateParticipationMode(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -405,10 +352,6 @@ func (m *AdminBoardCreateRequest) ContextValidate(ctx context.Context, formats s
 	}
 
 	if err := m.contextValidateSlug(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.contextValidateTaskInstanceSettings(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -447,27 +390,6 @@ func (m *AdminBoardCreateRequest) contextValidateAccessGroupUuids(ctx context.Co
 			return err
 		}
 
-	}
-
-	return nil
-}
-
-func (m *AdminBoardCreateRequest) contextValidateMode(ctx context.Context, formats strfmt.Registry) error {
-
-	if m.Mode != nil {
-
-		if err := m.Mode.ContextValidate(ctx, formats); err != nil {
-			ve := new(errors.Validation)
-			if stderrors.As(err, &ve) {
-				return ve.ValidateName("mode")
-			}
-			ce := new(errors.CompositeError)
-			if stderrors.As(err, &ce) {
-				return ce.ValidateName("mode")
-			}
-
-			return err
-		}
 	}
 
 	return nil
@@ -553,11 +475,6 @@ func (m *AdminBoardCreateRequest) contextValidateSlug(ctx context.Context, forma
 			return err
 		}
 	}
-
-	return nil
-}
-
-func (m *AdminBoardCreateRequest) contextValidateTaskInstanceSettings(ctx context.Context, formats strfmt.Registry) error {
 
 	return nil
 }

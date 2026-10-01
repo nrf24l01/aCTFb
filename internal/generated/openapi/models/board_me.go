@@ -5,6 +5,7 @@ package models
 import (
 	"context"
 	stderrors "errors"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -17,6 +18,10 @@ import (
 //
 // swagger:model BoardMe
 type BoardMe struct {
+
+	// audiences
+	// Required: true
+	Audiences []*AudienceSummary `json:"audiences"`
 
 	// joined
 	// Required: true
@@ -47,6 +52,10 @@ type BoardMe struct {
 func (m *BoardMe) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateAudiences(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateJoined(formats); err != nil {
 		res = append(res, err)
 	}
@@ -70,6 +79,37 @@ func (m *BoardMe) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *BoardMe) validateAudiences(formats strfmt.Registry) error {
+
+	if err := validate.Required("audiences", "body", m.Audiences); err != nil {
+		return err
+	}
+
+	for i := 0; i < len(m.Audiences); i++ {
+		if typeutils.IsZero(m.Audiences[i]) { // not required
+			continue
+		}
+
+		if m.Audiences[i] != nil {
+			if err := m.Audiences[i].Validate(formats); err != nil {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
+					return ve.ValidateName("audiences" + "." + strconv.Itoa(i))
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
+					return ce.ValidateName("audiences" + "." + strconv.Itoa(i))
+				}
+
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 
@@ -142,6 +182,10 @@ func (m *BoardMe) validateTeam(formats strfmt.Registry) error {
 func (m *BoardMe) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.contextValidateAudiences(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateParticipationMode(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -153,6 +197,35 @@ func (m *BoardMe) ContextValidate(ctx context.Context, formats strfmt.Registry) 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *BoardMe) contextValidateAudiences(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Audiences); i++ {
+
+		if m.Audiences[i] != nil {
+
+			if typeutils.IsZero(m.Audiences[i]) { // not required
+				return nil
+			}
+
+			if err := m.Audiences[i].ContextValidate(ctx, formats); err != nil {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
+					return ve.ValidateName("audiences" + "." + strconv.Itoa(i))
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
+					return ce.ValidateName("audiences" + "." + strconv.Itoa(i))
+				}
+
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 

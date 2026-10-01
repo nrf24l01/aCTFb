@@ -54,11 +54,6 @@ type AdminBoardPatchRequest struct {
 	// Format: date-time
 	StartsAt *strfmt.DateTime `json:"startsAt,omitempty"`
 
-	// task instance settings
-	TaskInstanceSettings struct {
-		TaskInstanceBoardSettings
-	} `json:"taskInstanceSettings,omitempty"`
-
 	// team settings
 	TeamSettings struct {
 		TeamSettings
@@ -105,10 +100,6 @@ func (m *AdminBoardPatchRequest) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateStartsAt(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateTaskInstanceSettings(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -293,14 +284,6 @@ func (m *AdminBoardPatchRequest) validateStartsAt(formats strfmt.Registry) error
 	return nil
 }
 
-func (m *AdminBoardPatchRequest) validateTaskInstanceSettings(formats strfmt.Registry) error {
-	if typeutils.IsZero(m.TaskInstanceSettings) { // not required
-		return nil
-	}
-
-	return nil
-}
-
 func (m *AdminBoardPatchRequest) validateTeamSettings(formats strfmt.Registry) error {
 	if typeutils.IsZero(m.TeamSettings) { // not required
 		return nil
@@ -351,10 +334,6 @@ func (m *AdminBoardPatchRequest) ContextValidate(ctx context.Context, formats st
 	}
 
 	if err := m.contextValidateSlug(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.contextValidateTaskInstanceSettings(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -485,11 +464,6 @@ func (m *AdminBoardPatchRequest) contextValidateSlug(ctx context.Context, format
 
 		return err
 	}
-
-	return nil
-}
-
-func (m *AdminBoardPatchRequest) contextValidateTaskInstanceSettings(ctx context.Context, formats strfmt.Registry) error {
 
 	return nil
 }

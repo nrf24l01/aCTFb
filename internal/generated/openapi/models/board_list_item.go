@@ -5,6 +5,7 @@ package models
 import (
 	"context"
 	stderrors "errors"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -26,9 +27,15 @@ type BoardListItem struct {
 	// Required: true
 	Joined *bool `json:"joined"`
 
-	// mode
+	// module types
 	// Required: true
-	Mode *BoardMode `json:"mode"`
+	// Unique: true
+	ModuleTypes []ModuleType `json:"moduleTypes"`
+
+	// modules count
+	// Required: true
+	// Minimum: 0
+	ModulesCount *int64 `json:"modulesCount"`
 
 	// name
 	// Required: true
@@ -78,7 +85,11 @@ func (m *BoardListItem) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateMode(formats); err != nil {
+	if err := m.validateModuleTypes(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateModulesCount(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -141,25 +152,44 @@ func (m *BoardListItem) validateJoined(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *BoardListItem) validateMode(formats strfmt.Registry) error {
+func (m *BoardListItem) validateModuleTypes(formats strfmt.Registry) error {
 
-	if err := validate.Required("mode", "body", m.Mode); err != nil {
+	if err := validate.Required("moduleTypes", "body", m.ModuleTypes); err != nil {
 		return err
 	}
 
-	if m.Mode != nil {
-		if err := m.Mode.Validate(formats); err != nil {
+	if err := validate.UniqueItems("moduleTypes", "body", m.ModuleTypes); err != nil {
+		return err
+	}
+
+	for i := 0; i < len(m.ModuleTypes); i++ {
+
+		if err := m.ModuleTypes[i].Validate(formats); err != nil {
 			ve := new(errors.Validation)
 			if stderrors.As(err, &ve) {
-				return ve.ValidateName("mode")
+				return ve.ValidateName("moduleTypes" + "." + strconv.Itoa(i))
 			}
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
-				return ce.ValidateName("mode")
+				return ce.ValidateName("moduleTypes" + "." + strconv.Itoa(i))
 			}
 
 			return err
 		}
+
+	}
+
+	return nil
+}
+
+func (m *BoardListItem) validateModulesCount(formats strfmt.Registry) error {
+
+	if err := validate.Required("modulesCount", "body", m.ModulesCount); err != nil {
+		return err
+	}
+
+	if err := validate.MinimumInt("modulesCount", "body", *m.ModulesCount, 0, false); err != nil {
+		return err
 	}
 
 	return nil
@@ -342,7 +372,7 @@ func (m *BoardListItem) validateUUID(formats strfmt.Registry) error {
 func (m *BoardListItem) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.contextValidateMode(ctx, formats); err != nil {
+	if err := m.contextValidateModuleTypes(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -376,22 +406,27 @@ func (m *BoardListItem) ContextValidate(ctx context.Context, formats strfmt.Regi
 	return nil
 }
 
-func (m *BoardListItem) contextValidateMode(ctx context.Context, formats strfmt.Registry) error {
+func (m *BoardListItem) contextValidateModuleTypes(ctx context.Context, formats strfmt.Registry) error {
 
-	if m.Mode != nil {
+	for i := 0; i < len(m.ModuleTypes); i++ {
 
-		if err := m.Mode.ContextValidate(ctx, formats); err != nil {
+		if typeutils.IsZero(m.ModuleTypes[i]) { // not required
+			return nil
+		}
+
+		if err := m.ModuleTypes[i].ContextValidate(ctx, formats); err != nil {
 			ve := new(errors.Validation)
 			if stderrors.As(err, &ve) {
-				return ve.ValidateName("mode")
+				return ve.ValidateName("moduleTypes" + "." + strconv.Itoa(i))
 			}
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
-				return ce.ValidateName("mode")
+				return ce.ValidateName("moduleTypes" + "." + strconv.Itoa(i))
 			}
 
 			return err
 		}
+
 	}
 
 	return nil

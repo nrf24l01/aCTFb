@@ -24,6 +24,11 @@ type AdminSubmission struct {
 	// Format: uuid
 	BoardUUID *UUID `json:"boardUuid"`
 
+	// module Uuid
+	// Required: true
+	// Format: uuid
+	ModuleUUID *UUID `json:"moduleUuid"`
+
 	// resource type
 	// Required: true
 	ResourceType *SubmissionResourceType `json:"resourceType"`
@@ -55,6 +60,8 @@ func (m *AdminSubmission) UnmarshalJSON(raw []byte) error {
 	var dataAO1 struct {
 		BoardUUID *UUID `json:"boardUuid"`
 
+		ModuleUUID *UUID `json:"moduleUuid"`
+
 		ResourceType *SubmissionResourceType `json:"resourceType"`
 
 		Subject *ScoreSubject `json:"subject"`
@@ -70,6 +77,8 @@ func (m *AdminSubmission) UnmarshalJSON(raw []byte) error {
 	}
 
 	m.BoardUUID = dataAO1.BoardUUID
+
+	m.ModuleUUID = dataAO1.ModuleUUID
 
 	m.ResourceType = dataAO1.ResourceType
 
@@ -94,6 +103,8 @@ func (m AdminSubmission) MarshalJSON() ([]byte, error) {
 	var dataAO1 struct {
 		BoardUUID *UUID `json:"boardUuid"`
 
+		ModuleUUID *UUID `json:"moduleUuid"`
+
 		ResourceType *SubmissionResourceType `json:"resourceType"`
 
 		Subject *ScoreSubject `json:"subject"`
@@ -106,6 +117,8 @@ func (m AdminSubmission) MarshalJSON() ([]byte, error) {
 	}
 
 	dataAO1.BoardUUID = m.BoardUUID
+
+	dataAO1.ModuleUUID = m.ModuleUUID
 
 	dataAO1.ResourceType = m.ResourceType
 
@@ -133,6 +146,10 @@ func (m *AdminSubmission) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateBoardUUID(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateModuleUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -173,6 +190,30 @@ func (m *AdminSubmission) validateBoardUUID(formats strfmt.Registry) error {
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
 				return ce.ValidateName("boardUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *AdminSubmission) validateModuleUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("moduleUuid", "body", m.ModuleUUID); err != nil {
+		return err
+	}
+
+	if m.ModuleUUID != nil {
+		if err := m.ModuleUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
 			}
 
 			return err
@@ -274,6 +315,10 @@ func (m *AdminSubmission) ContextValidate(ctx context.Context, formats strfmt.Re
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateModuleUUID(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateResourceType(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -308,6 +353,27 @@ func (m *AdminSubmission) contextValidateBoardUUID(ctx context.Context, formats 
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
 				return ce.ValidateName("boardUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *AdminSubmission) contextValidateModuleUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ModuleUUID != nil {
+
+		if err := m.ModuleUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
 			}
 
 			return err

@@ -9,6 +9,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag/jsonutils"
+	"github.com/go-openapi/swag/typeutils"
 	"github.com/go-openapi/validate"
 )
 
@@ -22,6 +23,11 @@ type ScoreAdjustmentRequest struct {
 	// Maximum: 1e+09
 	// Minimum: -1e+09
 	Delta *int64 `json:"delta"`
+
+	// Optional module attribution for score breakdown/audit. Null means board-wide adjustment.
+	ModuleUUID struct {
+		UUID
+	} `json:"moduleUuid,omitempty"`
 
 	// reason
 	// Required: true
@@ -44,6 +50,10 @@ func (m *ScoreAdjustmentRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateDelta(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateModuleUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -77,6 +87,14 @@ func (m *ScoreAdjustmentRequest) validateDelta(formats strfmt.Registry) error {
 
 	if err := validate.MaximumInt("delta", "body", *m.Delta, 1e+09, false); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (m *ScoreAdjustmentRequest) validateModuleUUID(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.ModuleUUID) { // not required
+		return nil
 	}
 
 	return nil
@@ -151,6 +169,10 @@ func (m *ScoreAdjustmentRequest) validateSubjectUUID(formats strfmt.Registry) er
 func (m *ScoreAdjustmentRequest) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.contextValidateModuleUUID(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateSubjectType(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -162,6 +184,11 @@ func (m *ScoreAdjustmentRequest) ContextValidate(ctx context.Context, formats st
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ScoreAdjustmentRequest) contextValidateModuleUUID(ctx context.Context, formats strfmt.Registry) error {
+
 	return nil
 }
 

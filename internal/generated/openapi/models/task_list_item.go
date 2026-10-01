@@ -29,6 +29,11 @@ type TaskListItem struct {
 	// Required: true
 	InstanceRequired *bool `json:"instanceRequired"`
 
+	// module Uuid
+	// Required: true
+	// Format: uuid
+	ModuleUUID *UUID `json:"moduleUuid"`
+
 	// points
 	// Required: true
 	// Maximum: 1e+09
@@ -54,6 +59,10 @@ type TaskListItem struct {
 	// Min Length: 1
 	Title *string `json:"title"`
 
+	// type
+	// Required: true
+	Type *TaskType `json:"type"`
+
 	// uuid
 	// Required: true
 	// Format: uuid
@@ -69,6 +78,10 @@ func (m *TaskListItem) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateInstanceRequired(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateModuleUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -89,6 +102,10 @@ func (m *TaskListItem) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateTitle(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -123,6 +140,30 @@ func (m *TaskListItem) validateInstanceRequired(formats strfmt.Registry) error {
 
 	if err := validate.Required("instanceRequired", "body", m.InstanceRequired); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (m *TaskListItem) validateModuleUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("moduleUuid", "body", m.ModuleUUID); err != nil {
+		return err
+	}
+
+	if m.ModuleUUID != nil {
+		if err := m.ModuleUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
+			}
+
+			return err
+		}
 	}
 
 	return nil
@@ -229,6 +270,30 @@ func (m *TaskListItem) validateTitle(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *TaskListItem) validateType(formats strfmt.Registry) error {
+
+	if err := validate.Required("type", "body", m.Type); err != nil {
+		return err
+	}
+
+	if m.Type != nil {
+		if err := m.Type.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("type")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("type")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *TaskListItem) validateUUID(formats strfmt.Registry) error {
 
 	if err := validate.Required("uuid", "body", m.UUID); err != nil {
@@ -257,6 +322,14 @@ func (m *TaskListItem) validateUUID(formats strfmt.Registry) error {
 func (m *TaskListItem) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.contextValidateModuleUUID(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateUUID(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -264,6 +337,48 @@ func (m *TaskListItem) ContextValidate(ctx context.Context, formats strfmt.Regis
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *TaskListItem) contextValidateModuleUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ModuleUUID != nil {
+
+		if err := m.ModuleUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *TaskListItem) contextValidateType(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Type != nil {
+
+		if err := m.Type.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("type")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("type")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 

@@ -13,10 +13,10 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// TaskInstanceBoardSettings task instance board settings
+// TaskInstanceModuleSettings task instance module settings
 //
-// swagger:model TaskInstanceBoardSettings
-type TaskInstanceBoardSettings struct {
+// swagger:model TaskInstanceModuleSettings
+type TaskInstanceModuleSettings struct {
 
 	// default Ttl seconds
 	// Required: true
@@ -25,7 +25,7 @@ type TaskInstanceBoardSettings struct {
 	DefaultTTLSeconds *int64 `json:"defaultTtlSeconds"`
 
 	// extension
-	Extension *TaskInstanceBoardSettingsExtension `json:"extension,omitempty"`
+	Extension *TaskInstanceModuleSettingsExtension `json:"extension,omitempty"`
 
 	// max concurrent instances per subject
 	// Required: true
@@ -44,8 +44,8 @@ type TaskInstanceBoardSettings struct {
 	ResetEnabled *bool `json:"resetEnabled"`
 }
 
-// Validate validates this task instance board settings
-func (m *TaskInstanceBoardSettings) Validate(formats strfmt.Registry) error {
+// Validate validates this task instance module settings
+func (m *TaskInstanceModuleSettings) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateDefaultTTLSeconds(formats); err != nil {
@@ -74,7 +74,7 @@ func (m *TaskInstanceBoardSettings) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *TaskInstanceBoardSettings) validateDefaultTTLSeconds(formats strfmt.Registry) error {
+func (m *TaskInstanceModuleSettings) validateDefaultTTLSeconds(formats strfmt.Registry) error {
 
 	if err := validate.Required("defaultTtlSeconds", "body", m.DefaultTTLSeconds); err != nil {
 		return err
@@ -91,7 +91,7 @@ func (m *TaskInstanceBoardSettings) validateDefaultTTLSeconds(formats strfmt.Reg
 	return nil
 }
 
-func (m *TaskInstanceBoardSettings) validateExtension(formats strfmt.Registry) error {
+func (m *TaskInstanceModuleSettings) validateExtension(formats strfmt.Registry) error {
 	if typeutils.IsZero(m.Extension) { // not required
 		return nil
 	}
@@ -114,7 +114,7 @@ func (m *TaskInstanceBoardSettings) validateExtension(formats strfmt.Registry) e
 	return nil
 }
 
-func (m *TaskInstanceBoardSettings) validateMaxConcurrentInstancesPerSubject(formats strfmt.Registry) error {
+func (m *TaskInstanceModuleSettings) validateMaxConcurrentInstancesPerSubject(formats strfmt.Registry) error {
 
 	if err := validate.Required("maxConcurrentInstancesPerSubject", "body", m.MaxConcurrentInstancesPerSubject); err != nil {
 		return err
@@ -131,7 +131,7 @@ func (m *TaskInstanceBoardSettings) validateMaxConcurrentInstancesPerSubject(for
 	return nil
 }
 
-func (m *TaskInstanceBoardSettings) validateMaxTTLSeconds(formats strfmt.Registry) error {
+func (m *TaskInstanceModuleSettings) validateMaxTTLSeconds(formats strfmt.Registry) error {
 
 	if err := validate.Required("maxTtlSeconds", "body", m.MaxTTLSeconds); err != nil {
 		return err
@@ -148,7 +148,7 @@ func (m *TaskInstanceBoardSettings) validateMaxTTLSeconds(formats strfmt.Registr
 	return nil
 }
 
-func (m *TaskInstanceBoardSettings) validateResetEnabled(formats strfmt.Registry) error {
+func (m *TaskInstanceModuleSettings) validateResetEnabled(formats strfmt.Registry) error {
 
 	if err := validate.Required("resetEnabled", "body", m.ResetEnabled); err != nil {
 		return err
@@ -157,8 +157,8 @@ func (m *TaskInstanceBoardSettings) validateResetEnabled(formats strfmt.Registry
 	return nil
 }
 
-// ContextValidate validate this task instance board settings based on the context it is used
-func (m *TaskInstanceBoardSettings) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validate this task instance module settings based on the context it is used
+func (m *TaskInstanceModuleSettings) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.contextValidateExtension(ctx, formats); err != nil {
@@ -171,7 +171,7 @@ func (m *TaskInstanceBoardSettings) ContextValidate(ctx context.Context, formats
 	return nil
 }
 
-func (m *TaskInstanceBoardSettings) contextValidateExtension(ctx context.Context, formats strfmt.Registry) error {
+func (m *TaskInstanceModuleSettings) contextValidateExtension(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Extension != nil {
 
@@ -197,7 +197,7 @@ func (m *TaskInstanceBoardSettings) contextValidateExtension(ctx context.Context
 }
 
 // MarshalBinary interface implementation
-func (m *TaskInstanceBoardSettings) MarshalBinary() ([]byte, error) {
+func (m *TaskInstanceModuleSettings) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -205,8 +205,8 @@ func (m *TaskInstanceBoardSettings) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *TaskInstanceBoardSettings) UnmarshalBinary(b []byte) error {
-	var res TaskInstanceBoardSettings
+func (m *TaskInstanceModuleSettings) UnmarshalBinary(b []byte) error {
+	var res TaskInstanceModuleSettings
 	if err := jsonutils.ReadJSON(b, &res); err != nil {
 		return err
 	}
@@ -214,10 +214,10 @@ func (m *TaskInstanceBoardSettings) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// TaskInstanceBoardSettingsExtension task instance board settings extension
+// TaskInstanceModuleSettingsExtension task instance module settings extension
 //
-// swagger:model TaskInstanceBoardSettingsExtension
-type TaskInstanceBoardSettingsExtension struct {
+// swagger:model TaskInstanceModuleSettingsExtension
+type TaskInstanceModuleSettingsExtension struct {
 
 	// enabled
 	// Required: true
@@ -236,8 +236,8 @@ type TaskInstanceBoardSettingsExtension struct {
 	Seconds *int64 `json:"seconds"`
 }
 
-// Validate validates this task instance board settings extension
-func (m *TaskInstanceBoardSettingsExtension) Validate(formats strfmt.Registry) error {
+// Validate validates this task instance module settings extension
+func (m *TaskInstanceModuleSettingsExtension) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateEnabled(formats); err != nil {
@@ -258,7 +258,7 @@ func (m *TaskInstanceBoardSettingsExtension) Validate(formats strfmt.Registry) e
 	return nil
 }
 
-func (m *TaskInstanceBoardSettingsExtension) validateEnabled(formats strfmt.Registry) error {
+func (m *TaskInstanceModuleSettingsExtension) validateEnabled(formats strfmt.Registry) error {
 
 	if err := validate.Required("extension"+"."+"enabled", "body", m.Enabled); err != nil {
 		return err
@@ -267,7 +267,7 @@ func (m *TaskInstanceBoardSettingsExtension) validateEnabled(formats strfmt.Regi
 	return nil
 }
 
-func (m *TaskInstanceBoardSettingsExtension) validateMaxCount(formats strfmt.Registry) error {
+func (m *TaskInstanceModuleSettingsExtension) validateMaxCount(formats strfmt.Registry) error {
 
 	if err := validate.Required("extension"+"."+"maxCount", "body", m.MaxCount); err != nil {
 		return err
@@ -284,7 +284,7 @@ func (m *TaskInstanceBoardSettingsExtension) validateMaxCount(formats strfmt.Reg
 	return nil
 }
 
-func (m *TaskInstanceBoardSettingsExtension) validateSeconds(formats strfmt.Registry) error {
+func (m *TaskInstanceModuleSettingsExtension) validateSeconds(formats strfmt.Registry) error {
 
 	if err := validate.Required("extension"+"."+"seconds", "body", m.Seconds); err != nil {
 		return err
@@ -301,13 +301,13 @@ func (m *TaskInstanceBoardSettingsExtension) validateSeconds(formats strfmt.Regi
 	return nil
 }
 
-// ContextValidate validates this task instance board settings extension based on context it is used
-func (m *TaskInstanceBoardSettingsExtension) ContextValidate(_ context.Context, _ strfmt.Registry) error {
+// ContextValidate validates this task instance module settings extension based on context it is used
+func (m *TaskInstanceModuleSettingsExtension) ContextValidate(_ context.Context, _ strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *TaskInstanceBoardSettingsExtension) MarshalBinary() ([]byte, error) {
+func (m *TaskInstanceModuleSettingsExtension) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -315,8 +315,8 @@ func (m *TaskInstanceBoardSettingsExtension) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *TaskInstanceBoardSettingsExtension) UnmarshalBinary(b []byte) error {
-	var res TaskInstanceBoardSettingsExtension
+func (m *TaskInstanceModuleSettingsExtension) UnmarshalBinary(b []byte) error {
+	var res TaskInstanceModuleSettingsExtension
 	if err := jsonutils.ReadJSON(b, &res); err != nil {
 		return err
 	}

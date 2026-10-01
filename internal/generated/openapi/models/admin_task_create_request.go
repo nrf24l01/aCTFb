@@ -56,6 +56,10 @@ type AdminTaskCreateRequest struct {
 	// Min Length: 1
 	Title *string `json:"title"`
 
+	// type
+	// Required: true
+	Type *TaskType `json:"type"`
+
 	// visible
 	// Required: true
 	Visible *bool `json:"visible"`
@@ -90,6 +94,10 @@ func (m *AdminTaskCreateRequest) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateTitle(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -249,6 +257,30 @@ func (m *AdminTaskCreateRequest) validateTitle(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *AdminTaskCreateRequest) validateType(formats strfmt.Registry) error {
+
+	if err := validate.Required("type", "body", m.Type); err != nil {
+		return err
+	}
+
+	if m.Type != nil {
+		if err := m.Type.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("type")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("type")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *AdminTaskCreateRequest) validateVisible(formats strfmt.Registry) error {
 
 	if err := validate.Required("visible", "body", m.Visible); err != nil {
@@ -267,6 +299,10 @@ func (m *AdminTaskCreateRequest) ContextValidate(ctx context.Context, formats st
 	}
 
 	if err := m.contextValidateSubmission(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateType(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -309,6 +345,27 @@ func (m *AdminTaskCreateRequest) contextValidateSubmission(ctx context.Context, 
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
 				return ce.ValidateName("submission")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *AdminTaskCreateRequest) contextValidateType(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Type != nil {
+
+		if err := m.Type.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("type")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("type")
 			}
 
 			return err

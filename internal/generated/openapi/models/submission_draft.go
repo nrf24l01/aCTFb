@@ -14,10 +14,15 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SubmissionDraft Short-lived, caller-bound upload context. Even members of the same team cannot read/finalize another member's draft. Finalization atomically consumes the draft.
+// SubmissionDraft Short-lived, caller-bound and module-bound upload context. Even members of the same team cannot read/finalize another member's draft. Finalization atomically consumes the draft.
 //
 // swagger:model SubmissionDraft
 type SubmissionDraft struct {
+
+	// board Uuid
+	// Required: true
+	// Format: uuid
+	BoardUUID *UUID `json:"boardUuid"`
 
 	// created at
 	// Required: true
@@ -34,9 +39,23 @@ type SubmissionDraft struct {
 	// Max Items: 100
 	Files []*PendingFile `json:"files"`
 
+	// module Uuid
+	// Required: true
+	// Format: uuid
+	ModuleUUID *UUID `json:"moduleUuid"`
+
+	// resource type
+	// Required: true
+	ResourceType *SubmissionResourceType `json:"resourceType"`
+
 	// status
 	// Required: true
 	Status *SubmissionDraftStatus `json:"status"`
+
+	// task Uuid
+	TaskUUID struct {
+		UUID
+	} `json:"taskUuid,omitempty"`
 
 	// uuid
 	// Required: true
@@ -47,6 +66,10 @@ type SubmissionDraft struct {
 // Validate validates this submission draft
 func (m *SubmissionDraft) Validate(formats strfmt.Registry) error {
 	var res []error
+
+	if err := m.validateBoardUUID(formats); err != nil {
+		res = append(res, err)
+	}
 
 	if err := m.validateCreatedAt(formats); err != nil {
 		res = append(res, err)
@@ -60,7 +83,19 @@ func (m *SubmissionDraft) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateModuleUUID(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateResourceType(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTaskUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -71,6 +106,30 @@ func (m *SubmissionDraft) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *SubmissionDraft) validateBoardUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("boardUuid", "body", m.BoardUUID); err != nil {
+		return err
+	}
+
+	if m.BoardUUID != nil {
+		if err := m.BoardUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("boardUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("boardUuid")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -137,6 +196,54 @@ func (m *SubmissionDraft) validateFiles(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *SubmissionDraft) validateModuleUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("moduleUuid", "body", m.ModuleUUID); err != nil {
+		return err
+	}
+
+	if m.ModuleUUID != nil {
+		if err := m.ModuleUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *SubmissionDraft) validateResourceType(formats strfmt.Registry) error {
+
+	if err := validate.Required("resourceType", "body", m.ResourceType); err != nil {
+		return err
+	}
+
+	if m.ResourceType != nil {
+		if err := m.ResourceType.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("resourceType")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("resourceType")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *SubmissionDraft) validateStatus(formats strfmt.Registry) error {
 
 	if err := validate.Required("status", "body", m.Status); err != nil {
@@ -156,6 +263,14 @@ func (m *SubmissionDraft) validateStatus(formats strfmt.Registry) error {
 
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *SubmissionDraft) validateTaskUUID(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.TaskUUID) { // not required
+		return nil
 	}
 
 	return nil
@@ -189,11 +304,27 @@ func (m *SubmissionDraft) validateUUID(formats strfmt.Registry) error {
 func (m *SubmissionDraft) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.contextValidateBoardUUID(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateFiles(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateModuleUUID(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateResourceType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateStatus(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateTaskUUID(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -204,6 +335,27 @@ func (m *SubmissionDraft) ContextValidate(ctx context.Context, formats strfmt.Re
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *SubmissionDraft) contextValidateBoardUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.BoardUUID != nil {
+
+		if err := m.BoardUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("boardUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("boardUuid")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -236,6 +388,48 @@ func (m *SubmissionDraft) contextValidateFiles(ctx context.Context, formats strf
 	return nil
 }
 
+func (m *SubmissionDraft) contextValidateModuleUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ModuleUUID != nil {
+
+		if err := m.ModuleUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *SubmissionDraft) contextValidateResourceType(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ResourceType != nil {
+
+		if err := m.ResourceType.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("resourceType")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("resourceType")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *SubmissionDraft) contextValidateStatus(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Status != nil {
@@ -253,6 +447,11 @@ func (m *SubmissionDraft) contextValidateStatus(ctx context.Context, formats str
 			return err
 		}
 	}
+
+	return nil
+}
+
+func (m *SubmissionDraft) contextValidateTaskUUID(ctx context.Context, formats strfmt.Registry) error {
 
 	return nil
 }

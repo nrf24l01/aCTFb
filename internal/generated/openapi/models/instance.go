@@ -38,6 +38,11 @@ type Instance struct {
 	// Minimum: 0
 	ExtensionCount *int64 `json:"extensionCount,omitempty"`
 
+	// module Uuid
+	// Required: true
+	// Format: uuid
+	ModuleUUID *UUID `json:"moduleUuid"`
+
 	// nodes
 	// Required: true
 	Nodes []*InstanceNode `json:"nodes"`
@@ -91,6 +96,10 @@ func (m *Instance) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateExtensionCount(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateModuleUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -188,6 +197,30 @@ func (m *Instance) validateExtensionCount(formats strfmt.Registry) error {
 
 	if err := validate.MinimumInt("extensionCount", "body", *m.ExtensionCount, 0, false); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (m *Instance) validateModuleUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("moduleUuid", "body", m.ModuleUUID); err != nil {
+		return err
+	}
+
+	if m.ModuleUUID != nil {
+		if err := m.ModuleUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
+			}
+
+			return err
+		}
 	}
 
 	return nil
@@ -379,6 +412,10 @@ func (m *Instance) ContextValidate(ctx context.Context, formats strfmt.Registry)
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateModuleUUID(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateNodes(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -417,6 +454,27 @@ func (m *Instance) contextValidateBoardUUID(ctx context.Context, formats strfmt.
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
 				return ce.ValidateName("boardUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Instance) contextValidateModuleUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ModuleUUID != nil {
+
+		if err := m.ModuleUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
 			}
 
 			return err
