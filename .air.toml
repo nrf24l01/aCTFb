@@ -1,0 +1,9 @@
+root = "."
+tmp_dir = ".air-tmp"
+
+[build]
+cmd = "go build -o ./.air-tmp/backend ./cmd/backend"
+bin = "./.air-tmp/backend"
+include_ext = ["go", "yml", "yaml"]
+exclude_dir = [".air-tmp", ".git"]
+stop_on_error = true

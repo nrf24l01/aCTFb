@@ -1,0 +1,7 @@
+.git
+.agents
+.aws
+.codex
+.air-tmp
+.env
+.env.*

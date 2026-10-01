@@ -51,16 +51,6 @@ type RedisConfig struct {
 	DB       int    `yaml:"db" env:"REDIS_DB"`
 }
 
-type S3Config struct {
-	Endpoint        string `yaml:"endpoint" env:"S3_ENDPOINT"`
-	AccessKeyID     string `yaml:"access_key_id" env:"S3_ACCESS_KEY_ID"`
-	SecretAccessKey string `yaml:"secret_access_key" env:"S3_SECRET_ACCESS_KEY"`
-	Bucket          string `yaml:"bucket" env:"S3_BUCKET"`
-	Region          string `yaml:"region" env:"S3_REGION"`
-	UseSSL          bool   `yaml:"use_ssl" env:"S3_USE_SSL"`
-	ExternalBaseUrl string `yaml:"external_base_url" env:"S3_EXTERNAL_BASE_URL"`
-}
-
 type Argon2idConfig struct {
 	Time    int `yaml:"time"`
 	Memory  int `yaml:"memory"`
