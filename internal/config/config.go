@@ -59,22 +59,23 @@ type Argon2idConfig struct {
 }
 
 type WebAppConfig struct {
-	AppHost        string   `yaml:"app_host"`
-	Port           int      `yaml:"port"`
-	AllowedOrigins []string `yaml:"allowed_origins"`
+	AppHost        string   `yaml:"app_host" env:"APP_HOST"`
+	Port           int      `yaml:"port" env:"APP_PORT"`
+	AllowedOrigins []string `yaml:"allowed_origins" env:"APP_ALLOWED_ORIGINS"`
 }
 
 type EmailConfig struct {
+	Enabled      bool       `yaml:"enabled" env:"SMTP_ENABLED"`
 	SMTP         SMTPConfig `yaml:"smtp"`
-	TemplatesDir string     `yaml:"templates_dir"`
+	TemplatesDir string     `yaml:"templates_dir" env:"SMTP_TEMPLATES_DIR"`
 }
 
 type SMTPConfig struct {
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
-	From     string `yaml:"from"`
+	Host     string `yaml:"host" env:"SMTP_HOST"`
+	Port     int    `yaml:"port" env:"SMTP_PORT"`
+	User     string `yaml:"user" env:"SMTP_USER"`
+	Password string `yaml:"password" env:"SMTP_PASSWORD"`
+	From     string `yaml:"from" env:"SMTP_FROM"`
 }
 
 type LoggingConfig struct {
