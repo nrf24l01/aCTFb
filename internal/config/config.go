@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 type Config struct {
 	JWT         JWTConfig         `yaml:"jwt"`
 	Datasources DatasourcesConfig `yaml:"datasources"`
@@ -21,7 +23,8 @@ type JWTTokenConfig struct {
 }
 
 type SecurityConfig struct {
-	EmailverifyEnabled bool `yaml:"email_verify"`
+	EmailVerifyEnabled bool          `yaml:"email_verify"`
+	EmailVerifyPeriod  time.Duration `yaml:"email_verify_period"`
 }
 
 type DatasourcesConfig struct {

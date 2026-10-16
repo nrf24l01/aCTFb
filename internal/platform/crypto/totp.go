@@ -6,8 +6,24 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 )
+
+type TotpGenerator struct {
+	opts totp.ValidateOpts
+}
+
+func NewTotpGenerator(period time.Duration) *TotpGenerator {
+	return &TotpGenerator{
+		opts: totp.ValidateOpts{
+			Period:    uint(period / time.Second),
+			Skew:      0,
+			Digits:    otp.DigitsSix,
+			Algorithm: otp.AlgorithmSHA1,
+		},
+	}
+}
 
 func GenerateTOTPSecret() (string, error) {
 	secret := make([]byte, 20)
@@ -21,8 +37,8 @@ func GenerateTOTPSecret() (string, error) {
 		EncodeToString(secret), nil
 }
 
-func GenerateTOTPCode(secret string, opts_time time.Time) (string, error) {
-	code, err := totp.GenerateCode(secret, time.Now(), opts_time)
+func (tg *TotpGenerator) GenerateTOTPCode(secret string) (string, error) {
+	code, err := totp.GenerateCodeCustom(secret, time.Now(), tg.opts)
 	if err != nil {
 		return "", fmt.Errorf("generate totp code: %w", err)
 	}
@@ -30,6 +46,6 @@ func GenerateTOTPCode(secret string, opts_time time.Time) (string, error) {
 	return code, nil
 }
 
-func ValidateTOTPCode(secret, code string, opts_time time.Time) bool {
-	return totp.Validate(code, secret, opts_time)
+func (tg *TotpGenerator) ValidateTOTPCode(secret, code string) (bool, error) {
+	return totp.ValidateCustom(code, secret, time.Now(), tg.opts)
 }

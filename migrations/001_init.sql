@@ -8,7 +8,8 @@ CREATE TABLE users (
     password TEXT NOT NULL,
 
     email_verified BOOLEAN NOT NULL DEFAULT FALSE,
-    email_2fa_secret BYTEA,
+    email_2fa_secret VARCHAR(40) NOT NULL DEFAULT '',
+    email_send_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 );
 
 -- +goose Down
