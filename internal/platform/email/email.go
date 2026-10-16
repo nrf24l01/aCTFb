@@ -12,39 +12,40 @@ import (
 
 type Client struct {
 	SMTP *mail.Client
+	cfg  *config.EmailConfig
 	From string
 }
 
-func NewEmailClient(ctx context.Context, cfg *config.SMTPConfig) (*Client, error) {
+func NewEmailClient(ctx context.Context, cfg *config.EmailConfig) (*Client, error) {
 	if cfg == nil {
 		return nil, errors.New("email config is nil")
 	}
 
 	opts := []mail.Option{
-		mail.WithPort(cfg.Port),
+		mail.WithPort(cfg.SMTP.Port),
 		mail.WithTimeout(5 * time.Second),
 	}
 
 	// SMTP over TLS (465) или STARTTLS (587).
-	if cfg.Port == 465 {
+	if cfg.SMTP.Port == 465 {
 		opts = append(opts, mail.WithSSL())
 	} else {
 		opts = append(opts, mail.WithTLSPortPolicy(mail.TLSMandatory))
 	}
 
-	if cfg.User != "" || cfg.Password != "" {
-		if cfg.User == "" || cfg.Password == "" {
+	if cfg.SMTP.User != "" || cfg.SMTP.Password != "" {
+		if cfg.SMTP.User == "" || cfg.SMTP.Password == "" {
 			return nil, errors.New("incomplete SMTP credentials")
 		}
 
 		opts = append(opts,
 			mail.WithSMTPAuth(mail.SMTPAuthAutoDiscover),
-			mail.WithUsername(cfg.User),
-			mail.WithPassword(cfg.Password),
+			mail.WithUsername(cfg.SMTP.User),
+			mail.WithPassword(cfg.SMTP.Password),
 		)
 	}
 
-	smtpClient, err := mail.NewClient(cfg.Host, opts...)
+	smtpClient, err := mail.NewClient(cfg.SMTP.Host, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create email client: %w", err)
 	}
@@ -63,16 +64,12 @@ func NewEmailClient(ctx context.Context, cfg *config.SMTPConfig) (*Client, error
 
 	return &Client{
 		SMTP: smtpClient,
-		From: cfg.From,
+		From: cfg.SMTP.From,
+		cfg:  cfg,
 	}, nil
 }
 
-func (c *Client) Send(
-	ctx context.Context,
-	to []string,
-	subject string,
-	body string,
-) error {
+func (c *Client) SendManyEmails(ctx context.Context, to []string, subject string, textBody string, htmlBody string) error {
 	if len(to) == 0 {
 		return errors.New("email recipients are empty")
 	}
@@ -88,13 +85,22 @@ func (c *Client) Send(
 	}
 
 	msg.Subject(subject)
-	msg.SetBodyString(mail.TypeTextHTML, body)
+
+	msg.SetBodyString(mail.TypeTextPlain, textBody)
+
+	if htmlBody != "" {
+		msg.AddAlternativeString(mail.TypeTextHTML, htmlBody)
+	}
 
 	if err := c.SMTP.DialAndSendWithContext(ctx, msg); err != nil {
 		return fmt.Errorf("send email: %w", err)
 	}
 
 	return nil
+}
+
+func (c *Client) SendEmail(ctx context.Context, to string, subject string, textBody string, htmlBody string) error {
+	return c.SendManyEmails(ctx, []string{to}, subject, textBody, htmlBody)
 }
 
 func (c *Client) Close() error {

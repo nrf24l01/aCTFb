@@ -7,6 +7,7 @@ type Config struct {
 	WebApp      WebAppConfig      `yaml:"web_app"`
 	Email       EmailConfig       `yaml:"email"`
 	Logging     LoggingConfig     `yaml:"logging"`
+	Security    SecurityConfig    `yaml:"security"`
 }
 
 type JWTConfig struct {
@@ -17,6 +18,10 @@ type JWTConfig struct {
 type JWTTokenConfig struct {
 	Secret string `yaml:"secret"`
 	Expiry int    `yaml:"expiry"`
+}
+
+type SecurityConfig struct {
+	EmailverifyEnabled bool `yaml:"email_verify"`
 }
 
 type DatasourcesConfig struct {
