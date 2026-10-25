@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nrf24l01/actfb/internal/config"
 )
 
@@ -27,6 +28,7 @@ const (
 // Close gracefully drains subscriptions and pending publishes.
 type Client struct {
 	conn *nats.Conn
+	js   jetstream.JetStream
 
 	closed     chan struct{}
 	closedOnce sync.Once
@@ -74,7 +76,14 @@ func New(cfg config.NatsConfig) (*Client, error) {
 		return nil, fmt.Errorf("connect to NATS %q: %w", serverURL, err)
 	}
 
+	js, err := jetstream.New(conn)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("initialize NATS JetStream: %w", err)
+	}
+
 	client.conn = conn
+	client.js = js
 
 	return client, nil
 }
@@ -241,6 +250,140 @@ func (c *Client) QueueSubscribe(
 	return sub, nil
 }
 
+// CheckJetStream checks that the NATS server and account have JetStream enabled.
+// Unlike Check, this performs a JetStream API request.
+func (c *Client) CheckJetStream(ctx context.Context) error {
+	if err := c.ensureJetStream(); err != nil {
+		return err
+	}
+
+	if _, err := c.js.AccountInfo(ctx); err != nil {
+		return fmt.Errorf("check NATS JetStream: %w", err)
+	}
+
+	return nil
+}
+
+// CreateOrUpdateStream creates a JetStream stream or updates its configuration.
+// The caller specifies subjects, storage, retention and other stream settings.
+func (c *Client) CreateOrUpdateStream(
+	ctx context.Context,
+	cfg jetstream.StreamConfig,
+) (jetstream.Stream, error) {
+	if strings.TrimSpace(cfg.Name) == "" {
+		return nil, errors.New("JetStream stream name is empty")
+	}
+	if err := c.ensureJetStream(); err != nil {
+		return nil, err
+	}
+
+	stream, err := c.js.CreateOrUpdateStream(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create or update JetStream stream %q: %w", cfg.Name, err)
+	}
+
+	return stream, nil
+}
+
+// CreateOrUpdateConsumer creates or updates a pull consumer for a stream.
+// Configure Durable for a persistent consumer and AckPolicy for acknowledgements.
+func (c *Client) CreateOrUpdateConsumer(
+	ctx context.Context,
+	stream string,
+	cfg jetstream.ConsumerConfig,
+) (jetstream.Consumer, error) {
+	if strings.TrimSpace(stream) == "" {
+		return nil, errors.New("JetStream stream name is empty")
+	}
+	if err := c.ensureJetStream(); err != nil {
+		return nil, err
+	}
+
+	consumer, err := c.js.CreateOrUpdateConsumer(ctx, stream, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create or update JetStream consumer on %q: %w", stream, err)
+	}
+
+	return consumer, nil
+}
+
+// JetStreamConsumer returns an existing pull consumer.
+// Use the returned consumer's Next/Fetch for on-demand message retrieval.
+func (c *Client) JetStreamConsumer(
+	ctx context.Context,
+	stream string,
+	name string,
+) (jetstream.Consumer, error) {
+	if strings.TrimSpace(stream) == "" || strings.TrimSpace(name) == "" {
+		return nil, errors.New("JetStream stream and consumer names must be non-empty")
+	}
+	if err := c.ensureJetStream(); err != nil {
+		return nil, err
+	}
+
+	consumer, err := c.js.Consumer(ctx, stream, name)
+	if err != nil {
+		return nil, fmt.Errorf("get JetStream consumer %q on %q: %w", name, stream, err)
+	}
+
+	return consumer, nil
+}
+
+// PublishJetStream persists a message in a matching stream and waits for PubAck.
+// Use jetstream.WithMsgID(id) to enable deduplication within the stream window.
+// A matching stream must exist; Core NATS Publish does not persist messages.
+func (c *Client) PublishJetStream(
+	ctx context.Context,
+	subject string,
+	data []byte,
+	opts ...jetstream.PublishOpt,
+) (*jetstream.PubAck, error) {
+	if err := validateSubject(subject); err != nil {
+		return nil, err
+	}
+	if err := c.ensureJetStream(); err != nil {
+		return nil, err
+	}
+
+	ack, err := c.js.Publish(ctx, subject, data, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("publish JetStream message to %q: %w", subject, err)
+	}
+
+	return ack, nil
+}
+
+// SubscribeJetStream creates or updates a pull consumer and continuously
+// delivers messages to handler. The handler must call msg.Ack(), msg.Nak(),
+// or another appropriate acknowledgement method. Missing Ack causes redelivery.
+// The returned ConsumeContext can be Stop()ped or Drain()ed by the caller.
+// ctx controls consumer setup, not the lifetime of the subscription.
+func (c *Client) SubscribeJetStream(
+	ctx context.Context,
+	stream string,
+	cfg jetstream.ConsumerConfig,
+	handler jetstream.MessageHandler,
+) (jetstream.ConsumeContext, error) {
+	if handler == nil {
+		return nil, errors.New("JetStream message handler is nil")
+	}
+	if cfg.AckPolicy != jetstream.AckExplicitPolicy {
+		return nil, errors.New("JetStream subscription requires AckExplicitPolicy")
+	}
+
+	consumer, err := c.CreateOrUpdateConsumer(ctx, stream, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	sub, err := consumer.Consume(handler)
+	if err != nil {
+		return nil, fmt.Errorf("subscribe to JetStream stream %q: %w", stream, err)
+	}
+
+	return sub, nil
+}
+
 // Flush performs a round-trip to the server.
 //
 // If ctx has no deadline, a short default timeout is applied.
@@ -324,6 +467,16 @@ func (c *Client) ForceClose() {
 	}
 
 	c.conn.Close()
+}
+
+func (c *Client) ensureJetStream() error {
+	if err := c.ensureUsable(); err != nil {
+		return err
+	}
+	if c.js == nil {
+		return errors.New("NATS JetStream is not initialized")
+	}
+	return nil
 }
 
 func (c *Client) ensureUsable() error {

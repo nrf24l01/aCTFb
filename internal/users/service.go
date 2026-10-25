@@ -2,9 +2,13 @@ package users
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
-	"uuid"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/nrf24l01/actfb/internal/platform/crypto"
 
@@ -68,7 +72,18 @@ func (us *UserService) CreateUser(ctx context.Context, username, password, email
 		email_secret,
 	)
 	if err != nil {
-		return fmt.Errorf("insert user: %w", err)
+		var pgErr *pgconn.PgError
+
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
+			switch pgErr.ConstraintName {
+			case "users_username_key":
+				return ErrUsernameTaken
+			case "users_email_key":
+				return ErrEmailTaken
+			}
+		}
+
+		return err
 	}
 
 	return nil

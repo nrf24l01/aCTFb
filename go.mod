@@ -16,7 +16,9 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/google/uuid v1.6.0
 	github.com/ilyakaznacheev/cleanenv v1.5.0
+	github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/labstack/echo/v5 v5.4.0
 	github.com/nats-io/nats.go v1.54.0
 	github.com/pquerna/otp v1.5.0
 	github.com/pressly/goose/v3 v3.28.0

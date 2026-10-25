@@ -14,3 +14,7 @@ protobuf:
 
 dev run:
 	docker compose -f docker-compose.dev.yaml up --build
+
+notification build:
+	mkdir -p ./bin
+	go build -o ./bin/notification ./cmd/notification
