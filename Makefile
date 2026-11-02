@@ -1,8 +1,9 @@
 swagger:
 	go install github.com/go-swagger/go-swagger/cmd/swagger@latest
-	mkdir -p ./internal/generated/openapi 
+	mkdir -p ./internal/generated/openapi
+	rm -rf ./internal/generated/openapi/*
 	swagger generate model \
-	-f docs/swagger-v3.yaml \
+	-f docs/swagger.yaml \
 	-t ./internal/generated/openapi
 
 protobuf:

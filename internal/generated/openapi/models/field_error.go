@@ -16,6 +16,9 @@ import (
 // swagger:model FieldError
 type FieldError struct {
 
+	// Optional stable field-level validator reason, e.g. REQUIRED, INVALID_FORMAT, INVALID_TYPE, OUT_OF_RANGE.
+	Code string `json:"code,omitempty"`
+
 	// field
 	// Required: true
 	// Max Length: 512

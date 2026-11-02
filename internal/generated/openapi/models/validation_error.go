@@ -4,7 +4,6 @@ package models
 
 import (
 	"context"
-	"encoding/json"
 	stderrors "errors"
 	"strconv"
 
@@ -15,18 +14,16 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ValidationError validation error
+// ValidationError For 422 VALIDATION_FAILED, fieldErrors MUST contain at least one item, with precise field paths. For specific semantic 422 codes (e.g. INVALID_INVITE_CODE), fieldErrors is optional. Never echo secrets or tokens. Same metadata envelope as ApiError.
 //
 // swagger:model ValidationError
 type ValidationError struct {
 
 	// code
 	// Required: true
-	// Enum: ["VALIDATION_FAILED"]
-	Code *string `json:"code"`
+	Code *ErrorCode `json:"code"`
 
 	// field errors
-	// Required: true
 	// Min Items: 1
 	FieldErrors []*FieldError `json:"fieldErrors"`
 
@@ -83,50 +80,33 @@ func (m *ValidationError) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-var validationErrorTypeCodePropEnum []any
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["VALIDATION_FAILED"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		validationErrorTypeCodePropEnum = append(validationErrorTypeCodePropEnum, v)
-	}
-}
-
-const (
-
-	// ValidationErrorCodeVALIDATIONFAILED captures enum value "VALIDATION_FAILED"
-	ValidationErrorCodeVALIDATIONFAILED string = "VALIDATION_FAILED"
-)
-
-// prop value enum
-func (m *ValidationError) validateCodeEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, validationErrorTypeCodePropEnum, true); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (m *ValidationError) validateCode(formats strfmt.Registry) error {
 
 	if err := validate.Required("code", "body", m.Code); err != nil {
 		return err
 	}
 
-	// value enum
-	if err := m.validateCodeEnum("code", "body", *m.Code); err != nil {
-		return err
+	if m.Code != nil {
+		if err := m.Code.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("code")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("code")
+			}
+
+			return err
+		}
 	}
 
 	return nil
 }
 
 func (m *ValidationError) validateFieldErrors(formats strfmt.Registry) error {
-
-	if err := validate.Required("fieldErrors", "body", m.FieldErrors); err != nil {
-		return err
+	if typeutils.IsZero(m.FieldErrors) { // not required
+		return nil
 	}
 
 	iFieldErrorsSize := int64(len(m.FieldErrors))
@@ -219,6 +199,10 @@ func (m *ValidationError) validateTraceID(formats strfmt.Registry) error {
 func (m *ValidationError) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.contextValidateCode(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateFieldErrors(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -230,6 +214,27 @@ func (m *ValidationError) ContextValidate(ctx context.Context, formats strfmt.Re
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ValidationError) contextValidateCode(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Code != nil {
+
+		if err := m.Code.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("code")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("code")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 
