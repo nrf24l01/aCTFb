@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+	"github.com/nrf24l01/actfb/internal/generated/openapi/errorgen"
 	oapimodels "github.com/nrf24l01/actfb/internal/generated/openapi/models"
 	"github.com/nrf24l01/actfb/internal/users"
 )
@@ -12,21 +13,20 @@ type UserHandler struct {
 	service *users.UserService
 }
 
-func (h *UserHandler) RegisterUser(c echo.Context) error {
+func (h *UserHandler) RegisterUser(c *echo.Context) error {
 	req := c.Get("validatedBody").(*oapimodels.RegisterRequest)
 
-	err := h.service.CreateUser(c, string(*req.Username), string(*req.Password), string(*req.Email))
+	user, err := h.service.CreateUser(c.Request().Context(), string(*req.Username), string(*req.Password), string(*req.Email))
 	if err != nil {
 		switch err {
-		case users.ErrUserAlreadyExists:
-			return c.JSON(http.StatusConflict, oapimodels.ErrorCodeUSERNAMEALREADYEXISTS{})
 		case users.ErrUsernameTaken:
-			return echo.NewHTTPError(http.StatusConflict, "Username already taken")
+			return c.JSON(http.StatusConflict, errorgen.GenerateErrorResponse(c, oapimodels.ErrorCodeUSERNAMEALREADYEXISTS, "Username already taken"))
 		case users.ErrEmailTaken:
-			return echo.NewHTTPError(http.StatusConflict, "Email already taken")
+			return c.JSON(http.StatusConflict, errorgen.GenerateErrorResponse(c, oapimodels.ErrorCodeEMAILALREADYEXISTS, "Email already taken"))
 		default:
-			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create user")
+			return c.JSON(http.StatusInternalServerError, errorgen.GenerateInternalServerErrorResponse(c))
 		}
 	}
-	return
+
+	
 }

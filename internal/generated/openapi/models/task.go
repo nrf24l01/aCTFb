@@ -264,7 +264,7 @@ func (m *Task) contextValidateAttachments(ctx context.Context, formats strfmt.Re
 		if m.Attachments[i] != nil {
 
 			if typeutils.IsZero(m.Attachments[i]) { // not required
-				return nil
+				continue
 			}
 
 			if err := m.Attachments[i].ContextValidate(ctx, formats); err != nil {

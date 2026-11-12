@@ -338,7 +338,7 @@ func (m *AdminUser) contextValidateAccessGroups(ctx context.Context, formats str
 		if m.AccessGroups[i] != nil {
 
 			if typeutils.IsZero(m.AccessGroups[i]) { // not required
-				return nil
+				continue
 			}
 
 			if err := m.AccessGroups[i].ContextValidate(ctx, formats); err != nil {

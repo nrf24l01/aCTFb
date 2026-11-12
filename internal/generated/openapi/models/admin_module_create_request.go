@@ -308,7 +308,7 @@ func (m *AdminModuleCreateRequest) contextValidateAllowedTaskTypes(ctx context.C
 	for i := 0; i < len(m.AllowedTaskTypes); i++ {
 
 		if typeutils.IsZero(m.AllowedTaskTypes[i]) { // not required
-			return nil
+			continue
 		}
 
 		if err := m.AllowedTaskTypes[i].ContextValidate(ctx, formats); err != nil {
@@ -334,7 +334,7 @@ func (m *AdminModuleCreateRequest) contextValidateAudienceUuids(ctx context.Cont
 	for i := 0; i < len(m.AudienceUuids); i++ {
 
 		if typeutils.IsZero(m.AudienceUuids[i]) { // not required
-			return nil
+			continue
 		}
 
 		if err := m.AudienceUuids[i].ContextValidate(ctx, formats); err != nil {

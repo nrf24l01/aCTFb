@@ -245,7 +245,7 @@ func (m *ValidationError) contextValidateFieldErrors(ctx context.Context, format
 		if m.FieldErrors[i] != nil {
 
 			if typeutils.IsZero(m.FieldErrors[i]) { // not required
-				return nil
+				continue
 			}
 
 			if err := m.FieldErrors[i].ContextValidate(ctx, formats); err != nil {

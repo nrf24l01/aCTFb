@@ -117,7 +117,7 @@ func (m *BatchVisibilityRequest) contextValidateTaskUuids(ctx context.Context, f
 	for i := 0; i < len(m.TaskUuids); i++ {
 
 		if typeutils.IsZero(m.TaskUuids[i]) { // not required
-			return nil
+			continue
 		}
 
 		if err := m.TaskUuids[i].ContextValidate(ctx, formats); err != nil {

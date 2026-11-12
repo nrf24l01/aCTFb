@@ -161,7 +161,7 @@ func (m *BoardListResponse) contextValidateItems(ctx context.Context, formats st
 		if m.Items[i] != nil {
 
 			if typeutils.IsZero(m.Items[i]) { // not required
-				return nil
+				continue
 			}
 
 			if err := m.Items[i].ContextValidate(ctx, formats); err != nil {

@@ -161,7 +161,7 @@ func (m *ScoreAdjustmentsResponse) contextValidateItems(ctx context.Context, for
 		if m.Items[i] != nil {
 
 			if typeutils.IsZero(m.Items[i]) { // not required
-				return nil
+				continue
 			}
 
 			if err := m.Items[i].ContextValidate(ctx, formats); err != nil {

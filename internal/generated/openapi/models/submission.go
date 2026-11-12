@@ -231,7 +231,7 @@ func (m *Submission) contextValidateFiles(ctx context.Context, formats strfmt.Re
 		if m.Files[i] != nil {
 
 			if typeutils.IsZero(m.Files[i]) { // not required
-				return nil
+				continue
 			}
 
 			if err := m.Files[i].ContextValidate(ctx, formats); err != nil {

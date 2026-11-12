@@ -173,7 +173,7 @@ func (m *ADProgress) contextValidateVulnerabilities(ctx context.Context, formats
 		if m.Vulnerabilities[i] != nil {
 
 			if typeutils.IsZero(m.Vulnerabilities[i]) { // not required
-				return nil
+				continue
 			}
 
 			if err := m.Vulnerabilities[i].ContextValidate(ctx, formats); err != nil {

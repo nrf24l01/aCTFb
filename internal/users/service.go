@@ -33,7 +33,7 @@ type User struct {
 	Password string
 
 	EmailVerified  bool
-	Email2FASecret byte
+	Email2FASecret string
 }
 
 func NewUserService(db *postgres.DB, cfg *config.Config, emailClient *nats.EmailTaskPublisher) *UserService {
@@ -45,10 +45,10 @@ func NewUserService(db *postgres.DB, cfg *config.Config, emailClient *nats.Email
 	}
 }
 
-func (us *UserService) CreateUser(ctx context.Context, username, password, email string) error {
+func (us *UserService) CreateUser(ctx context.Context, username, password, email string) (*User, error) {
 	hash, err := crypto.Hash(password, us.config.Argon2id)
 	if err != nil {
-		return fmt.Errorf("hash password: %w", err)
+		return nil, fmt.Errorf("hash password: %w", err)
 	}
 
 	email_checked := true
@@ -58,35 +58,46 @@ func (us *UserService) CreateUser(ctx context.Context, username, password, email
 		email_checked = false
 		email_secret, err = crypto.GenerateTOTPSecret()
 		if err != nil {
-			return fmt.Errorf("generate email secret: %w", err)
+			return nil, fmt.Errorf("generate email secret: %w", err)
 		}
 	}
 
-	_, err = us.db.Pool.Exec(
+	var userID uuid.UUID
+
+	err = us.db.Pool.QueryRow(
 		ctx,
-		"INSERT INTO users (username, email, password, email_verified, email_secret) VALUES ($1, $2, $3, $4, $5)",
+		"INSERT INTO users (username, email, password, email_verified, email_secret) VALUES ($1, $2, $3, $4, $5) RETURNING id",
 		username,
 		email,
 		hash,
 		email_checked,
 		email_secret,
-	)
+	).Scan(&userID)
 	if err != nil {
 		var pgErr *pgconn.PgError
 
 		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
 			switch pgErr.ConstraintName {
 			case "users_username_key":
-				return ErrUsernameTaken
+				return nil, ErrUsernameTaken
 			case "users_email_key":
-				return ErrEmailTaken
+				return nil, ErrEmailTaken
 			}
 		}
 
-		return err
+		return nil, err
 	}
 
-	return nil
+	user := &User{
+		ID:             userID,
+		Username:       username,
+		Email:          email,
+		Password:       hash,
+		EmailVerified:  email_checked,
+		Email2FASecret: email_secret,
+	}
+
+	return user, nil
 }
 
 func (us *UserService) GetUser(ctx context.Context, id uuid.UUID) (*User, error) {

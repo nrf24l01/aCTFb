@@ -207,7 +207,7 @@ func (m *BoardMe) contextValidateAudiences(ctx context.Context, formats strfmt.R
 		if m.Audiences[i] != nil {
 
 			if typeutils.IsZero(m.Audiences[i]) { // not required
-				return nil
+				continue
 			}
 
 			if err := m.Audiences[i].ContextValidate(ctx, formats); err != nil {

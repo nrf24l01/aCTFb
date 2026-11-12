@@ -378,7 +378,7 @@ func (m *ModuleListItem) contextValidateAllowedTaskTypes(ctx context.Context, fo
 	for i := 0; i < len(m.AllowedTaskTypes); i++ {
 
 		if typeutils.IsZero(m.AllowedTaskTypes[i]) { // not required
-			return nil
+			continue
 		}
 
 		if err := m.AllowedTaskTypes[i].ContextValidate(ctx, formats); err != nil {
@@ -404,7 +404,7 @@ func (m *ModuleListItem) contextValidateAudienceUuids(ctx context.Context, forma
 	for i := 0; i < len(m.AudienceUuids); i++ {
 
 		if typeutils.IsZero(m.AudienceUuids[i]) { // not required
-			return nil
+			continue
 		}
 
 		if err := m.AudienceUuids[i].ContextValidate(ctx, formats); err != nil {

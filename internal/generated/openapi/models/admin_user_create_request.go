@@ -260,7 +260,7 @@ func (m *AdminUserCreateRequest) contextValidateAccessGroupUuids(ctx context.Con
 	for i := 0; i < len(m.AccessGroupUuids); i++ {
 
 		if typeutils.IsZero(m.AccessGroupUuids[i]) { // not required
-			return nil
+			continue
 		}
 
 		if err := m.AccessGroupUuids[i].ContextValidate(ctx, formats); err != nil {

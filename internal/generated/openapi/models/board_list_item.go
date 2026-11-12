@@ -411,7 +411,7 @@ func (m *BoardListItem) contextValidateModuleTypes(ctx context.Context, formats 
 	for i := 0; i < len(m.ModuleTypes); i++ {
 
 		if typeutils.IsZero(m.ModuleTypes[i]) { // not required
-			return nil
+			continue
 		}
 
 		if err := m.ModuleTypes[i].ContextValidate(ctx, formats); err != nil {
