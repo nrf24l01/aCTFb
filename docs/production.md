@@ -1,6 +1,6 @@
 # Production deployment and GHCR images
 
-Status: packaging contract implemented and published to GHCR from `main` at `3ef4d5b` on 2026-11-14.
+Status: packaging contract implemented and published to GHCR from `main` at `fea429a` on 2026-11-14.
 This document covers the prebuilt-image path only.
 For development use `docker-compose.dev.yaml`; for feature acceptance status use `docs/implementation-plan.md`.
 

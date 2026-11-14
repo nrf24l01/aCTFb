@@ -663,9 +663,10 @@ earlier RustFS full-stack evidence.
 
 ## Packaging and GHCR slice (2026-11-14)
 
-Status: **implemented, locally verified, and published to public GHCR packages from commit `3ef4d5b`**.
-Actions run `43579292257` passed all four jobs; backend and frontend `latest` plus immutable `sha-*` tags
-resolve to the same digests and pull anonymously.
+Status: **implemented, locally verified, and published to public GHCR packages from commit `fea429a`**.
+Actions run `43584264028` passed all four jobs; backend and frontend `latest` plus immutable `sha-*` tags
+resolve to the same digests and pull anonymously. The review fixes cover trusted-proxy scoping, exact public
+origin handling, and the non-root plugin root.
 Scope: root README, production Dockerfiles/runtime contracts, production Compose, four-job Actions pipeline, and
 GHCR publication. No product-domain behavior was changed.
 
@@ -677,3 +678,6 @@ GHCR publication. No product-domain behavior was changed.
 - `.github/workflows/go.yml` has the approved four jobs: `backend` and `frontend` quality, serial `integration`
   with the existing critical coverage plus container smoke, and main/manual-main-only `publish`.
 - `docs/ghcr-verification.md` holds measured image digests, sizes, and public-pull evidence after publication.
+- Review fixes make `APP_ALLOWED_ORIGINS` mandatory, scope trusted proxies to the dedicated `actfb-proxy`
+  subnet, preserve the public Host port, overwrite client-supplied XFF, and provide a non-root `plugins-data`
+  volume at `/app/plugins`. C1/C2/I1 runtime checks are described in `docs/ghcr-verification.md`.
