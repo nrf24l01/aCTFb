@@ -1,0 +1,32 @@
+# Development-only frontend image. No production static server is built here.
+# Official Bun image, pinned to the tag and manifest digest verified with
+# `docker pull oven/bun:1.4.4-alpine` on 2026-11-12.
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a
+
+RUN apk add --no-cache tzdata curl \
+  && ln -snf /usr/share/zoneinfo/UTC /etc/localtime
+
+WORKDIR /app
+
+# Keep dependency installation cached and deterministic; the lockfile is part
+# of the build context and is preserved by frontend/.dockerignore.
+COPY package.json bun.lock ./
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+  bun install --frozen-lockfile
+
+COPY . .
+RUN chown -R bun:bun /app
+
+ENV NODE_ENV=development \
+    TZ=UTC
+
+USER bun
+
+EXPOSE 5173
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=6 \
+  CMD curl -fsS http://127.0.0.1:5173/ || exit 1
+
+# VITE_DEV_PROXY_TARGET is read at Vite startup (default http://localhost:8080).
+# The integration worker supplies http://backend:8080 in Compose.
+CMD ["bun", "run", "dev", "--host", "0.0.0.0"]
