@@ -7,4 +7,5 @@ bin/
 .env.*
 !.env.example
 !deploy/.env.example
+/config.yaml
 aCTFb_Codex_kit.zip

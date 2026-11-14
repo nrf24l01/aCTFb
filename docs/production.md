@@ -49,48 +49,41 @@ The canonical bundle is `deploy/`:
 
 ```text
 deploy/compose.yaml     prebuilt GHCR images, default services and optional profiles
-deploy/config.yml       secret-free YAML mounted read-only at /app/config.yml
-deploy/.env.example     placeholder secrets and profile settings
+deploy/config.yaml      all app settings/secrets, mounted read-only at /app/config.yaml
+deploy/.env.example     datasource connections/secrets and Docker settings only
 deploy/realip.conf      optional empty external-edge real-IP include
 deploy/README.md        copy-paste download/start/admin-bootstrap guide
 ```
 
-The bundle downloads flat. Compose resolves `./config.yml` relative to the bundle directory, so run from
-`deploy/` or pass both canonical paths from the repository root. `config.yml` must remain readable by UID
-`10001` (`0644`); `.env` must be `0600`. The backend image also contains a baked `deploy/config.yml`; the
-Compose bind deliberately replaces it so an operator can change the external copy without rebuilding.
+The bundle downloads flat. Compose resolves `./config.yaml` relative to the bundle directory, so run from
+`deploy/` or pass both canonical paths from the repository root. `config.yaml` contains JWT and application
+secrets: it must be group-readable only by runtime GID `10001`, mode `0640`, never world-readable. `.env` is
+`0600`. The backend image bakes only the checked-in placeholder template; the Compose bind replaces it with the
+operator copy so settings can change without rebuilding.
+
+`.env` is datasource/Docker-only. JWT, cookies/origins/trusted proxies, feature flags, app keys, worker limits,
+and retention policy must not be passed as environment variables in production.
+
+Because the bundle uses one `config.yaml`, every trusted config-loading worker mounts the same file and can read
+its JWT/app secrets. Workers do not receive them as environment variables. Per-worker config files are a future
+least-privilege improvement, not a claim of current separation.
 
 ## Quickstart with prebuilt images
 
-Local loopback demo only (plain HTTP, `APP_SECURE_COOKIES=false`):
+Follow [`deploy/README.md`](../deploy/README.md). Download the bundle flat into a new operator directory; do not
+edit the repository copy of `deploy/config.yaml` with real secrets. The short version:
 
-```bash
-cd deploy
-if [ -e .env ]; then echo ".env exists; refusing to overwrite" >&2; exit 1; fi
-cp .env.example .env
-chmod 600 .env
-sed -i \
-  -e 's/^APP_SECURE_COOKIES=.*/APP_SECURE_COOKIES=false/' \
-  -e 's|^APP_ALLOWED_ORIGINS=.*|APP_ALLOWED_ORIGINS=http://localhost:8080|' \
-  -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 32)/" \
-  -e "s/^JWT_ACCESS_SECRET=.*/JWT_ACCESS_SECRET=$(openssl rand -hex 48)/" \
-  -e "s/^JWT_REFRESH_SECRET=.*/JWT_REFRESH_SECRET=$(openssl rand -hex 48)/" \
-  .env
-docker compose --env-file .env pull
-docker compose --env-file .env up -d --wait
-docker compose --env-file .env ps
-curl -fsS http://127.0.0.1:8080/healthz
-docker compose --env-file .env exec -T backend curl -fsS http://127.0.0.1:8080/ready
-```
-
-Open `http://localhost:8080`; the origin must match exactly. For public HTTPS, set
-`APP_SECURE_COOKIES=true` and `APP_ALLOWED_ORIGINS` to the exact public browser origin (no trailing slash),
-for example `https://ctf.example:8443`. `deploy/README.md` has the full download and production commands.
+- generate `POSTGRES_PASSWORD` (and optional datasource credentials) in `.env`;
+- replace the three YAML placeholders in `config.yaml`, using `http://localhost:8080` with
+  `secure_cookies: false` for a local HTTP demo, or the exact `https://...` origin with
+  `secure_cookies: true` for public HTTPS;
+- run the one-shot `chgrp 10001` / `chmod 640` helper on `config.yaml`;
+- `docker compose pull`, `up -d --wait`, `ps`, then check `/healthz` and backend `/ready`.
 
 Only the frontend is published, on `127.0.0.1:${HOST_PORT:-8080}`; `HOST_PORT` is not the public TLS port.
 The frontend and backend share the `actfb-proxy` bridge; PostgreSQL, Redis, NATS, the backend's data side, and
-workers use `actfb-net`. `ACTFB_PROXY_SUBNET` (default `10.213.77.0/28`) drives both the proxy bridge IPAM and
-the backend's trusted-proxy CIDR. Override that single value only if it collides with the host network.
+workers use `actfb-net`. `ACTFB_PROXY_SUBNET` (default `10.213.77.0/28`) is a Docker setting in `.env`, and
+`web_app.trusted_proxies` in `config.yaml` must match it. Change both together only if it collides with the host.
 PostgreSQL data uses the PostgreSQL 18 path `/var/lib/postgresql` and a named volume.
 
 ## Admin bootstrap
@@ -115,23 +108,25 @@ live, so refresh `/me` or sign in again after promotion.
 
 ## TLS and cookies
 
-`deploy/config.yml` sets `secure_cookies: true`. Keep `APP_SECURE_COOKIES=true` outside a loopback smoke test.
-Plain HTTP login is not a supported production setup. Terminate TLS in front of the frontend, then set the exact
-public origin, including a non-default port:
+`deploy/config.yaml` sets `secure_cookies: true`. Keep it true outside a loopback smoke test. Plain HTTP login
+is not a supported production setup. Terminate TLS in front of the frontend, then set the exact public origin,
+including a non-default port:
 
-```text
-APP_ALLOWED_ORIGINS=https://ctf.example:8443
+```yaml
+web_app:
+  allowed_origins:
+    - https://ctf.example:8443
 ```
 
-The origin must match the browser URL exactly. It is required by the production Compose substitution; do not
-leave it blank and do not rely on inferred scheme/host for refresh or logout. The frontend preserves the
-incoming Host including its port and overwrites `X-Forwarded-For` with the actual peer address, so a client
-cannot inject a different rate-limit identity. It sets `X-Forwarded-Proto` from its own scheme and never trusts
-a client-supplied `X-Forwarded-Proto`.
+The origin must match the browser URL exactly. It is required by backend validation; do not leave it blank and
+do not rely on inferred scheme/host for refresh or logout. The frontend preserves the incoming Host including its
+port and overwrites `X-Forwarded-For` with the actual peer address, so a client cannot inject a different
+rate-limit identity. It sets `X-Forwarded-Proto` from its own scheme and never trusts a client-supplied
+`X-Forwarded-Proto`.
 
-The backend trusts only `ACTFB_PROXY_SUBNET`, the same value used for the dedicated frontend/backend bridge.
-Database, Redis, NATS, and worker peers are not on that bridge and cannot forge a client IP. No static
-container IPs are used.
+The backend trusts only `web_app.trusted_proxies`, which must match the Docker proxy bridge CIDR
+(`ACTFB_PROXY_SUBNET` in `.env`; default `10.213.77.0/28`). Database, Redis, NATS, and worker peers are not on
+that bridge and cannot forge a client IP. No static container IPs are used.
 
 `HOST_PORT` only controls the loopback publish. Terminate TLS in a host-level reverse proxy (Caddy, nginx,
 Traefik, or equivalent) that listens on the public port and proxies to `http://127.0.0.1:${HOST_PORT:-8080}`.
@@ -148,9 +143,9 @@ file.
 
 Backend:
 
-- `CONFIG_FILE=/app/config.yml` is baked from `deploy/config.yml` and contains no secrets. Every config-loading
-  service mounts the downloaded `./config.yml` read-only over that path; environment values still override
-  tagged YAML fields.
+- `CONFIG_FILE=/app/config.yaml` points at the mounted operator config. The image bakes only the checked-in
+  placeholder template; every config-loading service mounts the downloaded `./config.yaml` read-only over it.
+  Datasource env values still override tagged datasource fields; production Compose does not inject app settings.
 - `POSTGRES_MIGRATIONS_PATH=/app/migrations`; Goose migrations `001`–`016` run before the HTTP listener starts.
 - `curl` is present. `/health` is liveness; `/ready` checks PostgreSQL, Redis (when configured), and NATS
   (when enabled).
@@ -186,20 +181,20 @@ backend network namespace only to expose its token-protected loopback control en
 The default Compose baseline starts the backend, frontend, PostgreSQL, Redis, NATS, retention, and
 events-dispatcher. It does not enable files, plugins, A+D, or runtime instances.
 
-Email delivery requires a real SMTP account and the notification image:
+Email delivery requires a real SMTP datasource and the notification image:
 
 ```bash
-# Set SMTP_ENABLED=true and the SMTP_* values, then:
+# Set email.enabled: true in config.yaml and the SMTP_* datasource values in .env, then:
 docker compose --env-file deploy/.env -f deploy/compose.yaml --profile email up -d
 ```
 
 Without SMTP, email verification and password-reset email are unavailable. Registration still follows the
-configured `email_verify` policy (`false` in `deploy/config.yml` by default).
+configured `security.email_verify` policy (`false` in `deploy/config.yaml` by default).
 
-Plugins are default-off. When enabled, `ACTFB_PLUGINS_DIR` points at `/app/plugins`, owned by runtime UID
-`10001`. The production Compose mounts the named `plugins-data` volume there so installs and plugin data survive
-recreation; do not use a root-owned or world-writable bind mount. The asset listener is a separate origin, but the
-current backend listener binds `127.0.0.2:8091` inside the process. Ordinary Docker bridge publishing cannot
+Plugins are default-off. When enabled, `plugins.root` points at `/app/plugins`, owned by runtime UID `10001`.
+The production Compose mounts the named `plugins-data` volume there so installs and plugin data survive
+recreation; do not use a root-owned or world-writable bind mount. The asset listener is a separate origin, but
+the current backend listener binds `127.0.0.2:8091` inside the process. Ordinary Docker bridge publishing cannot
 expose that loopback alias. A production plugin deployment needs a dedicated asset process/container or host
 networking, and a matching frontend CSP/asset origin. Do not claim plugin-enabled production readiness until that
 is implemented and verified.
@@ -219,23 +214,23 @@ file scanner. The socket workers (`plugin-runner`, `ad-worker`, `instance-worker
 `ACTFB_DOCKER_GID="$(stat -c %g /var/run/docker.sock)"`. The AD worker alone has `git` and Docker CLI in its
 image.
 
-Profile prerequisites (the profile alone is not sufficient):
+Profile prerequisites (the profile alone is not sufficient; app flags/keys are YAML):
 
-- **email:** `SMTP_ENABLED=true`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, and credentials if required; set
-  `EMAIL_VERIFY_ENABLED=true` only when verification is wanted.
-- **files:** `ACTFB_FILES_ENABLED=true`, `ACTFB_FILE_SCAN_KEY="$(openssl rand -base64 32)"`, `S3_*`, and
-  `CLAMAV_ADDRESS` when `CLAMAV_REQUIRED=true`.
-- **plugins:** `ACTFB_PLUGINS_ENABLED=true`, `ACTFB_PLUGIN_SERVICE_KEY="$(openssl rand -base64 32)"`,
-  `ACTFB_PLUGIN_RUNNER_URL=http://127.0.0.2:8092`, and a distinct
-  `ACTFB_PLUGIN_RUNNER_TOKEN="$(openssl rand -hex 32)"`. The asset-origin caveat still applies.
-- **ad:** `ACTFB_AD_ENABLED=true`, a generated `ACTFB_CREDENTIAL_ENCRYPTION_KEY`, and a non-empty
-  `ACTFB_AD_RUNNER_IMAGES` list of immutable `name@sha256:...` references.
-- **runtime:** `ACTFB_RUNTIME_ENABLED=true` and the same generated credential key; enable integrations
-  explicitly if needed.
+- **email:** `email.enabled: true`, plus `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, and datasource credentials in
+  `.env`; set `security.email_verify: true` only when verification is wanted.
+- **files:** `files.enabled: true`, `files.scan_key: "$(openssl rand -base64 32)"`, `S3_*` in `.env`, and
+  `CLAMAV_ADDRESS` when `files.require_clamav: true`.
+- **plugins:** `plugins.enabled: true`, `plugins.service_key: "$(openssl rand -base64 32)"`,
+  `plugins.runner_url: http://127.0.0.2:8092`, and the same distinct
+  `plugins.runner_token: "$(openssl rand -hex 32)"` read by the runner. The asset-origin caveat still applies.
+- **ad:** `attack_defense.enabled: true`, a generated `deployment.credential_key`, and a non-empty
+  `attack_defense.runner_images` list of immutable `name@sha256:...` references.
+- **runtime:** `deployment.enabled: true` and the same generated credential key; set
+  `integrations.enabled: true` explicitly if needed.
 
 Profile flags alone do not enable backend features or provision credentials. The operator must set the matching
-`ACTFB_*_ENABLED` flag and required keys, and the optional workers are not a claim of full production isolation
-acceptance.
+YAML `*.enabled` flag and required YAML keys, and the optional workers are not a claim of full production
+isolation acceptance.
 
 ## PostgreSQL roles and worker isolation
 
@@ -300,12 +295,15 @@ needs an auditable rollback target.
 
 ## Troubleshooting
 
-- `set POSTGRES_PASSWORD` / JWT errors: `deploy/.env` is missing or empty; Compose interpolation fails before start.
-- Backend exits with invalid config: check that `APP_ALLOWED_ORIGINS` is the exact public origin, the
-  `ACTFB_PROXY_SUBNET` value is valid, and JWT keys are at least 32 characters.
+- `set POSTGRES_PASSWORD` errors: the datasource `.env` is missing or empty; Compose interpolation fails first.
+- Backend exits with invalid config: check `web_app.allowed_origins` is the exact public origin,
+  `web_app.trusted_proxies` matches `ACTFB_PROXY_SUBNET`, and both YAML JWT secrets are distinct and at least
+  32 characters.
+- Permission denied reading `/app/config.yaml`: rerun the documented `chgrp 10001` / `chmod 640` helper; do not
+  make the secret file world-readable.
 - `/ready` is 503: check PostgreSQL and Redis health; NATS is also checked when email/features enable it.
-- Login redirects or cookies disappear: TLS is missing or `APP_SECURE_COOKIES=false` was used with a non-loopback
-  origin.
+- Login redirects or cookies disappear: TLS is missing or `web_app.secure_cookies: false` was used with a
+  non-loopback origin.
 - Email never arrives: the `email` profile and SMTP values are not configured; check the notification worker.
 - Plugin iframe is blocked: plugins are not production-ready in the current container topology. See above.
 - Do not run broad `docker system prune` or remove user volumes while debugging. Remove only the project you own.

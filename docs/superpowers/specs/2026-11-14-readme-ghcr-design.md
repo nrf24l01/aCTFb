@@ -1,7 +1,7 @@
 # aCTFb README and GHCR image delivery design
 
 > Historical record: production root files were later moved to `deploy/`; this document describes the earlier
-> layout. Current operator files are `deploy/compose.yaml`, `deploy/config.yml`, and `deploy/.env.example`.
+> layout. Current operator files are `deploy/compose.yaml`, `deploy/config.yaml`, and `deploy/.env.example`.
 
 Status: approved 2026-11-14. Scope is packaging, documentation, and CI; no product feature refactor.
 
@@ -32,7 +32,7 @@ Tags: `latest` and immutable `sha-<full-git-sha>`.
 
 ## Runtime contract
 
-- Backend: `CONFIG_FILE=/app/config.yml`, `POSTGRES_MIGRATIONS_PATH=/app/migrations`, `/health`, `/ready`, `curl` present.
+- Backend: `CONFIG_FILE=/app/config.yaml`, `POSTGRES_MIGRATIONS_PATH=/app/migrations`, `/health`, `/ready`, `curl` present.
 - Frontend: `/healthz`, SPA deep links, `/api/` proxy.
 - Workers: `notification`, `retention`, `events-dispatcher`, `file-scanner`, `storage-init`, `plugin-runner`, `ad-worker`, `instance-worker` must remain runnable from the shared image.
 - Optional features stay off unless the operator supplies the documented keys and dependencies.

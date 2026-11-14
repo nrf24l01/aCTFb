@@ -13,8 +13,9 @@ Read these current sources before editing the project:
    `kind` vs driver, immutable versions, preview/plan, runtime lifecycle, driver capabilities, and RBAC.
 5. `docs/plugin-system.md` and `docs/plugin-developer-guide.md` — installable CTFd-style addons, Plugin API
    v1, process isolation, permissions/grants, and frontend iframe contract.
-6. `docs/production.md` and `deploy/README.md` — GHCR-only operator bundle, config mount, TLS, profiles,
-   admin bootstrap, and rollback.
+6. `docs/production.md` and `deploy/README.md` — GHCR-only operator bundle: `config.yaml` owns app
+   settings/JWT/origins/flags/worker limits, `.env` is datasource/Docker-only, plus TLS, profiles, admin
+   bootstrap, and rollback.
 
 These documents complement one another and preserve the invariants of the removed historical root TZ snapshots
 (`aCTFb_DEPLOYMENT_TZ_v3.md`, `aCTFb_PLUGIN_SYSTEM_TZ.md`): kind ≠ driver, immutable template versions, no

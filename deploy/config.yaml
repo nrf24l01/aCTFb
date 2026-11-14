@@ -1,32 +1,45 @@
-# Safe production defaults. Secrets are environment-only and deliberately absent.
-# deploy/compose.yaml mounts this file read-only at /app/config.yml. Override
-# values with environment variables; do not put operator secrets here.
+# TEMPLATE ONLY. Download this file outside the repository and put real values
+# in that copy. Never commit a filled config.yaml. The file contains signing
+# keys and application secrets; keep it 0640 with group GID 10001 so the
+# non-root containers can read it without making it world-readable.
+#
+# This file is the authoritative source for application settings:
+# JWT, cookies/origins/trusted proxies, feature flags, app secrets, worker
+# limits, and retention policy. Datasource connections/secrets stay in .env.
+#
+# Required replacements before first start:
+#   CHANGE_ME_ACCESS_SECRET   -> openssl rand -hex 48
+#   CHANGE_ME_REFRESH_SECRET  -> a different openssl rand -hex 48
+#   CHANGE_ME_PUBLIC_ORIGIN   -> exact public browser origin, or
+#                                http://localhost:8080 for the local HTTP demo
+#
+# Local HTTP demo only: also set web_app.secure_cookies: false and use a
+# loopback origin. Public HTTPS MUST keep secure_cookies: true.
+
+jwt:
+  access:
+    secret: CHANGE_ME_ACCESS_SECRET
+    expiry: 900
+  refresh:
+    secret: CHANGE_ME_REFRESH_SECRET
+    expiry: 604800
+
 web_app:
   app_host: 0.0.0.0
   port: 8080
-  # Production must be served over TLS. Keep this true unless a loopback-only
-  # smoke test explicitly overrides APP_SECURE_COOKIES=false.
   secure_cookies: true
-  # Empty means same-origin only. Set APP_ALLOWED_ORIGINS for a separate origin.
-  allowed_origins: []
-  trusted_proxies: []
+  allowed_origins:
+    - CHANGE_ME_PUBLIC_ORIGIN
+  trusted_proxies:
+    - 10.213.77.0/28
 
-datasources:
-  postgres:
-    port: 5432
-    sslmode: disable
-    timezone: UTC
-    migrations_path: /app/migrations
-  nats:
-    host: nats
-    port: 4222
-  redis:
-    host: redis
-    port: 6379
+argon2id:
+  time: 2
+  memory: 65536
+  threads: 2
+  key_len: 32
 
 security:
-  # Email verification requires SMTP plus the notification worker. It is off
-  # in the default production Compose baseline.
   email_verify: false
   email_verify_period: 15m
   auth_rate_limit_backend: redis
@@ -34,15 +47,16 @@ security:
 
 email:
   enabled: false
+  templates_dir: /app/email_templates
   smtp:
     port: 587
-  templates_dir: /app/email_templates
 
 logging:
   level: info
 
 deployment:
   enabled: false
+  credential_key: ""
   key_version: 1
 
 plugins:
@@ -54,7 +68,41 @@ plugins:
   max_body_bytes: 1048576
   allow_exec: false
   allow_trusted_js: false
+  service_key: ""
+  # OCI plugin execution: set both fields together and use the same token in
+  # the trusted plugin-runner. Leave empty when plugins are disabled/exec-only.
+  runner_url: ""
+  runner_token: ""
+  runner_listen_address: 127.0.0.2:8092
+  runner_id: actfb-prod-plugin-runner
+  core_sdk_url: ""
 
 files:
   enabled: false
+  scan_key: ""
   require_clamav: true
+
+attack_defense:
+  enabled: false
+  runner_images: []
+  webhook_base_url: ""
+  allow_insecure_loopback: false
+  worker_concurrency: 1
+  checker_cpus: "1"
+  checker_memory: "512m"
+  checker_pids: 128
+  checker_tmpfs: "64m"
+  docker_binary: docker
+  git_binary: git
+  git_timeout: 2m
+  reconcile_interval: 30s
+
+integrations:
+  enabled: false
+
+retention:
+  days: 7
+  interval: 1h
+  batch_size: 500
+  max_batches: 100
+  run_timeout: 5m

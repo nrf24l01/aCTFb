@@ -78,14 +78,14 @@ The command uses the existing shared configuration loader and PostgreSQL client.
 go build -o ./bin/retention ./cmd/retention
 ```
 
-`config.LoadConfig` reads `CONFIG_FILE` (or `./config.yml` when unset). That file must contain
+`config.LoadConfig` reads `CONFIG_FILE` (or `./config.yaml` when unset). That file must contain
 `datasources.postgres` with `host`, `port`, `user`, `password`, `dbname`, `sslmode`, and `timezone`. The worker fails
 fast on missing/empty PostgreSQL fields and does not run migrations; migrations `001`-`005` must already be applied.
 
 One bounded pass (recommended for cron or a Kubernetes CronJob):
 
 ```bash
-CONFIG_FILE=/etc/actfb/config.yml \
+CONFIG_FILE=/etc/actfb/config.yaml \
 AUTH_RETENTION_DAYS=7 \
 ./bin/retention --once --batch-size=500 --max-batches=100 --run-timeout=5m
 ```
@@ -93,7 +93,7 @@ AUTH_RETENTION_DAYS=7 \
 Long-running daemon (default mode; runs immediately, then waits for `--interval`):
 
 ```bash
-CONFIG_FILE=/etc/actfb/config.yml \
+CONFIG_FILE=/etc/actfb/config.yaml \
 AUTH_RETENTION_DAYS=7 \
 ./bin/retention --interval=1h --batch-size=500 --max-batches=100 --run-timeout=5m
 ```

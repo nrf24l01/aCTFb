@@ -32,7 +32,7 @@ Files in this slice:
 
 ## Required runtime configuration
 
-`CONFIG_FILE` selects the YAML file (default `config.yml`). Environment values
+`CONFIG_FILE` selects the YAML file (default `config.yaml`). Environment values
 override YAML for tagged fields; the JWT values are loaded explicitly so they
 never need to be committed.
 
@@ -40,8 +40,8 @@ Backend-required settings:
 
 | Setting | Source | Notes |
 | --- | --- | --- |
-| `JWT_ACCESS_SECRET` | env only in practice (`jwt.access.secret` also accepted) | at least 32 characters |
-| `JWT_REFRESH_SECRET` | env only in practice (`jwt.refresh.secret` also accepted) | at least 32 characters, must differ from access |
+| `jwt.access.secret` (`JWT_ACCESS_SECRET` legacy env override) | YAML is canonical for the production bundle | at least 32 characters |
+| `jwt.refresh.secret` (`JWT_REFRESH_SECRET` legacy env override) | YAML is canonical for the production bundle | at least 32 characters, must differ from access |
 | `JWT_ACCESS_EXPIRY` | env or `jwt.access.expiry` | positive seconds; default `900` |
 | `JWT_REFRESH_EXPIRY` | env or `jwt.refresh.expiry` | positive seconds; default `604800` |
 | Postgres host/user/dbname/sslmode | env or YAML | no defaults for credentials |

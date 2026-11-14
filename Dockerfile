@@ -57,7 +57,7 @@ LABEL org.opencontainers.image.source="https://github.com/nrf24l01/actfb" \
 
 WORKDIR /app
 
-ENV CONFIG_FILE=/app/config.yml \
+ENV CONFIG_FILE=/app/config.yaml \
     TZ=UTC
 
 USER 10001:10001
@@ -75,7 +75,7 @@ USER 10001:10001
 COPY --chown=10001:10001 --from=build /out/backend /app/backend
 COPY --chown=10001:10001 migrations /app/migrations
 COPY --chown=10001:10001 email_templates /app/email_templates
-COPY --chown=10001:10001 deploy/config.yml /app/config.yml
+COPY --chown=10001:10001 deploy/config.yaml /app/config.yaml
 
 ENV POSTGRES_MIGRATIONS_PATH=/app/migrations \
     ACTFB_PLUGINS_DIR=/app/plugins
@@ -90,32 +90,32 @@ CMD ["/app/backend"]
 FROM runtime AS notification
 COPY --chown=10001:10001 --from=build /out/notification /app/notification
 COPY --chown=10001:10001 email_templates /app/email_templates
-COPY --chown=10001:10001 deploy/config.yml /app/config.yml
+COPY --chown=10001:10001 deploy/config.yaml /app/config.yaml
 CMD ["/app/notification"]
 
 FROM runtime AS retention
 COPY --chown=10001:10001 --from=build /out/retention /app/retention
-COPY --chown=10001:10001 deploy/config.yml /app/config.yml
+COPY --chown=10001:10001 deploy/config.yaml /app/config.yaml
 CMD ["/app/retention"]
 
 FROM runtime AS events-dispatcher
 COPY --chown=10001:10001 --from=build /out/events-dispatcher /app/events-dispatcher
-COPY --chown=10001:10001 deploy/config.yml /app/config.yml
+COPY --chown=10001:10001 deploy/config.yaml /app/config.yaml
 CMD ["/app/events-dispatcher"]
 
 FROM runtime AS file-scanner
 COPY --chown=10001:10001 --from=build /out/file-scanner /app/file-scanner
-COPY --chown=10001:10001 deploy/config.yml /app/config.yml
+COPY --chown=10001:10001 deploy/config.yaml /app/config.yaml
 CMD ["/app/file-scanner"]
 
 FROM runtime AS storage-init
 COPY --chown=10001:10001 --from=build /out/storage-init /app/storage-init
-COPY --chown=10001:10001 deploy/config.yml /app/config.yml
+COPY --chown=10001:10001 deploy/config.yaml /app/config.yaml
 CMD ["/app/storage-init"]
 
 FROM runtime AS plugin-runner
 COPY --chown=10001:10001 --from=build /out/plugin-runner /app/plugin-runner
-COPY --chown=10001:10001 deploy/config.yml /app/config.yml
+COPY --chown=10001:10001 deploy/config.yaml /app/config.yaml
 CMD ["/app/plugin-runner"]
 
 # ad-worker executes the Docker CLI and git. These tools exist only in this
@@ -125,10 +125,10 @@ USER root
 RUN apk add --no-cache git docker-cli
 USER 10001:10001
 COPY --chown=10001:10001 --from=build /out/ad-worker /app/ad-worker
-COPY --chown=10001:10001 deploy/config.yml /app/config.yml
+COPY --chown=10001:10001 deploy/config.yaml /app/config.yaml
 CMD ["/app/ad-worker"]
 
 FROM runtime AS instance-worker
 COPY --chown=10001:10001 --from=build /out/instance-worker /app/instance-worker
-COPY --chown=10001:10001 deploy/config.yml /app/config.yml
+COPY --chown=10001:10001 deploy/config.yaml /app/config.yaml
 CMD ["/app/instance-worker"]
