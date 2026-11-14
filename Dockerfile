@@ -77,8 +77,7 @@ COPY --chown=10001:10001 migrations /app/migrations
 COPY --chown=10001:10001 email_templates /app/email_templates
 COPY --chown=10001:10001 deploy/config.yaml /app/config.yaml
 
-ENV POSTGRES_MIGRATIONS_PATH=/app/migrations \
-    ACTFB_PLUGINS_DIR=/app/plugins
+ENV POSTGRES_MIGRATIONS_PATH=/app/migrations
 
 EXPOSE 8080
 
