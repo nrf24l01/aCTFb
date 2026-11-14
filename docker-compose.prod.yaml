@@ -1,0 +1,197 @@
+name: actfb-prod
+
+x-backend-environment: &backend-environment
+  CONFIG_FILE: /app/config.yml
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: ${POSTGRES_USER:-actfb}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+  POSTGRES_DBNAME: ${POSTGRES_DB:-actfb}
+  POSTGRES_SSLMODE: ${POSTGRES_SSLMODE:-disable}
+  POSTGRES_TIMEZONE: UTC
+  POSTGRES_MIGRATIONS_PATH: /app/migrations
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env.prod}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env.prod}
+  APP_HOST: 0.0.0.0
+  APP_SECURE_COOKIES: ${APP_SECURE_COOKIES:-true}
+  APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-}
+  APP_TRUSTED_PROXIES: ${APP_TRUSTED_PROXIES:-}
+  AUTH_RATE_LIMIT_BACKEND: redis
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  NATS_HOST: nats
+  NATS_PORT: "4222"
+  SMTP_ENABLED: ${SMTP_ENABLED:-false}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+  SMTP_TEMPLATES_DIR: /app/email_templates
+  EMAIL_VERIFY_ENABLED: ${EMAIL_VERIFY_ENABLED:-false}
+  EMAIL_VERIFY_PERIOD: 15m
+
+services:
+  backend:
+    image: ghcr.io/nrf24l01/actfb-backend:${ACTFB_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      <<: *backend-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - actfb-net
+
+  frontend:
+    image: ghcr.io/nrf24l01/actfb-frontend:${ACTFB_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - actfb-net
+
+  # Default production baseline: auth, boards, and shared Redis rate limiting.
+  # Start this worker as a long-running daemon with PostgreSQL access only.
+  retention:
+    image: ghcr.io/nrf24l01/actfb-backend:${ACTFB_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command:
+      - /app/retention
+      - --interval=${AUTH_RETENTION_INTERVAL:-1h}
+      - --batch-size=500
+      - --max-batches=100
+      - --run-timeout=5m
+    environment:
+      CONFIG_FILE: /app/config.yml
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-actfb}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_DBNAME: ${POSTGRES_DB:-actfb}
+      POSTGRES_SSLMODE: ${POSTGRES_SSLMODE:-disable}
+      POSTGRES_TIMEZONE: UTC
+      AUTH_RETENTION_DAYS: ${AUTH_RETENTION_DAYS:-7}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - actfb-net
+
+  # Email delivery is optional because it requires a real SMTP account.
+  # Enable with: docker compose --profile email ...
+  notification:
+    profiles: ["email"]
+    image: ghcr.io/nrf24l01/actfb-backend:${ACTFB_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command: ["/app/notification"]
+    environment:
+      CONFIG_FILE: /app/config.yml
+      NATS_HOST: nats
+      NATS_PORT: "4222"
+      SMTP_ENABLED: ${SMTP_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_TEMPLATES_DIR: /app/email_templates
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - actfb-net
+
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-actfb}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_DB: ${POSTGRES_DB:-actfb}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - actfb-net
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - actfb-net
+
+  nats:
+    image: nats:2-alpine
+    restart: unless-stopped
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    volumes:
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - actfb-net
+
+volumes:
+  postgres-data:
+  redis-data:
+  nats-data:
+
+networks:
+  actfb-net:
+    driver: bridge

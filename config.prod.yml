@@ -1,0 +1,59 @@
+# Safe production defaults. Secrets are environment-only and deliberately absent.
+# Override values with environment variables; do not bake operator secrets here.
+web_app:
+  app_host: 0.0.0.0
+  port: 8080
+  # Production must be served over TLS. Keep this true unless a loopback-only
+  # smoke test explicitly overrides APP_SECURE_COOKIES=false.
+  secure_cookies: true
+  # Empty means same-origin only. Set APP_ALLOWED_ORIGINS for a separate origin.
+  allowed_origins: []
+  trusted_proxies: []
+
+datasources:
+  postgres:
+    port: 5432
+    sslmode: disable
+    timezone: UTC
+    migrations_path: /app/migrations
+  nats:
+    host: nats
+    port: 4222
+  redis:
+    host: redis
+    port: 6379
+
+security:
+  # Email verification requires SMTP plus the notification worker. It is off
+  # in the default production Compose baseline.
+  email_verify: false
+  email_verify_period: 15m
+  auth_rate_limit_backend: redis
+  password_reset_period: 15m
+
+email:
+  enabled: false
+  smtp:
+    port: 587
+  templates_dir: /app/email_templates
+
+logging:
+  level: info
+
+deployment:
+  enabled: false
+  key_version: 1
+
+plugins:
+  enabled: false
+  root: /app/plugins
+  iframe_origin: http://127.0.0.2:8091
+  assets_listen_address: 127.0.0.2:8091
+  http_timeout: 5s
+  max_body_bytes: 1048576
+  allow_exec: false
+  allow_trusted_js: false
+
+files:
+  enabled: false
+  require_clamav: true
