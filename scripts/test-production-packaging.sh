@@ -33,7 +33,7 @@ require_file docs/ghcr-verification.md
 require_file Dockerfile
 require_file frontend/Dockerfile
 require_file frontend/nginx.conf
-require_file deploy/config.yml
+require_file deploy/config.yaml
 require_file deploy/compose.yaml
 require_file deploy/.env.example
 require_file deploy/realip.conf
@@ -63,7 +63,7 @@ require_pattern docs/production.md 'sha-' 'production docs explain immutable tag
 require_pattern docs/production.md 'Docker' 'production docs are Docker-only'
 require_pattern docs/production.md 'plugin' 'production docs mention plugin caveat'
 require_pattern docs/production.md 'ACTFB_PROXY_SUBNET' 'production docs explain the proxy subnet trust value'
-require_pattern docs/production.md 'APP_ALLOWED_ORIGINS' 'production docs require the exact public origin'
+require_pattern docs/production.md 'allowed_origins' 'production docs require the exact public origin'
 for image in notification retention events-dispatcher file-scanner storage-init plugin-runner ad-worker instance-worker; do
   require_pattern docs/production.md "actfb-${image}" "production docs name the ${image} image"
 done
@@ -74,10 +74,10 @@ require_pattern docs/production.md 'events_outbox' 'production docs scope the ev
 require_pattern docs/production.md 'docs/files-scanning\.md' 'production docs link the scanner grant set'
 require_pattern docs/production.md 'do not grant all tables' 'production docs reject blanket grants'
 require_pattern docs/production.md 'Profile flags alone do not enable backend features' 'production docs distinguish profiles from feature enablement'
-require_pattern docs/production.md 'ACTFB_FILE_SCAN_KEY' 'production docs list the files profile key'
-require_pattern docs/production.md 'ACTFB_AD_RUNNER_IMAGES' 'production docs list pinned AD runner images'
-require_pattern docs/production.md 'ACTFB_PLUGIN_RUNNER_URL=http://127\.0\.0\.2:8092' 'production docs list the actual plugin runner URL'
-require_pattern README.md 'APP_ALLOWED_ORIGINS' 'README requires the exact public origin'
+require_pattern docs/production.md 'files.scan_key' 'production docs list the files key'
+require_pattern docs/production.md 'attack_defense.runner_images' 'production docs list pinned AD runner images'
+require_pattern docs/production.md 'plugins.runner_url' 'production docs list the actual plugin runner URL'
+require_pattern README.md 'allowed_origins' 'README requires the exact public origin'
 forbid_pattern README.md 'shared image includes `git`' 'README no longer claims a shared worker image'
 
 require_pattern Dockerfile '^# syntax=docker/dockerfile:1' 'backend Dockerfile uses BuildKit syntax'
@@ -99,7 +99,8 @@ require_pattern Dockerfile 'USER 10001:10001' 'backend runtime is non-root'
 require_pattern Dockerfile 'COPY .*--from=build' 'runtime targets copy only build outputs'
 require_pattern Dockerfile 'migrations' 'backend image includes migrations'
 require_pattern Dockerfile 'email_templates' 'backend image includes email templates'
-require_pattern Dockerfile 'COPY --chown=10001:10001 deploy/config\.yml /app/config\.yml' 'backend image includes the deploy config at CONFIG_FILE'
+require_pattern Dockerfile 'COPY --chown=10001:10001 deploy/config\.yaml /app/config\.yaml' 'backend image includes the deploy config at CONFIG_FILE'
+require_pattern Dockerfile 'ENV CONFIG_FILE=/app/config\.yaml' 'image default CONFIG_FILE points at config.yaml'
 require_pattern Dockerfile 'mkdir -p /app/plugins' 'backend image creates the plugin root'
 require_pattern Dockerfile 'chown -R 10001:10001 /app/plugins' 'backend image gives the plugin root to the runtime user'
 require_pattern Dockerfile 'ACTFB_PLUGINS_DIR=/app/plugins' 'backend image exports the plugin root'
@@ -196,12 +197,19 @@ forbid_pattern frontend/nginx.conf 'expires 1y;' 'nginx does not duplicate asset
 forbid_pattern frontend/realip.conf '^[[:space:]]*set_real_ip_from[[:space:]]' 'nginx default real-IP trust is empty'
 forbid_pattern frontend/realip.conf '^[[:space:]]*set_real_ip_from[[:space:]]+(0\.0\.0\.0/0|::/0)' 'nginx real-IP example never trusts every address'
 
-require_pattern deploy/config.yml 'secure_cookies: true' 'production config uses secure cookies'
-require_pattern deploy/config.yml 'auth_rate_limit_backend: redis' 'production config uses Redis limiter'
-require_pattern deploy/config.yml 'migrations_path: /app/migrations' 'production config points at image migrations'
-require_pattern deploy/config.yml 'enabled: false' 'production config keeps optional features off by default'
-forbid_pattern deploy/config.yml 'secret:' 'production config contains no secret fields'
-forbid_pattern deploy/config.yml 'password:' 'production config contains no password fields'
+require_pattern deploy/config.yaml 'secure_cookies: true' 'production config uses secure cookies'
+require_pattern deploy/config.yaml 'auth_rate_limit_backend: redis' 'production config uses Redis limiter'
+require_pattern deploy/config.yaml 'allowed_origins:' 'production config owns exact origins'
+require_pattern deploy/config.yaml 'trusted_proxies:' 'production config owns trusted proxies'
+require_pattern deploy/config.yaml '10\.213\.77\.0/28' 'production config matches the default proxy CIDR'
+require_pattern deploy/config.yaml 'CHANGE_ME_ACCESS_SECRET' 'config template requires an access secret replacement'
+require_pattern deploy/config.yaml 'CHANGE_ME_REFRESH_SECRET' 'config template requires a refresh secret replacement'
+require_pattern deploy/config.yaml 'CHANGE_ME_PUBLIC_ORIGIN' 'config template requires an origin replacement'
+require_pattern deploy/config.yaml 'runner_token:' 'config owns the plugin runner token'
+require_pattern deploy/config.yaml 'attack_defense:' 'config owns A+D worker settings'
+require_pattern deploy/config.yaml 'retention:' 'config owns retention settings'
+forbid_pattern deploy/config.yaml 'JWT_ACCESS_SECRET=' 'config does not use legacy env-style JWT keys'
+forbid_pattern deploy/config.yaml '-----BEGIN' 'config template contains no private key material'
 
 require_pattern deploy/compose.yaml 'ghcr\.io/nrf24l01/actfb-backend' 'prod compose uses backend GHCR image'
 require_pattern deploy/compose.yaml 'ghcr\.io/nrf24l01/actfb-frontend' 'prod compose uses frontend GHCR image'
@@ -215,38 +223,32 @@ require_pattern deploy/compose.yaml 'http://127\.0\.0\.1:8080/ready' 'prod compo
 require_pattern deploy/compose.yaml 'http://127\.0\.0\.1:8080/healthz' 'prod compose frontend healthcheck uses /healthz'
 require_pattern deploy/compose.yaml 'actfb-proxy:' 'prod compose has a dedicated proxy network'
 require_pattern deploy/compose.yaml 'subnet: \$\{ACTFB_PROXY_SUBNET:-10\.213\.77\.0/28\}' 'prod compose configures proxy subnet from one env'
-require_pattern deploy/compose.yaml 'APP_TRUSTED_PROXIES: \$\{ACTFB_PROXY_SUBNET:-10\.213\.77\.0/28\}' 'prod compose trusts exactly the proxy subnet'
-require_pattern deploy/compose.yaml 'APP_ALLOWED_ORIGINS: \$\{APP_ALLOWED_ORIGINS:\?' 'prod compose requires an exact public origin'
 require_pattern deploy/compose.yaml 'plugins-data:/app/plugins' 'prod compose mounts an owned plugin data volume'
 require_pattern deploy/compose.yaml '^  plugins-data:$' 'prod compose declares the plugin data volume'
 forbid_pattern deploy/compose.yaml 'network_mode:[[:space:]]*host' 'prod compose never uses host networking'
 forbid_pattern deploy/compose.yaml 'ipv4_address:' 'prod compose uses DNS, not static container IPs'
 forbid_pattern deploy/compose.yaml 'POSTGRES_HOST_AUTH_METHOD: trust' 'prod compose does not use trust auth'
-require_pattern deploy/compose.yaml '\./config\.yml:/app/config\.yml:ro' 'prod compose mounts the downloaded config read-only'
+require_pattern deploy/compose.yaml '\./config\.yaml:/app/config\.yaml:ro' 'prod compose mounts the downloaded config read-only'
 require_pattern deploy/compose.yaml 'platform: linux/amd64' 'prod compose selects the published linux/amd64 images'
 forbid_pattern deploy/compose.yaml '\.env\.prod|docker-compose\.prod|config\.prod' 'prod compose has no obsolete root bundle paths'
 forbid_pattern deploy/compose.yaml 'APP_PORT' 'prod compose uses HOST_PORT only for the host port'
+forbid_pattern deploy/compose.yaml '^[[:space:]]+APP_|^[[:space:]]+JWT_|^[[:space:]]+AUTH_' 'prod compose does not inject application env settings'
+forbid_pattern deploy/compose.yaml 'ACTFB_(AD_ENABLED|AD_RUNNER_IMAGES|AD_WEBHOOK|AD_ALLOW|FILES_ENABLED|FILE_SCAN_KEY|PLUGIN_SERVICE_KEY|PLUGIN_RUNNER_TOKEN|PLUGIN_RUNNER_URL|PLUGIN_RUNNER_ADDR|PLUGIN_RUNNER_ID|RUNTIME_ENABLED|INTEGRATIONS_ENABLED|CREDENTIAL_ENCRYPTION_KEY|CREDENTIAL_KEY_VERSION)' 'prod compose does not inject feature keys/flags'
 require_pattern deploy/.env.example '^HOST_PORT=8080$' 'prod env example uses HOST_PORT for the loopback publish'
 require_pattern deploy/.env.example '^ACTFB_IMAGE_TAG=latest$' 'prod env example defaults to the simple moving tag'
-require_pattern deploy/.env.example 'sha-07c55451c3d930897c26dbd5baa8c43afa87fe89' 'prod env example documents the verified immutable pin'
+require_pattern deploy/.env.example 'sha-<full-git-sha>' 'prod env example documents the immutable pin format'
 require_pattern deploy/README.md 'docker compose --env-file \.env up -d --wait' 'deploy README has the wait-based start command'
 require_pattern deploy/README.md 'docker compose --env-file \.env exec -T backend curl -fsS http://127\.0\.0\.1:8080/ready' 'deploy README checks readiness through the backend container'
 forbid_pattern deploy/realip.conf '^[[:space:]]*set_real_ip_from[[:space:]]' 'deploy real-IP trust is empty by default'
 
-require_pattern deploy/.env.example '^JWT_ACCESS_SECRET=$' 'prod env example leaves access secret empty'
-require_pattern deploy/.env.example '^JWT_REFRESH_SECRET=$' 'prod env example leaves refresh secret empty'
 require_pattern deploy/.env.example '^POSTGRES_PASSWORD=$' 'prod env example leaves DB password empty'
-require_pattern deploy/.env.example '^APP_SECURE_COOKIES=true$' 'prod env example enables secure cookies'
-require_pattern deploy/.env.example '^APP_ALLOWED_ORIGINS=https://[^[:space:]]+:[0-9]+$' 'prod env example requires an exact HTTPS origin including port'
 require_pattern deploy/.env.example '^ACTFB_PROXY_SUBNET=10\.213\.77\.0/28$' 'prod env example documents the single proxy subnet value'
-forbid_pattern deploy/.env.example '^APP_TRUSTED_PROXIES=' 'prod env example does not expose a second trust value'
-require_pattern deploy/.env.example '^ACTFB_FILES_ENABLED=false$' 'prod env example includes the files backend flag'
-require_pattern deploy/.env.example '^ACTFB_FILE_SCAN_KEY=$' 'prod env example includes the file scan key'
-require_pattern deploy/.env.example '^ACTFB_CREDENTIAL_ENCRYPTION_KEY=$' 'prod env example includes the credential key'
-require_pattern deploy/.env.example '^ACTFB_AD_RUNNER_IMAGES=$' 'prod env example includes pinned AD runner images'
-require_pattern deploy/.env.example '^ACTFB_PLUGIN_RUNNER_URL=http://127\.0\.0\.2:8092$' 'prod env example documents the actual plugin runner URL'
-require_pattern deploy/.env.example 'openssl rand -base64 32' 'prod env example documents key generation'
-require_pattern deploy/.env.example 'RETENTION_POSTGRES_USER' 'prod env example documents per-worker role overrides'
+forbid_pattern deploy/.env.example '^APP_' 'prod env example has no app settings'
+forbid_pattern deploy/.env.example '^JWT_' 'prod env example has no JWT secrets'
+forbid_pattern deploy/.env.example '^AUTH_' 'prod env example has no auth policy settings'
+forbid_pattern deploy/.env.example '^ACTFB_(AD_ENABLED|AD_RUNNER_IMAGES|AD_WEBHOOK|AD_ALLOW|FILES_ENABLED|FILE_SCAN_KEY|PLUGIN_SERVICE_KEY|PLUGIN_RUNNER_TOKEN|PLUGIN_RUNNER_URL|PLUGIN_RUNNER_ADDR|PLUGIN_RUNNER_ID|RUNTIME_ENABLED|INTEGRATIONS_ENABLED|CREDENTIAL_ENCRYPTION_KEY|CREDENTIAL_KEY_VERSION)' 'prod env example has no feature flags/keys'
+forbid_pattern deploy/.env.example '^SMTP_ENABLED=' 'prod env example has no email enable flag'
+require_pattern deploy/.env.example 'RETENTION_POSTGRES_USER' 'prod env example documents per-worker datasource overrides'
 
 require_pattern .dockerignore 'frontend/node_modules' '.dockerignore excludes frontend node_modules'
 require_pattern .dockerignore 'frontend/dist' '.dockerignore excludes built frontend'
@@ -255,6 +257,7 @@ require_pattern .dockerignore 'proxier' '.dockerignore excludes the reference re
 require_pattern .dockerignore '\*\.zip' '.dockerignore excludes archives'
 require_pattern .dockerignore '^\.git$' '.dockerignore excludes git metadata'
 require_pattern .dockerignore '^\.env' '.dockerignore excludes env files'
+require_pattern .dockerignore '^/config\.yaml$' '.dockerignore excludes an operator root config'
 require_pattern .dockerignore '^bin/' '.dockerignore excludes local build output'
 
 require_pattern frontend/.dockerignore '^\.env$|^\.env\*' 'frontend context excludes env files'
@@ -271,7 +274,9 @@ require_pattern .github/workflows/go.yml 'branches:\s*$' 'workflow restricts pus
 require_pattern .github/workflows/go.yml '\.github/workflows/go\.yml' 'workflow triggers on itself'
 require_pattern .github/workflows/go.yml 'scripts/\*\*' 'workflow triggers on packaging scripts'
 require_pattern .github/workflows/go.yml 'frontend/\.dockerignore' 'workflow triggers on frontend build context'
-require_pattern .github/workflows/go.yml 'deploy/\*\*' 'workflow triggers on the deploy bundle'
+require_pattern .github/workflows/go.yml 'deploy/config\.yaml' 'workflow triggers on the config bundle'
+require_pattern .github/workflows/go.yml 'deploy/compose\.yaml' 'workflow triggers on the compose bundle'
+forbid_pattern .github/workflows/go.yml 'deploy/\*\*' 'workflow avoids broad deploy docs triggers'
 require_pattern .github/workflows/go.yml 'docker-bake\.hcl' 'workflow triggers on bake definition'
 require_pattern .github/workflows/go.yml 'docker/bake-action@v7' 'workflow uses official bake action'
 require_pattern .github/workflows/go.yml 'docker/login-action@' 'workflow uses official login action'
@@ -322,38 +327,39 @@ fi
 if command -v docker >/dev/null 2>&1; then
   tmp_env="$(mktemp "${TMPDIR:-/tmp}/actfb-compose-env.XXXXXX")"
   chmod 600 "$tmp_env"
-  printf '%s\n' \
-    'POSTGRES_PASSWORD=contract-only' \
-    'JWT_ACCESS_SECRET=contract-access-secret-0123456789abcdef' \
-    'JWT_REFRESH_SECRET=contract-refresh-secret-0123456789abcdef' \
-    'APP_ALLOWED_ORIGINS=https://ctf.example:8443' >"$tmp_env"
+  printf '%s\n' 'POSTGRES_PASSWORD=contract-only' >"$tmp_env"
   compose_json="$(env -u ACTFB_PROXY_SUBNET docker compose --env-file "$tmp_env" --profile email --profile files --profile plugins --profile ad --profile runtime -f deploy/compose.yaml config --format json)"
   env_template="$(mktemp "${TMPDIR:-/tmp}/actfb-env-template.XXXXXX")"
   chmod 600 "$env_template"
-  sed \
-    -e 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=contract-only/' \
-    -e 's/^JWT_ACCESS_SECRET=$/JWT_ACCESS_SECRET=contract-access-secret-0123456789abcdef/' \
-    -e 's/^JWT_REFRESH_SECRET=$/JWT_REFRESH_SECRET=contract-refresh-secret-0123456789abcdef/' \
-    deploy/.env.example >"$env_template"
+  sed -e 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=contract-only/' deploy/.env.example >"$env_template"
   if docker compose --env-file "$env_template" --profile email --profile files --profile plugins --profile ad --profile runtime -f deploy/compose.yaml config --quiet >/dev/null 2>&1; then
-    pass 'the shipped production env template is valid after required secret substitution'
+    pass 'the shipped production env template is valid after datasource secret substitution'
   else
-    fail 'the shipped production env template is not valid after secret substitution'
+    fail 'the shipped production env template is not valid after datasource secret substitution'
   fi
   rm -f "$env_template"
   if jq -e '.networks["actfb-proxy"].ipam.config[0].subnet == "10.213.77.0/28"
-    and .services.backend.environment.APP_TRUSTED_PROXIES == "10.213.77.0/28"
+    and .services.backend.environment.CONFIG_FILE == "/app/config.yaml"
+    and .services["notification"].environment.CONFIG_FILE == "/app/config.yaml"
+    and .services["plugin-runner"].environment.CONFIG_FILE == "/app/config.yaml"
+    and ([.services.backend.environment | keys[] | select(startswith("APP_") or startswith("JWT_") or startswith("AUTH_") or startswith("ACTFB_"))] | length) == 0
+    and (.services["plugin-runner"].environment | has("ACTFB_PLUGIN_RUNNER_TOKEN") | not)
+    and (.services["retention"].environment | has("AUTH_RETENTION_DAYS") | not)
+    and (.services["file-scanner"].environment | has("ACTFB_FILES_ENABLED") | not)
+    and (.services["ad-worker"].environment | has("ACTFB_AD_RUNNER_IMAGES") | not)
+    and (.services["instance-worker"].environment | has("ACTFB_CREDENTIAL_ENCRYPTION_KEY") | not)
     and (.services.backend.networks | keys | sort) == ["actfb-net","actfb-proxy"]
     and (.services.frontend.networks | keys) == ["actfb-proxy"]
     and (.services.postgres.networks | keys) == ["actfb-net"]
     and (.services.backend.volumes | map(select(.target == "/app/plugins")) | length) == 1
-    and ([.services.backend.volumes[]? | select(.target == "/app/config.yml" and .read_only == true)] | length) == 1
-    and ([.services.retention.volumes[]? | select(.target == "/app/config.yml" and .read_only == true)] | length) == 1
-    and ([.services["events-dispatcher"].volumes[]? | select(.target == "/app/config.yml" and .read_only == true)] | length) == 1
-    and ([.services["notification"].volumes[]? | select(.target == "/app/config.yml" and .read_only == true)] | length) == 1
-    and ([.services["file-scanner"].volumes[]? | select(.target == "/app/config.yml" and .read_only == true)] | length) == 1
-    and ([.services["ad-worker"].volumes[]? | select(.target == "/app/config.yml" and .read_only == true)] | length) == 1
-    and ([.services["instance-worker"].volumes[]? | select(.target == "/app/config.yml" and .read_only == true)] | length) == 1
+    and ([.services.backend.volumes[]? | select(.target == "/app/config.yaml" and .read_only == true)] | length) == 1
+    and ([.services.retention.volumes[]? | select(.target == "/app/config.yaml" and .read_only == true)] | length) == 1
+    and ([.services["events-dispatcher"].volumes[]? | select(.target == "/app/config.yaml" and .read_only == true)] | length) == 1
+    and ([.services["notification"].volumes[]? | select(.target == "/app/config.yaml" and .read_only == true)] | length) == 1
+    and ([.services["file-scanner"].volumes[]? | select(.target == "/app/config.yaml" and .read_only == true)] | length) == 1
+    and ([.services["plugin-runner"].volumes[]? | select(.target == "/app/config.yaml" and .read_only == true)] | length) == 1
+    and ([.services["ad-worker"].volumes[]? | select(.target == "/app/config.yaml" and .read_only == true)] | length) == 1
+    and ([.services["instance-worker"].volumes[]? | select(.target == "/app/config.yaml" and .read_only == true)] | length) == 1
     and ([.services | to_entries[] | select(.value.image | startswith("ghcr.io/nrf24l01/actfb-")) | .value.platform] | length) == 10
     and ([.services | to_entries[] | select(.value.image | startswith("ghcr.io/nrf24l01/actfb-")) | .value.platform] | unique) == ["linux/amd64"]
     and (.services.backend | [.volumes[]? | select(.source == "/var/run/docker.sock")] | length) == 0
@@ -378,24 +384,20 @@ if command -v docker >/dev/null 2>&1; then
     and .services["plugin-runner"].network_mode == "service:backend"
     and (.services["retention"] | has("healthcheck") | not)
     and (.services["notification"] | has("healthcheck") | not)
-    and (.services["retention"].environment | has("JWT_ACCESS_SECRET") | not)
-    and (.services["notification"].environment | has("JWT_ACCESS_SECRET") | not)
-    and (.services["ad-worker"].environment | has("JWT_ACCESS_SECRET") | not)
-    and (.services["instance-worker"].environment | has("JWT_ACCESS_SECRET") | not)
     and ([.services["plugin-runner"].volumes[]? | select(.source == "/var/run/docker.sock")] | length) == 1
     and ([.services["ad-worker"].volumes[]? | select(.source == "/var/run/docker.sock")] | length) == 1
     and ([.services["instance-worker"].volumes[]? | select(.source == "/var/run/docker.sock")] | length) == 1' >/dev/null <<<"$compose_json"; then
-    pass 'real Compose config uses separate worker images/profiles and scoped socket access'
+    pass 'real Compose config isolates app YAML, datasource env, worker images/profiles, and sockets'
   else
-    fail 'real Compose config does not match the worker/proxy/volume contract'
+    fail 'real Compose config does not match the YAML/datasource/worker contract'
   fi
   tmp_env_missing="$(mktemp "${TMPDIR:-/tmp}/actfb-compose-env-missing.XXXXXX")"
   chmod 600 "$tmp_env_missing"
-  grep -v '^APP_ALLOWED_ORIGINS=' "$tmp_env" >"$tmp_env_missing"
-  if env -u APP_ALLOWED_ORIGINS docker compose --env-file "$tmp_env_missing" --profile email --profile files --profile plugins --profile ad --profile runtime -f deploy/compose.yaml config --quiet >/dev/null 2>&1; then
-    fail 'Compose accepts a missing APP_ALLOWED_ORIGINS'
+  grep -v '^POSTGRES_PASSWORD=' "$tmp_env" >"$tmp_env_missing" || true
+  if docker compose --env-file "$tmp_env_missing" --profile email --profile files --profile plugins --profile ad --profile runtime -f deploy/compose.yaml config --quiet >/dev/null 2>&1; then
+    fail 'Compose accepts a missing POSTGRES_PASSWORD'
   else
-    pass 'Compose requires APP_ALLOWED_ORIGINS'
+    pass 'Compose requires the datasource POSTGRES_PASSWORD'
   fi
   tmp_env_roles="$(mktemp "${TMPDIR:-/tmp}/actfb-compose-env-roles.XXXXXX")"
   chmod 600 "$tmp_env_roles"
@@ -447,7 +449,8 @@ if [[ "${ACTFB_TEST_IMAGES:-0}" == "1" ]]; then
       bin="$1"
       test "$(id -u)" = 10001
       test -x "/app/$bin"
-      test -r /app/config.yml
+      test "$CONFIG_FILE" = /app/config.yaml
+      test -r /app/config.yaml
       command -v curl >/dev/null
       for other in backend notification retention events-dispatcher file-scanner storage-init plugin-runner ad-worker instance-worker; do
         if [ "$other" != "$bin" ]; then test ! -e "/app/$other"; fi

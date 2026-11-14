@@ -47,9 +47,54 @@ PY
 )"
 
 POSTGRES_PASSWORD="$(openssl rand -hex 24)"
-JWT_ACCESS_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
-JWT_REFRESH_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
+JWT_ACCESS_SECRET="$(openssl rand -hex 48)"
+JWT_REFRESH_SECRET="$(openssl rand -hex 48)"
 PUBLIC_ORIGIN="http://127.0.0.1:${FRONTEND_PORT}"
+CONFIG_FILE_PATH="$WORKDIR/config.yaml"
+cat >"$CONFIG_FILE_PATH" <<EOF
+jwt:
+  access:
+    secret: ${JWT_ACCESS_SECRET}
+    expiry: 900
+  refresh:
+    secret: ${JWT_REFRESH_SECRET}
+    expiry: 604800
+web_app:
+  app_host: 0.0.0.0
+  port: 8080
+  secure_cookies: false
+  allowed_origins: [${PUBLIC_ORIGIN}]
+  trusted_proxies: []
+security:
+  email_verify: false
+  email_verify_period: 15m
+  auth_rate_limit_backend: memory
+  password_reset_period: 15m
+email:
+  enabled: false
+  templates_dir: /app/email_templates
+deployment:
+  enabled: false
+  key_version: 1
+plugins:
+  enabled: false
+files:
+  enabled: false
+  require_clamav: true
+attack_defense:
+  enabled: false
+integrations:
+  enabled: false
+retention:
+  days: 7
+  interval: 1h
+  batch_size: 500
+  max_batches: 100
+  run_timeout: 5m
+EOF
+chmod 0600 "$CONFIG_FILE_PATH"
+docker run --rm --user 0:0 -v "$CONFIG_FILE_PATH:/config.yaml" --entrypoint /bin/sh "$BACKEND_IMAGE" \
+  -c 'chgrp 10001 /config.yaml && chmod 640 /config.yaml'
 
 cleanup() {
   status=$?
@@ -93,7 +138,8 @@ docker exec "$PG" psql -U actfb_smoke -d actfb_smoke -tAc 'select 1' >/dev/null
 
 docker run -d --name "$BACKEND" --network "$NETWORK" --network-alias backend \
   -p "127.0.0.1:${BACKEND_PORT}:8080" \
-  -e CONFIG_FILE=/app/config.yml \
+  -v "$CONFIG_FILE_PATH:/app/config.yaml:ro" \
+  -e CONFIG_FILE=/app/config.yaml \
   -e POSTGRES_HOST="$PG" \
   -e POSTGRES_PORT=5432 \
   -e POSTGRES_USER=actfb_smoke \
@@ -102,12 +148,6 @@ docker run -d --name "$BACKEND" --network "$NETWORK" --network-alias backend \
   -e POSTGRES_SSLMODE=disable \
   -e POSTGRES_TIMEZONE=UTC \
   -e POSTGRES_MIGRATIONS_PATH=/app/migrations \
-  -e JWT_ACCESS_SECRET="$JWT_ACCESS_SECRET" \
-  -e JWT_REFRESH_SECRET="$JWT_REFRESH_SECRET" \
-  -e APP_SECURE_COOKIES=false \
-  -e APP_ALLOWED_ORIGINS="$PUBLIC_ORIGIN" \
-  -e AUTH_RATE_LIMIT_BACKEND=memory \
-  -e SMTP_ENABLED=false \
   "$BACKEND_IMAGE" >/dev/null
 
 for _ in $(seq 1 90); do
@@ -118,7 +158,8 @@ curl -fsS "http://127.0.0.1:${BACKEND_PORT}/ready" >/dev/null
 curl -fsS "http://127.0.0.1:${BACKEND_PORT}/health" | grep -q '"status":"ok"'
 
 docker run --rm --network "$NETWORK" \
-  -e CONFIG_FILE=/app/config.yml \
+  -v "$CONFIG_FILE_PATH:/app/config.yaml:ro" \
+  -e CONFIG_FILE=/app/config.yaml \
   -e POSTGRES_HOST="$PG" \
   -e POSTGRES_PORT=5432 \
   -e POSTGRES_USER=actfb_smoke \
@@ -126,7 +167,6 @@ docker run --rm --network "$NETWORK" \
   -e POSTGRES_DBNAME=actfb_smoke \
   -e POSTGRES_SSLMODE=disable \
   -e POSTGRES_TIMEZONE=UTC \
-  -e AUTH_RETENTION_DAYS=7 \
   "$RETENTION_IMAGE" /app/retention --once --run-timeout=30s >/dev/null
 
 docker run -d --name "$FRONTEND" --network "$NETWORK" \
