@@ -123,6 +123,8 @@ services:
       - --run-timeout=5m
     environment:
       <<: *postgres-environment
+      POSTGRES_USER: ${RETENTION_POSTGRES_USER:-${POSTGRES_USER:-actfb}}
+      POSTGRES_PASSWORD: ${RETENTION_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}}
       AUTH_RETENTION_DAYS: ${AUTH_RETENTION_DAYS:-7}
     depends_on:
       postgres:
@@ -142,6 +144,8 @@ services:
     restart: unless-stopped
     environment:
       <<: [*postgres-environment, *nats-environment]
+      POSTGRES_USER: ${EVENTS_POSTGRES_USER:-${POSTGRES_USER:-actfb}}
+      POSTGRES_PASSWORD: ${EVENTS_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}}
     depends_on:
       postgres:
         condition: service_healthy
@@ -205,6 +209,8 @@ services:
     restart: unless-stopped
     environment:
       <<: [*postgres-environment, *nats-environment]
+      POSTGRES_USER: ${SCANNER_POSTGRES_USER:-${POSTGRES_USER:-actfb}}
+      POSTGRES_PASSWORD: ${SCANNER_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}}
       ACTFB_FILES_ENABLED: "true"
       ACTFB_FILE_SCAN_KEY: ${ACTFB_FILE_SCAN_KEY:-}
       CLAMAV_ADDRESS: ${CLAMAV_ADDRESS:-}
@@ -265,6 +271,8 @@ services:
     restart: unless-stopped
     environment:
       <<: [*postgres-environment, *nats-environment]
+      POSTGRES_USER: ${AD_POSTGRES_USER:-${POSTGRES_USER:-actfb}}
+      POSTGRES_PASSWORD: ${AD_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}}
       ACTFB_CREDENTIAL_ENCRYPTION_KEY: ${ACTFB_CREDENTIAL_ENCRYPTION_KEY:-}
       ACTFB_CREDENTIAL_KEY_VERSION: ${ACTFB_CREDENTIAL_KEY_VERSION:-1}
       ACTFB_AD_RUNNER_IMAGES: ${ACTFB_AD_RUNNER_IMAGES:-}
@@ -295,6 +303,8 @@ services:
     restart: unless-stopped
     environment:
       <<: [*postgres-environment, *nats-environment]
+      POSTGRES_USER: ${RUNTIME_POSTGRES_USER:-${POSTGRES_USER:-actfb}}
+      POSTGRES_PASSWORD: ${RUNTIME_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}}
       ACTFB_CREDENTIAL_ENCRYPTION_KEY: ${ACTFB_CREDENTIAL_ENCRYPTION_KEY:-}
       ACTFB_CREDENTIAL_KEY_VERSION: ${ACTFB_CREDENTIAL_KEY_VERSION:-1}
       ACTFB_INSTANCE_WORKER_DOCKER_SOCKET: /var/run/docker.sock

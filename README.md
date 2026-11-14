@@ -42,7 +42,11 @@ The Compose file uses the public images:
 ```text
 ghcr.io/nrf24l01/actfb-backend:latest
 ghcr.io/nrf24l01/actfb-frontend:latest
+ghcr.io/nrf24l01/actfb-retention:latest
+ghcr.io/nrf24l01/actfb-events-dispatcher:latest
 ```
+
+Optional profiles select the remaining notification/file/plugin/AD/runtime worker images.
 
 For a reproducible deployment or rollback, set `ACTFB_IMAGE_TAG=sha-<full-git-sha>` in `.env.prod`.
 Only the frontend is published, and only on loopback. Put a TLS terminator in front of it before exposing
@@ -103,9 +107,9 @@ browser -> frontend nginx :8080 -> backend :8080 -> PostgreSQL
 retention / events / optional worker images run as separate containers
 ```
 
-The backend image is non-root and does not receive a Docker socket. The shared image includes `git` and the
-Docker CLI only because `ad-worker` genuinely needs them; the HTTP backend does not. Instance and plugin
-workers that need a container daemon are separate, trusted, opt-in services.
+The backend image is non-root and does not receive a Docker socket. Only the `ad-worker` image includes
+`git` and Docker CLI; the backend and all other workers do not. Instance and plugin workers that need a
+container daemon are separate, trusted, opt-in services.
 
 Links: [architecture](docs/architecture.puml), [backend bootstrap](docs/backend-bootstrap.md),
 [production](docs/production.md), [deployment templates](docs/deployment-templates.md),

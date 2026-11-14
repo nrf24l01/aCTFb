@@ -159,6 +159,55 @@ file scanner. The socket workers (`plugin-runner`, `ad-worker`, `instance-worker
 `ACTFB_DOCKER_GID="$(stat -c %g /var/run/docker.sock)"`. The AD worker alone has `git` and Docker CLI in its
 image.
 
+Profile prerequisites (the profile alone is not sufficient):
+
+- **email:** `SMTP_ENABLED=true`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, and credentials if required; set
+  `EMAIL_VERIFY_ENABLED=true` only when verification is wanted.
+- **files:** `ACTFB_FILES_ENABLED=true`, `ACTFB_FILE_SCAN_KEY="$(openssl rand -base64 32)"`, `S3_*`, and
+  `CLAMAV_ADDRESS` when `CLAMAV_REQUIRED=true`.
+- **plugins:** `ACTFB_PLUGINS_ENABLED=true`, `ACTFB_PLUGIN_SERVICE_KEY="$(openssl rand -base64 32)"`,
+  `ACTFB_PLUGIN_RUNNER_URL=http://127.0.0.2:8092`, and a distinct
+  `ACTFB_PLUGIN_RUNNER_TOKEN="$(openssl rand -hex 32)"`. The asset-origin caveat still applies.
+- **ad:** `ACTFB_AD_ENABLED=true`, a generated `ACTFB_CREDENTIAL_ENCRYPTION_KEY`, and a non-empty
+  `ACTFB_AD_RUNNER_IMAGES` list of immutable `name@sha256:...` references.
+- **runtime:** `ACTFB_RUNTIME_ENABLED=true` and the same generated credential key; enable integrations
+  explicitly if needed.
+
+Profile flags alone do not enable backend features or provision credentials. The operator must set the matching
+`ACTFB_*_ENABLED` flag and required keys, and the optional workers are not a claim of full production isolation
+acceptance.
+
+## PostgreSQL roles and worker isolation
+
+**Security warning:** the current default baseline uses `POSTGRES_USER` — the initialization superuser — for
+the backend and every database worker. That is a single-role baseline, **not** production least privilege.
+Profile flags do not create roles. The optional overrides below do **not** provision roles either; unset values
+fall back to the shared `POSTGRES_USER`.
+
+Production operators MUST provision dedicated least-privilege roles and set the matching overrides:
+
+```text
+RETENTION_POSTGRES_USER / RETENTION_POSTGRES_PASSWORD
+EVENTS_POSTGRES_USER / EVENTS_POSTGRES_PASSWORD
+SCANNER_POSTGRES_USER / SCANNER_POSTGRES_PASSWORD
+AD_POSTGRES_USER / AD_POSTGRES_PASSWORD
+RUNTIME_POSTGRES_USER / RUNTIME_POSTGRES_PASSWORD
+```
+
+Known minimum scopes from the current documentation and code:
+
+- **retention:** `SELECT`/`DELETE` only on `auth_sessions`, `auth_email_verifications`, and
+  `auth_password_resets`. See `docs/auth-retention.md`.
+- **file-scanner:** the exact SQL grant set in `docs/files-scanning.md` for the file/attachment and referenced
+  board/module/submission tables; use a separate S3 credential limited to `quarantine/*` and `clean/*`.
+- **events-dispatcher:** schema usage plus `SELECT`/`UPDATE` on `events_outbox`; it does not insert outbox rows.
+- **AD and runtime workers:** the current docs do not define a complete grant matrix. Their actual queries span
+  `ad_*` tables plus supporting board/module/team/integration/audit rows, and runtime instance/deployment tables.
+  Derive the exact grants from the deployed schema and review them; do not grant all tables as a shortcut.
+
+Workers remain on the same Docker host as the backend. This is container/process separation, not a claim that
+untrusted host code or a compromised Docker socket is isolated.
+
 ## Pull verification
 
 After the first successful Actions publish, verify public anonymous access without reusing a local login:
