@@ -11,9 +11,15 @@ if [[ "$DOCKER_HOST" == *podman* ]]; then
 fi
 export DOCKER_HOST
 
-BACKEND_IMAGE="${ACTFB_BACKEND_IMAGE:-actfb-backend:local}"
-FRONTEND_IMAGE="${ACTFB_FRONTEND_IMAGE:-actfb-frontend:local}"
-for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
+suffix="${ACTFB_IMAGE_SUFFIX:-local}"
+BACKEND_IMAGE="actfb-backend:${suffix}"
+FRONTEND_IMAGE="actfb-frontend:${suffix}"
+worker_targets=(notification retention events-dispatcher file-scanner storage-init plugin-runner ad-worker instance-worker)
+worker_images=()
+for target in "${worker_targets[@]}"; do
+  worker_images+=("actfb-${target}:${suffix}")
+done
+for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "${worker_images[@]}"; do
   docker image inspect "$image" >/dev/null 2>&1 || {
     echo "missing local image: $image" >&2
     exit 1
@@ -25,6 +31,10 @@ PROJECT="actfb-auth-proxy-${RUN_ID}"
 TAG="review-${RUN_ID}"
 BACKEND_REF="ghcr.io/nrf24l01/actfb-backend:${TAG}"
 FRONTEND_REF="ghcr.io/nrf24l01/actfb-frontend:${TAG}"
+worker_refs=()
+for target in "${worker_targets[@]}"; do
+  worker_refs+=("ghcr.io/nrf24l01/actfb-${target}:${TAG}")
+done
 WORKDIR="${TMPDIR:-/tmp}/opencode/${PROJECT}"
 mkdir -p "$WORKDIR"
 chmod 700 "$WORKDIR"
@@ -79,7 +89,7 @@ cleanup() {
   docker compose --env-file "$ENV_FILE" -p "$PROJECT" -f docker-compose.prod.yaml logs --no-color >"$WORKDIR/compose.log" 2>&1 || true
   for client in "${CLIENTS[@]}"; do docker rm -f "$client" >/dev/null 2>&1 || true; done
   docker compose --env-file "$ENV_FILE" -p "$PROJECT" -f docker-compose.prod.yaml down --volumes --remove-orphans --timeout 20 >/dev/null 2>&1 || true
-  docker image rm "$BACKEND_REF" "$FRONTEND_REF" >/dev/null 2>&1 || true
+  docker image rm "$BACKEND_REF" "$FRONTEND_REF" "${worker_refs[@]}" >/dev/null 2>&1 || true
   rm -f "$ENV_FILE"
   if [[ $rc -ne 0 ]]; then
     echo "auth/proxy smoke failed; logs under $WORKDIR" >&2
@@ -93,6 +103,9 @@ trap cleanup EXIT
 
 docker tag "$BACKEND_IMAGE" "$BACKEND_REF"
 docker tag "$FRONTEND_IMAGE" "$FRONTEND_REF"
+for index in "${!worker_targets[@]}"; do
+  docker tag "${worker_images[$index]}" "${worker_refs[$index]}"
+done
 docker compose --env-file "$ENV_FILE" -p "$PROJECT" -f docker-compose.prod.yaml up -d >"$WORKDIR/up.log" 2>&1
 
 for _ in $(seq 1 120); do

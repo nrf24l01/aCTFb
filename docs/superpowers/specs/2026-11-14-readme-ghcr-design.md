@@ -44,3 +44,13 @@ Tags: `latest` and immutable `sha-<full-git-sha>`.
 - Run backend with a temporary PostgreSQL container; wait for `/ready`; run frontend; check `/healthz`, SPA deep link, and `/api/` proxy.
 - Validate workflow YAML with actionlint if obtainable.
 - After push, watch one Actions run, verify published tags, amd64 manifest, public anonymous pull, and record digests and sizes in `docs/ghcr-verification.md`.
+## Approved amendment: one process per worker image
+
+The original shared backend/worker image is superseded for production. Each worker now has its own minimal
+Docker target and GHCR package, while the backend image contains only the backend binary, migrations, templates,
+config, and the plugin data root. The eight worker images are `actfb-notification`, `actfb-retention`,
+`actfb-events-dispatcher`, `actfb-file-scanner`, `actfb-storage-init`, `actfb-plugin-runner`, `actfb-ad-worker`,
+and `actfb-instance-worker`. Only the AD worker gets `git`/Docker CLI; only trusted socket workers get the
+daemon socket at runtime. Workers have no healthcheck/endpoint. Production Compose retains four Actions jobs
+and uses Docker Bake for the ten-image publish set. The dedicated proxy bridge, exact-origin requirement, XFF
+overwrite, and non-root plugin root remain unchanged.

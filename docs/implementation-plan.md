@@ -672,8 +672,9 @@ GHCR publication. No product-domain behavior was changed.
 
 - `README.md` is the public entry point; `docs/production.md` owns the prebuilt-image runtime contract and
   rollback/TLS/email/plugin limitations.
-- `Dockerfile` builds the shared backend/worker image; `frontend/Dockerfile` and `frontend/nginx.conf` build and
-  serve the SPA with `/healthz` and `/api/` proxy.
+- `Dockerfile` builds independent backend/worker targets; each worker image copies only its own binary and
+  required files. `frontend/Dockerfile` and `frontend/nginx.conf` build and serve the SPA with `/healthz` and
+  `/api/` proxy.
 - `config.prod.yml` is secret-free; `.env.prod.example` and `docker-compose.prod.yaml` select prebuilt GHCR images.
 - `.github/workflows/go.yml` has the approved four jobs: `backend` and `frontend` quality, serial `integration`
   with the existing critical coverage plus container smoke, and main/manual-main-only `publish`.

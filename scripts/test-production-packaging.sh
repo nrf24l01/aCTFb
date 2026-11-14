@@ -37,12 +37,16 @@ require_file config.prod.yml
 require_file docker-compose.prod.yaml
 require_file .env.prod.example
 require_file frontend/realip.conf
+require_file docker-bake.hcl
 require_file scripts/test-production-runtime.sh
 require_file scripts/test-production-auth-proxy.sh
 
 require_pattern README.md 'badge\.svg' 'README has a CI badge'
 require_pattern README.md 'ghcr\.io/nrf24l01/actfb-backend' 'README names backend GHCR image'
 require_pattern README.md 'ghcr\.io/nrf24l01/actfb-frontend' 'README names frontend GHCR image'
+for image in notification retention events-dispatcher file-scanner storage-init plugin-runner ad-worker instance-worker; do
+  require_pattern README.md "actfb-${image}" "README names actfb-${image}"
+done
 require_pattern README.md 'sha-' 'README documents immutable sha tag'
 require_pattern README.md 'docker compose' 'README has prebuilt-image quickstart'
 require_pattern README.md 'MIT' 'README states MIT license'
@@ -54,7 +58,10 @@ require_pattern docs/production.md 'Docker' 'production docs are Docker-only'
 require_pattern docs/production.md 'plugin' 'production docs mention plugin caveat'
 require_pattern docs/production.md 'ACTFB_PROXY_SUBNET' 'production docs explain the proxy subnet trust value'
 require_pattern docs/production.md 'APP_ALLOWED_ORIGINS' 'production docs require the exact public origin'
-require_pattern docs/production.md '\-\-no-healthcheck' 'production docs explain worker healthcheck overrides'
+for image in notification retention events-dispatcher file-scanner storage-init plugin-runner ad-worker instance-worker; do
+  require_pattern docs/production.md "actfb-${image}" "production docs name the ${image} image"
+done
+require_pattern docs/production.md 'profiles' 'production docs explain worker profiles'
 require_pattern README.md 'APP_ALLOWED_ORIGINS' 'README requires the exact public origin'
 
 require_pattern Dockerfile '^# syntax=docker/dockerfile:1' 'backend Dockerfile uses BuildKit syntax'
@@ -73,7 +80,7 @@ require_pattern Dockerfile 'git' 'backend runtime has git for ad-worker'
 require_pattern Dockerfile 'docker-cli' 'backend runtime has Docker CLI for ad-worker'
 require_pattern Dockerfile 'addgroup' 'backend runtime creates a group'
 require_pattern Dockerfile 'USER 10001:10001' 'backend runtime is non-root'
-require_pattern Dockerfile 'COPY --from=build' 'backend runtime copies only build outputs'
+require_pattern Dockerfile 'COPY .*--from=build' 'runtime targets copy only build outputs'
 require_pattern Dockerfile 'migrations' 'backend image includes migrations'
 require_pattern Dockerfile 'email_templates' 'backend image includes email templates'
 require_pattern Dockerfile 'config\.prod\.yml' 'backend image includes production config'
@@ -92,9 +99,26 @@ else
   pass 'backend final stage is source/toolchain free'
 fi
 
-for binary in backend notification retention events-dispatcher file-scanner storage-init plugin-runner ad-worker instance-worker; do
-  if grep -Eq "\\b${binary}\\b" Dockerfile; then pass "backend image builds $binary"; else fail "backend image omits $binary"; fi
+for target in backend notification retention events-dispatcher file-scanner storage-init plugin-runner ad-worker instance-worker; do
+  require_pattern Dockerfile "^FROM runtime AS ${target}$" "Dockerfile has separate ${target} target"
 done
+if [[ "$(grep -c '^HEALTHCHECK' Dockerfile)" == "1" ]]; then
+  pass 'only the backend target declares a healthcheck'
+else
+  fail 'worker targets must not inherit/declare a healthcheck'
+fi
+require_pattern Dockerfile 'RUN apk add --no-cache git docker-cli' 'only ad-worker installs git and Docker CLI'
+require_pattern frontend/Dockerfile 'https://github\.com/nrf24l01/actfb' 'frontend OCI source label is lowercase'
+for image in backend frontend notification retention events-dispatcher file-scanner storage-init plugin-runner ad-worker instance-worker; do
+  require_pattern docker-bake.hcl "-${image}:" "bake publishes actfb-${image}"
+done
+require_pattern docker-bake.hcl 'platforms  = \["linux/amd64"\]|platforms = \["linux/amd64"\]' 'bake platform is linux/amd64'
+require_pattern docker-bake.hcl 'provenance = false' 'bake disables provenance attestations'
+require_pattern docker-bake.hcl 'scope=actfb-backend' 'bake backend cache scope is separated'
+require_pattern docker-bake.hcl 'scope=actfb-frontend' 'bake frontend cache scope is separated'
+require_pattern docker-bake.hcl '\$\{SHA_TAG\}' 'bake uses immutable SHA tags'
+require_pattern docker-bake.hcl 'org\.opencontainers\.image\.source' 'bake labels OCI source'
+require_pattern docker-bake.hcl 'org\.opencontainers\.image\.revision' 'bake labels OCI revision'
 
 require_pattern frontend/Dockerfile 'FROM oven/bun:1\.4\.4-alpine@sha256:' 'frontend builder pins Bun digest'
 require_pattern frontend/Dockerfile 'FROM nginxinc/nginx-unprivileged:[0-9]+\.[0-9]+-alpine@sha256:' 'frontend runtime pins unprivileged nginx digest'
@@ -191,18 +215,19 @@ require_pattern .github/workflows/go.yml 'scripts/\*\*' 'workflow triggers on pa
 require_pattern .github/workflows/go.yml 'frontend/\.dockerignore' 'workflow triggers on frontend build context'
 require_pattern .github/workflows/go.yml 'docker-compose\.prod\.yaml' 'workflow triggers on prod compose'
 require_pattern .github/workflows/go.yml 'config\.prod\.yml' 'workflow triggers on prod config'
-require_pattern .github/workflows/go.yml 'docker/build-push-action@' 'workflow uses official build-push action'
+require_pattern .github/workflows/go.yml 'docker-bake\.hcl' 'workflow triggers on bake definition'
+require_pattern .github/workflows/go.yml 'docker/bake-action@v7' 'workflow uses official bake action'
 require_pattern .github/workflows/go.yml 'docker/login-action@' 'workflow uses official login action'
 require_pattern .github/workflows/go.yml 'docker/setup-buildx-action@' 'workflow uses official Buildx action'
-require_pattern .github/workflows/go.yml 'platforms: linux/amd64' 'workflow builds only linux/amd64'
-require_pattern .github/workflows/go.yml 'cache-from: type=gha' 'workflow uses GHA build cache'
-require_pattern .github/workflows/go.yml 'scope=actfb-backend' 'backend cache scope is separated'
+require_pattern .github/workflows/go.yml '\-\-platform linux/amd64' 'workflow builds only linux/amd64'
+require_pattern .github/workflows/go.yml 'type=gha' 'workflow uses GHA build cache'
+require_pattern .github/workflows/go.yml 'scope=actfb-\$\{target\}' 'worker cache scopes are separated'
 require_pattern .github/workflows/go.yml 'scope=actfb-frontend' 'frontend cache scope is separated'
-require_pattern .github/workflows/go.yml 'ghcr\.io/nrf24l01/actfb-backend' 'workflow names backend image'
-require_pattern .github/workflows/go.yml 'ghcr\.io/nrf24l01/actfb-frontend' 'workflow names frontend image'
+require_pattern .github/workflows/go.yml 'actfb-\$\{target\}:ci' 'integration builds every worker image'
+require_pattern .github/workflows/go.yml 'Build all production images' 'integration builds all production targets'
 require_pattern .github/workflows/go.yml 'sha-\$\{\{ github.sha \}\}' 'workflow publishes immutable full-SHA tags'
-require_pattern .github/workflows/go.yml 'org\.opencontainers\.image\.source' 'workflow labels image source'
-require_pattern .github/workflows/go.yml 'org\.opencontainers\.image\.revision' 'workflow labels image revision'
+require_pattern .github/workflows/go.yml 'Publish containers' 'publish runs one bake step'
+require_pattern .github/workflows/go.yml 'LATEST_TAG' 'publish passes latest tag to bake'
 require_pattern .github/workflows/go.yml 'packages: write' 'workflow grants package write only for publish'
 require_pattern .github/workflows/go.yml 'contents: read' 'workflow grants global contents read'
 require_pattern .github/workflows/go.yml 'github\.ref == .refs/heads/main.' 'publish is main-only'
@@ -245,21 +270,50 @@ if command -v docker >/dev/null 2>&1; then
     'JWT_ACCESS_SECRET=contract-access-secret-0123456789abcdef' \
     'JWT_REFRESH_SECRET=contract-refresh-secret-0123456789abcdef' \
     'APP_ALLOWED_ORIGINS=https://ctf.example:8443' >"$tmp_env"
-  compose_json="$(env -u ACTFB_PROXY_SUBNET docker compose --env-file "$tmp_env" -f docker-compose.prod.yaml config --format json)"
+  compose_json="$(env -u ACTFB_PROXY_SUBNET docker compose --env-file "$tmp_env" --profile email --profile files --profile plugins --profile ad --profile runtime -f docker-compose.prod.yaml config --format json)"
   if jq -e '.networks["actfb-proxy"].ipam.config[0].subnet == "10.213.77.0/28"
     and .services.backend.environment.APP_TRUSTED_PROXIES == "10.213.77.0/28"
     and (.services.backend.networks | keys | sort) == ["actfb-net","actfb-proxy"]
     and (.services.frontend.networks | keys) == ["actfb-proxy"]
     and (.services.postgres.networks | keys) == ["actfb-net"]
-    and (.services.backend.volumes | map(select(.target == "/app/plugins")) | length) == 1' >/dev/null <<<"$compose_json"; then
-    pass 'real Compose config scopes proxy trust and plugin volume'
+    and (.services.backend.volumes | map(select(.target == "/app/plugins")) | length) == 1
+    and (.services.backend | [.volumes[]? | select(.source == "/var/run/docker.sock")] | length) == 0
+    and .services.backend.image == "ghcr.io/nrf24l01/actfb-backend:latest"
+    and .services.frontend.image == "ghcr.io/nrf24l01/actfb-frontend:latest"
+    and .services["notification"].image == "ghcr.io/nrf24l01/actfb-notification:latest"
+    and .services["retention"].image == "ghcr.io/nrf24l01/actfb-retention:latest"
+    and .services["events-dispatcher"].image == "ghcr.io/nrf24l01/actfb-events-dispatcher:latest"
+    and .services["file-scanner"].image == "ghcr.io/nrf24l01/actfb-file-scanner:latest"
+    and .services["storage-init"].image == "ghcr.io/nrf24l01/actfb-storage-init:latest"
+    and .services["plugin-runner"].image == "ghcr.io/nrf24l01/actfb-plugin-runner:latest"
+    and .services["ad-worker"].image == "ghcr.io/nrf24l01/actfb-ad-worker:latest"
+    and .services["instance-worker"].image == "ghcr.io/nrf24l01/actfb-instance-worker:latest"
+    and (.services["notification"].profiles == ["email"])
+    and (.services["file-scanner"].profiles == ["files"])
+    and (.services["storage-init"].profiles == ["files"])
+    and (.services["plugin-runner"].profiles == ["plugins"])
+    and (.services["ad-worker"].profiles == ["ad"])
+    and (.services["instance-worker"].profiles == ["runtime"])
+    and .services["storage-init"].restart == "no"
+    and .services["file-scanner"].depends_on["storage-init"].condition == "service_completed_successfully"
+    and .services["plugin-runner"].network_mode == "service:backend"
+    and (.services["retention"] | has("healthcheck") | not)
+    and (.services["notification"] | has("healthcheck") | not)
+    and (.services["retention"].environment | has("JWT_ACCESS_SECRET") | not)
+    and (.services["notification"].environment | has("JWT_ACCESS_SECRET") | not)
+    and (.services["ad-worker"].environment | has("JWT_ACCESS_SECRET") | not)
+    and (.services["instance-worker"].environment | has("JWT_ACCESS_SECRET") | not)
+    and ([.services["plugin-runner"].volumes[]? | select(.source == "/var/run/docker.sock")] | length) == 1
+    and ([.services["ad-worker"].volumes[]? | select(.source == "/var/run/docker.sock")] | length) == 1
+    and ([.services["instance-worker"].volumes[]? | select(.source == "/var/run/docker.sock")] | length) == 1' >/dev/null <<<"$compose_json"; then
+    pass 'real Compose config uses separate worker images/profiles and scoped socket access'
   else
-    fail 'real Compose config does not match the proxy/trust/volume contract'
+    fail 'real Compose config does not match the worker/proxy/volume contract'
   fi
   tmp_env_missing="$(mktemp "${TMPDIR:-/tmp}/actfb-compose-env-missing.XXXXXX")"
   chmod 600 "$tmp_env_missing"
   grep -v '^APP_ALLOWED_ORIGINS=' "$tmp_env" >"$tmp_env_missing"
-  if env -u APP_ALLOWED_ORIGINS docker compose --env-file "$tmp_env_missing" -f docker-compose.prod.yaml config --quiet >/dev/null 2>&1; then
+  if env -u APP_ALLOWED_ORIGINS docker compose --env-file "$tmp_env_missing" --profile email --profile files --profile plugins --profile ad --profile runtime -f docker-compose.prod.yaml config --quiet >/dev/null 2>&1; then
     fail 'Compose accepts a missing APP_ALLOWED_ORIGINS'
   else
     pass 'Compose requires APP_ALLOWED_ORIGINS'
@@ -270,56 +324,126 @@ else
 fi
 
 if [[ "${ACTFB_TEST_IMAGES:-0}" == "1" ]]; then
-  BACKEND_IMAGE="${ACTFB_BACKEND_IMAGE:-actfb-backend:local}"
-  FRONTEND_IMAGE="${ACTFB_FRONTEND_IMAGE:-actfb-frontend:local}"
-  if ! docker image inspect "$BACKEND_IMAGE" >/dev/null 2>&1; then fail "backend image not found: $BACKEND_IMAGE"; fi
-  if ! docker image inspect "$FRONTEND_IMAGE" >/dev/null 2>&1; then fail "frontend image not found: $FRONTEND_IMAGE"; fi
+  image_suffix="${ACTFB_IMAGE_SUFFIX:-local}"
+  app_targets=(backend notification retention events-dispatcher file-scanner storage-init plugin-runner ad-worker instance-worker)
+  for target in "${app_targets[@]}"; do
+    image="actfb-${target}:${image_suffix}"
+    docker image inspect "$image" >/dev/null 2>&1 || fail "missing image: $image"
+  done
+  frontend_image="actfb-frontend:${image_suffix}"
+  docker image inspect "$frontend_image" >/dev/null 2>&1 || fail "missing image: $frontend_image"
 
-  if docker image inspect "$BACKEND_IMAGE" >/dev/null 2>&1; then
-    arch="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$BACKEND_IMAGE")"
-    [[ "$arch" == "linux/amd64" ]] && pass 'backend image is linux/amd64' || fail "backend image arch is $arch"
-    size="$(docker image inspect --format '{{.Size}}' "$BACKEND_IMAGE")"
-    pass "backend image uncompressed size: $size bytes"
-    health="$(docker image inspect --format '{{json .Config.Healthcheck}}' "$BACKEND_IMAGE")"
-    grep -q '/ready' <<<"$health" && pass 'backend image healthcheck targets /ready' || fail 'backend image healthcheck missing /ready'
-    if docker run --rm --entrypoint /bin/sh "$BACKEND_IMAGE" -c '
+  for target in "${app_targets[@]}"; do
+    image="actfb-${target}:${image_suffix}"
+    docker image inspect "$image" >/dev/null 2>&1 || continue
+    arch="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
+    [[ "$arch" == "linux/amd64" ]] && pass "${target} image is linux/amd64" || fail "${target} image arch is $arch"
+    size="$(docker image inspect --format '{{.Size}}' "$image")"
+    pass "${target} uncompressed size: $size bytes"
+    health="$(docker image inspect --format '{{json .Config.Healthcheck}}' "$image")"
+    if [[ "$target" == "backend" ]]; then
+      grep -q '/ready' <<<"$health" && pass 'backend image healthcheck targets /ready' || fail 'backend image healthcheck missing /ready'
+    else
+      if [[ "$health" == "null" || "$health" == "" ]]; then pass "${target} has no healthcheck"; else fail "${target} unexpectedly declares a healthcheck"; fi
+    fi
+
+    if docker run --rm --entrypoint /bin/sh "$image" -c '
       set -eu
+      bin="$1"
       test "$(id -u)" = 10001
-      test -x /app/backend
-      for b in notification retention events-dispatcher file-scanner storage-init plugin-runner ad-worker instance-worker; do test -x "/app/$b"; done
-      test -r /app/migrations/001_init.sql
-      test -r /app/migrations/016_instance_text.sql
-      test -r /app/email_templates/verification/subject.tmpl
+      test -x "/app/$bin"
       test -r /app/config.yml
-      test -d /app/plugins
-      test "$(stat -c %a /app/plugins)" != 777
-      mkdir /app/plugins/contract-smoke
-      rmdir /app/plugins/contract-smoke
-      test ! -e /usr/local/go
-      test ! -e /app/node_modules
-      test ! -e /app/go.mod
       command -v curl >/dev/null
-      command -v git >/dev/null
-      command -v docker >/dev/null
-    '; then pass 'backend image contents/user/health/plugin root are correct'; else fail 'backend image contents/user/health/plugin root check failed'; fi
+      for other in backend notification retention events-dispatcher file-scanner storage-init plugin-runner ad-worker instance-worker; do
+        if [ "$other" != "$bin" ]; then test ! -e "/app/$other"; fi
+      done
+      test ! -e /usr/local/go
+      test ! -e /app/go.mod
+      test ! -e /app/node_modules
+      test ! -e /usr/local/bin/bun
+      case "$bin" in
+        backend)
+          test -r /app/migrations/001_init.sql
+          test -r /app/migrations/016_instance_text.sql
+          test -r /app/email_templates/verification/subject.tmpl
+          test -d /app/plugins
+          test "$(stat -c %a /app/plugins)" != 777
+          mkdir /app/plugins/contract-smoke
+          rmdir /app/plugins/contract-smoke
+          if command -v git >/dev/null; then exit 1; fi
+          if command -v docker >/dev/null; then exit 1; fi
+          ;;
+        notification)
+          test -r /app/email_templates/verification/subject.tmpl
+          test ! -e /app/migrations
+          test ! -e /app/plugins
+          if command -v git >/dev/null; then exit 1; fi
+          if command -v docker >/dev/null; then exit 1; fi
+          ;;
+        ad-worker)
+          test ! -e /app/migrations
+          command -v git >/dev/null
+          command -v docker >/dev/null
+          ;;
+        *)
+          test ! -e /app/migrations
+          test ! -e /app/email_templates
+          test ! -e /app/plugins
+          if command -v git >/dev/null; then exit 1; fi
+          if command -v docker >/dev/null; then exit 1; fi
+          ;;
+      esac
+    ' sh "$target"; then
+      pass "${target} image has exactly its own entrypoint and minimal runtime files"
+    else
+      fail "${target} image contents/tooling check failed"
+    fi
 
     tmpdir="$(mktemp -d)"
-    cid="$(docker create "$BACKEND_IMAGE")"
-    docker cp "$cid:/app/backend" "$tmpdir/backend" >/dev/null
+    cid="$(docker create "$image")"
+    docker cp "$cid:/app/${target}" "$tmpdir/${target}" >/dev/null
     docker rm "$cid" >/dev/null
-    file_out="$(file "$tmpdir/backend")"
-    grep -q 'statically linked' <<<"$file_out" && pass 'backend binary is statically linked' || fail "backend binary is not static: $file_out"
-    grep -q 'stripped' <<<"$file_out" && pass 'backend binary is stripped' || fail "backend binary is not stripped: $file_out"
-    if readelf -d "$tmpdir/backend" 2>&1 | grep -q '(NEEDED)'; then fail 'backend binary has dynamic dependencies'; else pass 'backend binary has no dynamic dependencies'; fi
+    file_out="$(file "$tmpdir/${target}")"
+    grep -q 'statically linked' <<<"$file_out" && pass "${target} binary is statically linked" || fail "${target} binary is not static: $file_out"
+    grep -q 'stripped' <<<"$file_out" && pass "${target} binary is stripped" || fail "${target} binary is not stripped: $file_out"
+    if readelf -d "$tmpdir/${target}" 2>&1 | grep -q '(NEEDED)'; then fail "${target} binary has dynamic dependencies"; else pass "${target} binary has no dynamic dependencies"; fi
     rm -rf "$tmpdir"
-  fi
+  done
 
-  if docker image inspect "$FRONTEND_IMAGE" >/dev/null 2>&1; then
-    arch="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$FRONTEND_IMAGE")"
+  expect_worker_failure() {
+    local target="$1" want="$2"
+    local image="actfb-${target}:${image_suffix}"
+    local output
+    if output="$(docker run --rm --entrypoint "/app/${target}" "$image" 2>&1)"; then
+      fail "${target} entrypoint unexpectedly succeeded without dependencies"
+      return
+    fi
+    if grep -q "$want" <<<"$output"; then
+      pass "${target} entrypoint reached expected validation"
+    else
+      fail "${target} entrypoint missing expected message: $want"
+    fi
+  }
+
+  if docker run --rm --entrypoint /app/retention "actfb-retention:${image_suffix}" --help >/dev/null 2>&1; then
+    pass 'retention entrypoint parses its own flags'
+  else
+    fail 'retention entrypoint cannot parse its own flags'
+  fi
+  expect_worker_failure notification 'SMTP is disabled'
+  expect_worker_failure events-dispatcher 'postgres'
+  expect_worker_failure file-scanner 'files are disabled'
+  expect_worker_failure storage-init 'S3_ENDPOINT is required'
+  expect_worker_failure plugin-runner 'ACTFB_PLUGIN_RUNNER_TOKEN'
+  expect_worker_failure ad-worker 'ACTFB_CREDENTIAL_ENCRYPTION_KEY'
+  expect_worker_failure instance-worker 'ACTFB_CREDENTIAL_ENCRYPTION_KEY'
+
+  if docker image inspect "$frontend_image" >/dev/null 2>&1; then
+    arch="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$frontend_image")"
     [[ "$arch" == "linux/amd64" ]] && pass 'frontend image is linux/amd64' || fail "frontend image arch is $arch"
-    size="$(docker image inspect --format '{{.Size}}' "$FRONTEND_IMAGE")"
+    size="$(docker image inspect --format '{{.Size}}' "$frontend_image")"
     pass "frontend image uncompressed size: $size bytes"
-    if docker run --rm --entrypoint /bin/sh "$FRONTEND_IMAGE" -c '
+    if docker run --rm --entrypoint /bin/sh "$frontend_image" -c '
       set -eu
       test "$(id -u)" != 0
       test -r /usr/share/nginx/html/index.html

@@ -10,17 +10,24 @@ For development use `docker-compose.dev.yaml`; for feature acceptance status use
 | --- | --- | --- | --- |
 | `ghcr.io/nrf24l01/actfb-backend` | `latest` | `sha-<full-git-sha>` | `linux/amd64` |
 | `ghcr.io/nrf24l01/actfb-frontend` | `latest` | `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-notification` | `latest` | `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-retention` | `latest` | `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `latest` | `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-file-scanner` | `latest` | `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-storage-init` | `latest` | `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-plugin-runner` | `latest` | `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-ad-worker` | `latest` | `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-instance-worker` | `latest` | `sha-<full-git-sha>` | `linux/amd64` |
 
-Both images carry `org.opencontainers.image.source`, `.revision`, `.version`, and `.licenses` labels.
-The backend image is the shared backend/worker runtime. The frontend image is the Vue build served by
-unprivileged nginx on port 8080.
+The backend image contains only the backend process. Each worker has its own image and container; the
+frontend image is the Vue build served by unprivileged nginx on port 8080.
 
 `latest` is rebuilt only from `main` or an explicitly approved manual run on `main`. Use the `sha-*` tag for
 reproducible deployments and rollback.
 
-Publication is two independent registry pushes, not an atomic pair. A failed second push can leave `latest`
+Publication is ten independent registry pushes, not an atomic pair. A failed worker push can leave `latest`
 mixed until the next successful run repairs it. Rollback and reproducible deployments should select the same
-`sha-*` tag for both images, not `latest`.
+`sha-*` tag for every image, not `latest`.
 
 ## Prerequisites
 
@@ -95,31 +102,31 @@ Frontend:
 - SPA paths fall back to `index.html`.
 - `/api/` is proxied to `backend:8080`; hashed assets are cached immutably.
 
-Worker entrypoints in the shared backend image:
+Each worker is a separate image, container, process, and PID 1. The backend image contains only
+`/app/backend`, migrations, templates, config, and the plugin data root.
 
-```text
-notification       /app/notification
-retention          /app/retention --interval=1h --batch-size=500 --max-batches=100 --run-timeout=5m
-events-dispatcher  /app/events-dispatcher
-file-scanner       /app/file-scanner
-storage-init       /app/storage-init          # one-shot
-plugin-runner      /app/plugin-runner
-ad-worker          /app/ad-worker
-instance-worker    /app/instance-worker
-```
+| Worker | Image | Profile / dependency notes |
+| --- | --- | --- |
+| retention | `actfb-retention` | default; PostgreSQL only |
+| events-dispatcher | `actfb-events-dispatcher` | default; PostgreSQL + NATS |
+| notification | `actfb-notification` | `email`; NATS + SMTP + templates |
+| file-scanner | `actfb-file-scanner` | `files`; PostgreSQL + NATS + S3 + ClamAV |
+| storage-init | `actfb-storage-init` | `files`; one-shot, `restart: "no"` |
+| plugin-runner | `actfb-plugin-runner` | `plugins`; trusted Docker API + loopback control endpoint |
+| ad-worker | `actfb-ad-worker` | `ad`; trusted Docker CLI + git |
+| instance-worker | `actfb-instance-worker` | `runtime`; trusted Go Docker API |
 
-The shared image includes `git` and `docker-cli` because `ad-worker` executes both. The HTTP backend does not
-receive a daemon socket; A+D, plugin-runner, and instance-worker remain trusted opt-in services. Workers have
-no HTTP health endpoint. The image-level backend healthcheck is for `/ready`; Compose disables it for every
-worker service. A direct `docker run` of a worker must use `--no-healthcheck` (or an equivalent Compose
-`healthcheck: disable: true`) rather than reporting a fake healthy worker.
+Only the backend image has a healthcheck (`/ready`). Worker images intentionally declare **no** healthcheck and
+no HTTP endpoint, so Docker does not report a fake healthy worker. Trusted socket workers get the Docker socket
+and `ACTFB_DOCKER_GID` group only on their own service; the backend never mounts it. The plugin runner shares the
+backend network namespace only to expose its token-protected loopback control endpoint.
 
 ## Optional services
 
-The default Compose baseline starts the backend, frontend, PostgreSQL, Redis, NATS, and retention. It does not
-enable files, plugins, A+D, or runtime instances.
+The default Compose baseline starts the backend, frontend, PostgreSQL, Redis, NATS, retention, and
+events-dispatcher. It does not enable files, plugins, A+D, or runtime instances.
 
-Email delivery requires a real SMTP account and the notification worker:
+Email delivery requires a real SMTP account and the notification image:
 
 ```bash
 # Set SMTP_ENABLED=true and the SMTP_* values, then:
@@ -136,6 +143,21 @@ current backend listener binds `127.0.0.2:8091` inside the process. Ordinary Doc
 expose that loopback alias. A production plugin deployment needs a dedicated asset process/container or host
 networking, and a matching frontend CSP/asset origin. Do not claim plugin-enabled production readiness until that
 is implemented and verified.
+
+Optional worker profiles are independent:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yaml --profile files up -d
+docker compose --env-file .env.prod -f docker-compose.prod.yaml --profile plugins up -d
+docker compose --env-file .env.prod -f docker-compose.prod.yaml --profile runtime up -d
+docker compose --env-file .env.prod -f docker-compose.prod.yaml --profile ad up -d
+```
+
+`files` starts `storage-init` as a one-shot bucket initializer and waits for successful completion before the
+file scanner. The socket workers (`plugin-runner`, `ad-worker`, `instance-worker`) require the matching
+`ACTFB_DOCKER_GID`; set it from the host with
+`ACTFB_DOCKER_GID="$(stat -c %g /var/run/docker.sock)"`. The AD worker alone has `git` and Docker CLI in its
+image.
 
 ## Pull verification
 

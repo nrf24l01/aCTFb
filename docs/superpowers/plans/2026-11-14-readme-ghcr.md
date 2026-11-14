@@ -87,3 +87,8 @@ Steps:
 - Production Compose must not publish PostgreSQL, Redis, NATS, or the backend to the host.
 - No CI path filter or job condition may publish from a PR or non-main manual run.
 - No source, caches, secrets, Node, Bun, or Go toolchain may leak into either runtime image.
+## Amendment: independent worker images
+
+Replace the shared worker-image command-override step with individual Dockerfile targets, GHCR packages,
+production services, Bake publication, and per-image packaging checks. Backend/frontend and the proxy/origin
+fixes are unchanged. The four-job workflow shape and serialization policy remain.

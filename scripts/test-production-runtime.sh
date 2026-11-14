@@ -13,8 +13,9 @@ export DOCKER_HOST
 
 BACKEND_IMAGE="${ACTFB_BACKEND_IMAGE:-actfb-backend:local}"
 FRONTEND_IMAGE="${ACTFB_FRONTEND_IMAGE:-actfb-frontend:local}"
+RETENTION_IMAGE="${ACTFB_RETENTION_IMAGE:-actfb-retention:${ACTFB_IMAGE_SUFFIX:-local}}"
 
-for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
+for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$RETENTION_IMAGE"; do
   if ! docker image inspect "$image" >/dev/null 2>&1; then
     echo "missing local image: $image" >&2
     echo "build with: docker buildx build --platform linux/amd64 --load -t $image ..." >&2
@@ -111,6 +112,18 @@ done
 curl -fsS "http://127.0.0.1:${BACKEND_PORT}/ready" >/dev/null
 curl -fsS "http://127.0.0.1:${BACKEND_PORT}/health" | grep -q '"status":"ok"'
 
+docker run --rm --network "$NETWORK" \
+  -e CONFIG_FILE=/app/config.yml \
+  -e POSTGRES_HOST="$PG" \
+  -e POSTGRES_PORT=5432 \
+  -e POSTGRES_USER=actfb_smoke \
+  -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+  -e POSTGRES_DBNAME=actfb_smoke \
+  -e POSTGRES_SSLMODE=disable \
+  -e POSTGRES_TIMEZONE=UTC \
+  -e AUTH_RETENTION_DAYS=7 \
+  "$RETENTION_IMAGE" /app/retention --once --run-timeout=30s >/dev/null
+
 docker run -d --name "$FRONTEND" --network "$NETWORK" \
   -p "127.0.0.1:${FRONTEND_PORT}:8080" \
   "$FRONTEND_IMAGE" >/dev/null
@@ -135,44 +148,6 @@ asset_headers="$(curl -fsSI "http://127.0.0.1:${FRONTEND_PORT}${asset}")"
 grep -qi 'Cache-Control: public, max-age=31536000, immutable' <<<"$asset_headers"
 grep -qi 'X-Content-Type-Options: nosniff' <<<"$asset_headers"
 
-docker run --rm "$BACKEND_IMAGE" /app/retention --help >/dev/null 2>&1
-docker run --rm --network "$NETWORK" \
-  -e CONFIG_FILE=/app/config.yml \
-  -e POSTGRES_HOST="$PG" \
-  -e POSTGRES_PORT=5432 \
-  -e POSTGRES_USER=actfb_smoke \
-  -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-  -e POSTGRES_DBNAME=actfb_smoke \
-  -e POSTGRES_SSLMODE=disable \
-  -e POSTGRES_TIMEZONE=UTC \
-  -e AUTH_RETENTION_DAYS=7 \
-  "$BACKEND_IMAGE" /app/retention --once --run-timeout=30s >/dev/null
-
-expect_worker_failure() {
-  local label="$1" want="$2"
-  shift 2
-  local output
-  if output="$(docker run --rm --network "$NETWORK" -e CONFIG_FILE=/app/config.yml "$@" 2>&1)"; then
-    echo "FAIL $label unexpectedly succeeded" >&2
-    return 1
-  fi
-  if grep -q "$want" <<<"$output"; then
-    printf 'PASS %s entrypoint reached expected validation\n' "$label"
-  else
-    echo "FAIL $label missing expected message: $want" >&2
-    tail -n 20 <<<"$output" >&2
-    return 1
-  fi
-}
-
-expect_worker_failure notification 'SMTP is disabled' "$BACKEND_IMAGE" /app/notification
-expect_worker_failure events-dispatcher 'postgres' "$BACKEND_IMAGE" /app/events-dispatcher
-expect_worker_failure file-scanner 'files are disabled' "$BACKEND_IMAGE" /app/file-scanner
-expect_worker_failure storage-init 'S3_ENDPOINT is required' "$BACKEND_IMAGE" /app/storage-init
-expect_worker_failure plugin-runner 'ACTFB_PLUGIN_RUNNER_TOKEN' "$BACKEND_IMAGE" /app/plugin-runner
-expect_worker_failure ad-worker 'ACTFB_CREDENTIAL_ENCRYPTION_KEY' "$BACKEND_IMAGE" /app/ad-worker
-expect_worker_failure instance-worker 'ACTFB_CREDENTIAL_ENCRYPTION_KEY' "$BACKEND_IMAGE" /app/instance-worker
-
 uid="$(docker exec "$BACKEND" id -u)"
 [[ "$uid" == "10001" ]]
 migration_version="$(docker exec "$PG" psql -U actfb_smoke -d actfb_smoke -tAc 'select max(version_id) from goose_db_version')"
@@ -181,7 +156,7 @@ migration_version="$(docker exec "$PG" psql -U actfb_smoke -d actfb_smoke -tAc '
 backend_size="$(docker image inspect --format '{{.Size}}' "$BACKEND_IMAGE")"
 frontend_size="$(docker image inspect --format '{{.Size}}' "$FRONTEND_IMAGE")"
 printf 'PASS backend /ready and /health with real PostgreSQL migrations=%s\n' "$migration_version"
+printf 'PASS retention image completed a real --once pass against PostgreSQL\n'
 printf 'PASS frontend /healthz, SPA deep link, and /api proxy\n'
-printf 'PASS all worker entrypoints dispatch from the shared image\n'
 printf 'PASS backend runtime uid=%s\n' "$uid"
 printf 'PASS backend image size=%s bytes frontend image size=%s bytes\n' "$backend_size" "$frontend_size"

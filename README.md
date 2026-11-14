@@ -55,7 +55,7 @@ email therefore remain unavailable until SMTP values are configured and the `ema
 docker compose --env-file .env.prod -f docker-compose.prod.yaml --profile email up -d
 ```
 
-Production image details, worker commands, rollback, and troubleshooting: `docs/production.md`.
+Production image details, worker profiles, rollback, and troubleshooting: `docs/production.md`.
 
 ## Quickstart: development stack
 
@@ -100,7 +100,7 @@ browser -> frontend nginx :8080 -> backend :8080 -> PostgreSQL
                                       |-> S3-compatible storage (optional)
                                       `-> SMTP (optional)
 
-shared backend image also provides the worker entrypoints
+retention / events / optional worker images run as separate containers
 ```
 
 The backend image is non-root and does not receive a Docker socket. The shared image includes `git` and the
@@ -128,10 +128,19 @@ Links: [architecture](docs/architecture.puml), [backend bootstrap](docs/backend-
 | --- | --- | --- |
 | `ghcr.io/nrf24l01/actfb-backend` | `latest`, `sha-<full-git-sha>` | `linux/amd64` |
 | `ghcr.io/nrf24l01/actfb-frontend` | `latest`, `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-notification` | `latest`, `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-retention` | `latest`, `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `latest`, `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-file-scanner` | `latest`, `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-storage-init` | `latest`, `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-plugin-runner` | `latest`, `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-ad-worker` | `latest`, `sha-<full-git-sha>` | `linux/amd64` |
+| `ghcr.io/nrf24l01/actfb-instance-worker` | `latest`, `sha-<full-git-sha>` | `linux/amd64` |
 
-The backend image also runs `notification`, `retention`, `events-dispatcher`, `file-scanner`, `storage-init`,
-`plugin-runner`, `ad-worker`, and `instance-worker` by overriding the command. Measured image sizes and the
-published digests are recorded in `docs/ghcr-verification.md`.
+Each worker runs its own binary in its own container/image. The backend image contains only the backend binary,
+migrations, templates, config, and plugin data root; it has no worker binaries, Git, or Docker CLI. Only the AD
+worker image contains `git` and Docker CLI. Measured sizes and published digests are in
+`docs/ghcr-verification.md`.
 
 ## License
 
