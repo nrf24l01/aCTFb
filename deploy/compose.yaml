@@ -1,11 +1,15 @@
 name: actfb-prod
 
+# CONFIG_FILE is /app/config.yml. Processes that load the YAML config also mount
+# the downloaded ./config.yml read-only over the image copy; environment values
+# still override tagged YAML fields. Keep config.yml world-readable (0644).
+
 x-postgres-environment: &postgres-environment
   CONFIG_FILE: /app/config.yml
   POSTGRES_HOST: postgres
   POSTGRES_PORT: "5432"
   POSTGRES_USER: ${POSTGRES_USER:-actfb}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
   POSTGRES_DBNAME: ${POSTGRES_DB:-actfb}
   POSTGRES_SSLMODE: ${POSTGRES_SSLMODE:-disable}
   POSTGRES_TIMEZONE: UTC
@@ -16,8 +20,8 @@ x-nats-environment: &nats-environment
 
 x-backend-environment: &backend-environment
   <<: [*postgres-environment, *nats-environment]
-  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env.prod}
-  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env.prod}
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env}
   APP_HOST: 0.0.0.0
   APP_SECURE_COOKIES: ${APP_SECURE_COOKIES:-true}
   APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:?set APP_ALLOWED_ORIGINS to the exact public origin, e.g. https://ctf.example:8443}
@@ -63,6 +67,7 @@ x-backend-environment: &backend-environment
 services:
   backend:
     image: ghcr.io/nrf24l01/actfb-backend:${ACTFB_IMAGE_TAG:-latest}
+    platform: linux/amd64
     restart: unless-stopped
     stop_grace_period: 30s
     environment:
@@ -85,6 +90,7 @@ services:
     cap_drop:
       - ALL
     volumes:
+      - ./config.yml:/app/config.yml:ro
       - plugins-data:/app/plugins
     networks:
       - actfb-net
@@ -92,9 +98,10 @@ services:
 
   frontend:
     image: ghcr.io/nrf24l01/actfb-frontend:${ACTFB_IMAGE_TAG:-latest}
+    platform: linux/amd64
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${APP_PORT:-8080}:8080"
+      - "127.0.0.1:${HOST_PORT:-8080}:8080"
     depends_on:
       backend:
         condition: service_healthy
@@ -114,6 +121,7 @@ services:
   # Default baseline worker: PostgreSQL-only retention daemon.
   retention:
     image: ghcr.io/nrf24l01/actfb-retention:${ACTFB_IMAGE_TAG:-latest}
+    platform: linux/amd64
     restart: unless-stopped
     command:
       - /app/retention
@@ -124,7 +132,7 @@ services:
     environment:
       <<: *postgres-environment
       POSTGRES_USER: ${RETENTION_POSTGRES_USER:-${POSTGRES_USER:-actfb}}
-      POSTGRES_PASSWORD: ${RETENTION_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}}
+      POSTGRES_PASSWORD: ${RETENTION_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}}
       AUTH_RETENTION_DAYS: ${AUTH_RETENTION_DAYS:-7}
     depends_on:
       postgres:
@@ -135,17 +143,20 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    volumes:
+      - ./config.yml:/app/config.yml:ro
     networks:
       - actfb-net
 
   # Default baseline worker: PostgreSQL -> NATS outbox dispatcher.
   events-dispatcher:
     image: ghcr.io/nrf24l01/actfb-events-dispatcher:${ACTFB_IMAGE_TAG:-latest}
+    platform: linux/amd64
     restart: unless-stopped
     environment:
       <<: [*postgres-environment, *nats-environment]
       POSTGRES_USER: ${EVENTS_POSTGRES_USER:-${POSTGRES_USER:-actfb}}
-      POSTGRES_PASSWORD: ${EVENTS_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}}
+      POSTGRES_PASSWORD: ${EVENTS_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}}
     depends_on:
       postgres:
         condition: service_healthy
@@ -157,6 +168,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    volumes:
+      - ./config.yml:/app/config.yml:ro
     networks:
       - actfb-net
 
@@ -164,6 +177,7 @@ services:
   notification:
     profiles: ["email"]
     image: ghcr.io/nrf24l01/actfb-notification:${ACTFB_IMAGE_TAG:-latest}
+    platform: linux/amd64
     restart: unless-stopped
     environment:
       <<: *nats-environment
@@ -181,6 +195,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    volumes:
+      - ./config.yml:/app/config.yml:ro
     networks:
       - actfb-net
 
@@ -188,6 +204,7 @@ services:
   storage-init:
     profiles: ["files"]
     image: ghcr.io/nrf24l01/actfb-storage-init:${ACTFB_IMAGE_TAG:-latest}
+    platform: linux/amd64
     restart: "no"
     environment:
       S3_ENDPOINT: ${S3_ENDPOINT:-}
@@ -206,11 +223,12 @@ services:
   file-scanner:
     profiles: ["files"]
     image: ghcr.io/nrf24l01/actfb-file-scanner:${ACTFB_IMAGE_TAG:-latest}
+    platform: linux/amd64
     restart: unless-stopped
     environment:
       <<: [*postgres-environment, *nats-environment]
       POSTGRES_USER: ${SCANNER_POSTGRES_USER:-${POSTGRES_USER:-actfb}}
-      POSTGRES_PASSWORD: ${SCANNER_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}}
+      POSTGRES_PASSWORD: ${SCANNER_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}}
       ACTFB_FILES_ENABLED: "true"
       ACTFB_FILE_SCAN_KEY: ${ACTFB_FILE_SCAN_KEY:-}
       CLAMAV_ADDRESS: ${CLAMAV_ADDRESS:-}
@@ -235,6 +253,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    volumes:
+      - ./config.yml:/app/config.yml:ro
     networks:
       - actfb-net
 
@@ -244,6 +264,7 @@ services:
   plugin-runner:
     profiles: ["plugins"]
     image: ghcr.io/nrf24l01/actfb-plugin-runner:${ACTFB_IMAGE_TAG:-latest}
+    platform: linux/amd64
     network_mode: "service:backend"
     restart: unless-stopped
     environment:
@@ -268,11 +289,12 @@ services:
   ad-worker:
     profiles: ["ad"]
     image: ghcr.io/nrf24l01/actfb-ad-worker:${ACTFB_IMAGE_TAG:-latest}
+    platform: linux/amd64
     restart: unless-stopped
     environment:
       <<: [*postgres-environment, *nats-environment]
       POSTGRES_USER: ${AD_POSTGRES_USER:-${POSTGRES_USER:-actfb}}
-      POSTGRES_PASSWORD: ${AD_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}}
+      POSTGRES_PASSWORD: ${AD_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}}
       ACTFB_CREDENTIAL_ENCRYPTION_KEY: ${ACTFB_CREDENTIAL_ENCRYPTION_KEY:-}
       ACTFB_CREDENTIAL_KEY_VERSION: ${ACTFB_CREDENTIAL_KEY_VERSION:-1}
       ACTFB_AD_RUNNER_IMAGES: ${ACTFB_AD_RUNNER_IMAGES:-}
@@ -286,6 +308,7 @@ services:
       backend:
         condition: service_healthy
     volumes:
+      - ./config.yml:/app/config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock
     group_add:
       - "${ACTFB_DOCKER_GID:-999}"
@@ -300,11 +323,12 @@ services:
   instance-worker:
     profiles: ["runtime"]
     image: ghcr.io/nrf24l01/actfb-instance-worker:${ACTFB_IMAGE_TAG:-latest}
+    platform: linux/amd64
     restart: unless-stopped
     environment:
       <<: [*postgres-environment, *nats-environment]
       POSTGRES_USER: ${RUNTIME_POSTGRES_USER:-${POSTGRES_USER:-actfb}}
-      POSTGRES_PASSWORD: ${RUNTIME_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}}
+      POSTGRES_PASSWORD: ${RUNTIME_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}}
       ACTFB_CREDENTIAL_ENCRYPTION_KEY: ${ACTFB_CREDENTIAL_ENCRYPTION_KEY:-}
       ACTFB_CREDENTIAL_KEY_VERSION: ${ACTFB_CREDENTIAL_KEY_VERSION:-1}
       ACTFB_INSTANCE_WORKER_DOCKER_SOCKET: /var/run/docker.sock
@@ -317,6 +341,7 @@ services:
       backend:
         condition: service_healthy
     volumes:
+      - ./config.yml:/app/config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock
     group_add:
       - "${ACTFB_DOCKER_GID:-999}"
@@ -332,7 +357,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-actfb}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-actfb}
     volumes:
       - postgres-data:/var/lib/postgresql

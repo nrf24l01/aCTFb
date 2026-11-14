@@ -1,5 +1,8 @@
 # aCTFb README and GHCR image delivery design
 
+> Historical record: production root files were later moved to `deploy/`; this document describes the earlier
+> layout. Current operator files are `deploy/compose.yaml`, `deploy/config.yml`, and `deploy/.env.example`.
+
 Status: approved 2026-11-14. Scope is packaging, documentation, and CI; no product feature refactor.
 
 ## Goal

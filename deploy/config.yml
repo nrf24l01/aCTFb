@@ -1,5 +1,6 @@
 # Safe production defaults. Secrets are environment-only and deliberately absent.
-# Override values with environment variables; do not bake operator secrets here.
+# deploy/compose.yaml mounts this file read-only at /app/config.yml. Override
+# values with environment variables; do not put operator secrets here.
 web_app:
   app_host: 0.0.0.0
   port: 8080

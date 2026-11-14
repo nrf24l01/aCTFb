@@ -8,6 +8,8 @@
 .idea
 .env
 .env.*
+deploy/.env
+deploy/.env.*
 bin/
 /backend
 /events-dispatcher

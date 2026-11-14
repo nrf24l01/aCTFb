@@ -1,8 +1,9 @@
 # Production deployment and GHCR images
 
 Status: packaging contract implemented and published to GHCR from `main` at `2191282` on 2026-11-14.
-This document covers the prebuilt-image path only.
-For development use `docker-compose.dev.yaml`; for feature acceptance status use `docs/implementation-plan.md`.
+The canonical operator bundle is `deploy/` (see `deploy/README.md`). This document covers the prebuilt-image path
+only. For development use `docker-compose.dev.yaml`; for feature acceptance status use
+`docs/implementation-plan.md`.
 
 ## Images
 
@@ -42,28 +43,79 @@ docker login ghcr.io
 
 Do not place registry credentials in the repository or in this Compose file.
 
-## Quickstart with prebuilt images
+## Operator bundle
 
-```bash
-cp .env.prod.example .env.prod
-# Fill POSTGRES_PASSWORD, JWT_ACCESS_SECRET, and JWT_REFRESH_SECRET.
-# Use two different random values of at least 32 characters:
-#   openssl rand -base64 48
-# REQUIRED: set APP_ALLOWED_ORIGINS to the exact public browser origin,
-# including a non-default port, e.g. https://ctf.example:8443.
-docker compose --env-file .env.prod -f docker-compose.prod.yaml up -d
-curl -fsS http://127.0.0.1:8080/healthz
+The canonical bundle is `deploy/`:
+
+```text
+deploy/compose.yaml     prebuilt GHCR images, default services and optional profiles
+deploy/config.yml       secret-free YAML mounted read-only at /app/config.yml
+deploy/.env.example     placeholder secrets and profile settings
+deploy/realip.conf      optional empty external-edge real-IP include
+deploy/README.md        copy-paste download/start/admin-bootstrap guide
 ```
 
-Only the frontend is published, on `127.0.0.1:${APP_PORT:-8080}`. The frontend and backend share the
-`actfb-proxy` bridge; PostgreSQL, Redis, NATS, the backend's data side, and workers use `actfb-net`.
-`ACTFB_PROXY_SUBNET` (default `10.213.77.0/28`) drives both the proxy bridge IPAM and the backend's
-trusted-proxy CIDR. Override that single value only if it collides with the host network. PostgreSQL data uses
-the PostgreSQL 18 path `/var/lib/postgresql` and a named volume.
+The bundle downloads flat. Compose resolves `./config.yml` relative to the bundle directory, so run from
+`deploy/` or pass both canonical paths from the repository root. `config.yml` must remain readable by UID
+`10001` (`0644`); `.env` must be `0600`. The backend image also contains a baked `deploy/config.yml`; the
+Compose bind deliberately replaces it so an operator can change the external copy without rebuilding.
+
+## Quickstart with prebuilt images
+
+Local loopback demo only (plain HTTP, `APP_SECURE_COOKIES=false`):
+
+```bash
+cd deploy
+if [ -e .env ]; then echo ".env exists; refusing to overwrite" >&2; exit 1; fi
+cp .env.example .env
+chmod 600 .env
+sed -i \
+  -e 's/^APP_SECURE_COOKIES=.*/APP_SECURE_COOKIES=false/' \
+  -e 's|^APP_ALLOWED_ORIGINS=.*|APP_ALLOWED_ORIGINS=http://localhost:8080|' \
+  -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 32)/" \
+  -e "s/^JWT_ACCESS_SECRET=.*/JWT_ACCESS_SECRET=$(openssl rand -hex 48)/" \
+  -e "s/^JWT_REFRESH_SECRET=.*/JWT_REFRESH_SECRET=$(openssl rand -hex 48)/" \
+  .env
+docker compose --env-file .env pull
+docker compose --env-file .env up -d --wait
+docker compose --env-file .env ps
+curl -fsS http://127.0.0.1:8080/healthz
+docker compose --env-file .env exec -T backend curl -fsS http://127.0.0.1:8080/ready
+```
+
+Open `http://localhost:8080`; the origin must match exactly. For public HTTPS, set
+`APP_SECURE_COOKIES=true` and `APP_ALLOWED_ORIGINS` to the exact public browser origin (no trailing slash),
+for example `https://ctf.example:8443`. `deploy/README.md` has the full download and production commands.
+
+Only the frontend is published, on `127.0.0.1:${HOST_PORT:-8080}`; `HOST_PORT` is not the public TLS port.
+The frontend and backend share the `actfb-proxy` bridge; PostgreSQL, Redis, NATS, the backend's data side, and
+workers use `actfb-net`. `ACTFB_PROXY_SUBNET` (default `10.213.77.0/28`) drives both the proxy bridge IPAM and
+the backend's trusted-proxy CIDR. Override that single value only if it collides with the host network.
+PostgreSQL data uses the PostgreSQL 18 path `/var/lib/postgresql` and a named volume.
+
+## Admin bootstrap
+
+There is no automatic admin seed and no bootstrap-admin environment variable in the current backend. Registration
+is open and email verification is disabled by default, so the first account can be registered without SMTP.
+Promote that exact account with operator SQL:
+
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T postgres \
+  psql -U actfb -d actfb -c \
+  "SELECT id, username, email, roles FROM users ORDER BY created_at;"
+ADMIN_UUID='<paste-users-id-uuid>'
+test "${#ADMIN_UUID}" -eq 36
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T postgres \
+  psql -U actfb -d actfb -c \
+  "UPDATE users SET roles = ARRAY['user','admin'] WHERE id = '${ADMIN_UUID}'::uuid;"
+```
+
+Change `actfb` in both `-U`/`-d` positions if `POSTGRES_USER`/`POSTGRES_DB` were edited. The roles column is read
+live, so refresh `/me` or sign in again after promotion.
 
 ## TLS and cookies
 
-`config.prod.yml` sets `secure_cookies: true`. Keep `APP_SECURE_COOKIES=true` outside a loopback smoke test.
+`deploy/config.yml` sets `secure_cookies: true`. Keep `APP_SECURE_COOKIES=true` outside a loopback smoke test.
 Plain HTTP login is not a supported production setup. Terminate TLS in front of the frontend, then set the exact
 public origin, including a non-default port:
 
@@ -81,16 +133,24 @@ The backend trusts only `ACTFB_PROXY_SUBNET`, the same value used for the dedica
 Database, Redis, NATS, and worker peers are not on that bridge and cannot forge a client IP. No static
 container IPs are used.
 
-If a separate TLS edge fronts nginx, explicitly configure nginx `real_ip` for only that edge's source CIDR
-(for example by mounting a `realip.conf` over `/etc/nginx/realip.conf` with `set_real_ip_from`,
-`real_ip_header X-Forwarded-For`, and `real_ip_recursive on`). Never trust `0.0.0.0/0`, `::/0`, or an
-unvalidated incoming `X-Forwarded-For` chain. The shipped `realip.conf` is intentionally empty.
+`HOST_PORT` only controls the loopback publish. Terminate TLS in a host-level reverse proxy (Caddy, nginx,
+Traefik, or equivalent) that listens on the public port and proxies to `http://127.0.0.1:${HOST_PORT:-8080}`.
+A TLS container on another Docker network cannot reach that loopback bind; use a host-level edge or deliberately
+place the edge in the host network namespace.
+
+If a separate TLS edge fronts nginx, explicitly configure nginx `real_ip` for only that edge's source CIDR by
+mounting `deploy/realip.conf` over `/etc/nginx/realip.conf` with `set_real_ip_from`, `real_ip_header
+X-Forwarded-For`, and `real_ip_recursive on`. Never trust `0.0.0.0/0`, `::/0`, or an unvalidated incoming
+`X-Forwarded-For` chain. `deploy/realip.conf` is intentionally empty and is not mounted by the default Compose
+file.
 
 ## Runtime contract
 
 Backend:
 
-- `CONFIG_FILE=/app/config.yml` is baked from `config.prod.yml` and contains no secrets.
+- `CONFIG_FILE=/app/config.yml` is baked from `deploy/config.yml` and contains no secrets. Every config-loading
+  service mounts the downloaded `./config.yml` read-only over that path; environment values still override
+  tagged YAML fields.
 - `POSTGRES_MIGRATIONS_PATH=/app/migrations`; Goose migrations `001`–`016` run before the HTTP listener starts.
 - `curl` is present. `/health` is liveness; `/ready` checks PostgreSQL, Redis (when configured), and NATS
   (when enabled).
@@ -130,11 +190,11 @@ Email delivery requires a real SMTP account and the notification image:
 
 ```bash
 # Set SMTP_ENABLED=true and the SMTP_* values, then:
-docker compose --env-file .env.prod -f docker-compose.prod.yaml --profile email up -d
+docker compose --env-file deploy/.env -f deploy/compose.yaml --profile email up -d
 ```
 
 Without SMTP, email verification and password-reset email are unavailable. Registration still follows the
-configured `email_verify` policy (`false` in `config.prod.yml` by default).
+configured `email_verify` policy (`false` in `deploy/config.yml` by default).
 
 Plugins are default-off. When enabled, `ACTFB_PLUGINS_DIR` points at `/app/plugins`, owned by runtime UID
 `10001`. The production Compose mounts the named `plugins-data` volume there so installs and plugin data survive
@@ -147,10 +207,10 @@ is implemented and verified.
 Optional worker profiles are independent:
 
 ```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yaml --profile files up -d
-docker compose --env-file .env.prod -f docker-compose.prod.yaml --profile plugins up -d
-docker compose --env-file .env.prod -f docker-compose.prod.yaml --profile runtime up -d
-docker compose --env-file .env.prod -f docker-compose.prod.yaml --profile ad up -d
+docker compose --env-file deploy/.env -f deploy/compose.yaml --profile files up -d
+docker compose --env-file deploy/.env -f deploy/compose.yaml --profile plugins up -d
+docker compose --env-file deploy/.env -f deploy/compose.yaml --profile runtime up -d
+docker compose --env-file deploy/.env -f deploy/compose.yaml --profile ad up -d
 ```
 
 `files` starts `storage-init` as a one-shot bucket initializer and waits for successful completion before the
@@ -227,12 +287,12 @@ does not automatically make a GHCR package public.
 
 ## Rollback
 
-Set the immutable tag in `.env.prod` and recreate:
+Set the immutable tag in `deploy/.env` and recreate:
 
 ```bash
 ACTFB_IMAGE_TAG=sha-<full-git-sha>
-docker compose --env-file .env.prod -f docker-compose.prod.yaml pull
-docker compose --env-file .env.prod -f docker-compose.prod.yaml up -d
+docker compose --env-file deploy/.env -f deploy/compose.yaml pull
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
 ```
 
 The tag and digest mapping is recorded in `docs/ghcr-verification.md`. Do not use `latest` when the deployment
@@ -240,7 +300,7 @@ needs an auditable rollback target.
 
 ## Troubleshooting
 
-- `set POSTGRES_PASSWORD` / JWT errors: `.env.prod` is missing or empty; Compose interpolation fails before start.
+- `set POSTGRES_PASSWORD` / JWT errors: `deploy/.env` is missing or empty; Compose interpolation fails before start.
 - Backend exits with invalid config: check that `APP_ALLOWED_ORIGINS` is the exact public origin, the
   `ACTFB_PROXY_SUBNET` value is valid, and JWT keys are at least 32 characters.
 - `/ready` is 503: check PostgreSQL and Redis health; NATS is also checked when email/features enable it.

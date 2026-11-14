@@ -6,6 +6,5 @@ bin/
 .env
 .env.*
 !.env.example
-!.env.prod.example
-.env.prod
+!deploy/.env.example
 aCTFb_Codex_kit.zip

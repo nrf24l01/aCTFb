@@ -1,5 +1,8 @@
 # README and GHCR packaging implementation plan
 
+> Historical record: the production root files named below were moved to `deploy/` after this plan was executed.
+> The paths in this document describe the earlier layout; use `deploy/README.md` for the current bundle.
+
 > **For the executing agent:** implement inline in this session; no subagents. Follow the approved spec at `docs/superpowers/specs/2026-11-14-readme-ghcr-design.md`.
 
 **Goal:** Ship a clean root README, functional production images, and a four-job CI pipeline that publishes public GHCR images.

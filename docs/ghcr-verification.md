@@ -79,7 +79,7 @@ proxy bridge, required exact origin, Host port preservation, and XFF overwrite f
 
 ## Focused review closure
 
-- `.env.prod.example` now includes the files backend flag/scan key, credential key/version, pinned AD runner
+- `deploy/.env.example` includes the files backend flag/scan key, credential key/version, pinned AD runner
   image field, actual plugin runner URL (`http://127.0.0.2:8092`), and generation commands for JWT, encryption,
   scan, service keys, and the runner token. Optional profiles remain off by default.
 - Production docs now list per-profile prerequisites and explicitly state that a profile flag alone does not

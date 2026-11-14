@@ -24,39 +24,55 @@ See `docs/implementation-plan.md` for exact implemented/partial status and the v
 
 ## Quickstart: prebuilt images
 
-Prerequisites: Docker Engine with Compose v2 on `linux/amd64`, and a hostname or reverse proxy for TLS.
+The canonical GHCR-only operator bundle is [`deploy/`](deploy/README.md): `compose.yaml`, `config.yml`,
+`.env.example`, `realip.conf`, and `README.md`. No Git clone, Go, Bun, or source build is required. Download the
+four files flat into a new directory and run from there; `config.yml` is mounted read-only at
+`/app/config.yml`.
+
+Local loopback demo (plain HTTP, only for a local machine):
 
 ```bash
-cp .env.prod.example .env.prod
-# Fill POSTGRES_PASSWORD, JWT_ACCESS_SECRET, and JWT_REFRESH_SECRET.
-# Use two different random values of at least 32 characters, for example:
-#   openssl rand -base64 48
-# Also set APP_ALLOWED_ORIGINS to the exact public browser origin, including a
-# non-default port, for example https://ctf.example:8443.
-docker compose --env-file .env.prod -f docker-compose.prod.yaml up -d
+mkdir -p actfb && cd actfb
+BASE=https://raw.githubusercontent.com/nrf24l01/aCTFb/main/deploy
+wget -qO compose.yaml "$BASE/compose.yaml"
+wget -qO config.yml "$BASE/config.yml"
+wget -qO .env.example "$BASE/.env.example"
+wget -qO realip.conf "$BASE/realip.conf"
+chmod 0644 compose.yaml config.yml realip.conf
+if [ -e .env ]; then echo ".env exists; refusing to overwrite" >&2; exit 1; fi
+umask 077
+cp .env.example .env
+chmod 600 .env
+sed -i \
+  -e 's/^APP_SECURE_COOKIES=.*/APP_SECURE_COOKIES=false/' \
+  -e 's|^APP_ALLOWED_ORIGINS=.*|APP_ALLOWED_ORIGINS=http://localhost:8080|' \
+  -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 32)/" \
+  -e "s/^JWT_ACCESS_SECRET=.*/JWT_ACCESS_SECRET=$(openssl rand -hex 48)/" \
+  -e "s/^JWT_REFRESH_SECRET=.*/JWT_REFRESH_SECRET=$(openssl rand -hex 48)/" \
+  .env
+docker compose --env-file .env pull
+docker compose --env-file .env up -d --wait
+docker compose --env-file .env ps
 curl -fsS http://127.0.0.1:8080/healthz
+docker compose --env-file .env exec -T backend curl -fsS http://127.0.0.1:8080/ready
 ```
 
-The Compose file uses the public images:
+Open `http://localhost:8080`. For public HTTPS, set `APP_SECURE_COOKIES=true` and the exact public
+`APP_ALLOWED_ORIGINS` (including a non-default port), and terminate TLS in a host-level reverse proxy in front of
+the loopback-only `HOST_PORT`. Plain HTTP login is not a supported production setup. `deploy/README.md` has the
+production commands and the operator SQL to promote the first registered account to `admin`; there is no
+automatic admin seed or bootstrap-admin environment variable.
 
-```text
-ghcr.io/nrf24l01/actfb-backend:latest
-ghcr.io/nrf24l01/actfb-frontend:latest
-ghcr.io/nrf24l01/actfb-retention:latest
-ghcr.io/nrf24l01/actfb-events-dispatcher:latest
-```
+The default baseline starts `backend`, `frontend`, `postgres`, `redis`, `nats`, `retention`, and
+`events-dispatcher`. Optional profiles select the notification/file/plugin/AD/runtime worker images. For a
+reproducible deployment or rollback, pin `ACTFB_IMAGE_TAG=sha-21912820d814d87abde92c4f47333c7a1534a5e5` (or
+another documented full SHA) in `deploy/.env` instead of `latest`.
 
-Optional profiles select the remaining notification/file/plugin/AD/runtime worker images.
-
-For a reproducible deployment or rollback, set `ACTFB_IMAGE_TAG=sha-<full-git-sha>` in `.env.prod`.
-Only the frontend is published, and only on loopback. Put a TLS terminator in front of it before exposing
-the service. `APP_SECURE_COOKIES` defaults to `true`; plain HTTP login is not a supported production setup.
-
-The default production Compose baseline does not start SMTP delivery. Email verification and password-reset
-email therefore remain unavailable until SMTP values are configured and the `email` profile is enabled:
+The default baseline does not start SMTP delivery. Email verification and password-reset email remain
+unavailable until SMTP values are configured and the `email` profile is enabled:
 
 ```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yaml --profile email up -d
+docker compose --env-file deploy/.env -f deploy/compose.yaml --profile email up -d
 ```
 
 Production image details, worker profiles, rollback, and troubleshooting: `docs/production.md`.
@@ -79,8 +95,9 @@ container runtime; the project does not document or test Podman.
 
 ## Configuration
 
-`CONFIG_FILE` selects the YAML file. The production image includes a secret-free `/app/config.yml`
-(`config.prod.yml`); the development stack uses `config.dev.yml`. Secrets are environment-only.
+`CONFIG_FILE` selects the YAML file. The production bundle uses a secret-free `deploy/config.yml`, mounted
+read-only at `/app/config.yml` (and also baked into the images); the development stack uses `config.dev.yml`.
+Secrets are environment-only.
 
 | Setting | Purpose |
 | --- | --- |
@@ -92,7 +109,7 @@ container runtime; the project does not document or test Podman.
 | `SMTP_*`, `EMAIL_VERIFY_ENABLED` | Optional email verification and password-reset delivery |
 | `ACTFB_*` feature keys | Files, plugins, runtime instances, and A+D; all default off |
 
-Never commit a filled `.env.prod` or `.env`. See `.env.prod.example`, `.env.example`, and
+Never commit a filled `.env`. See `deploy/.env.example`, `.env.example`, and
 `docs/backend-bootstrap.md` for the full contract.
 
 ## Architecture

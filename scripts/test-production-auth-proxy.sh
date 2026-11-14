@@ -39,7 +39,7 @@ WORKDIR="${TMPDIR:-/tmp}/opencode/${PROJECT}"
 mkdir -p "$WORKDIR"
 chmod 700 "$WORKDIR"
 
-read -r APP_PORT <<<"$(python3 - <<'PY'
+read -r HOST_PORT <<<"$(python3 - <<'PY'
 import socket
 sock = socket.socket()
 sock.bind(("127.0.0.1", 0))
@@ -75,7 +75,7 @@ cat >"$ENV_FILE" <<EOF
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
 JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
-APP_PORT=${APP_PORT}
+HOST_PORT=${HOST_PORT}
 APP_SECURE_COOKIES=true
 APP_ALLOWED_ORIGINS=${PUBLIC_ORIGIN}
 ACTFB_PROXY_SUBNET=${PROXY_SUBNET}
@@ -86,9 +86,9 @@ EOF
 CLIENTS=()
 cleanup() {
   rc=$?
-  docker compose --env-file "$ENV_FILE" -p "$PROJECT" -f docker-compose.prod.yaml logs --no-color >"$WORKDIR/compose.log" 2>&1 || true
+  docker compose --env-file "$ENV_FILE" -p "$PROJECT" -f deploy/compose.yaml logs --no-color >"$WORKDIR/compose.log" 2>&1 || true
   for client in "${CLIENTS[@]}"; do docker rm -f "$client" >/dev/null 2>&1 || true; done
-  docker compose --env-file "$ENV_FILE" -p "$PROJECT" -f docker-compose.prod.yaml down --volumes --remove-orphans --timeout 20 >/dev/null 2>&1 || true
+  docker compose --env-file "$ENV_FILE" -p "$PROJECT" -f deploy/compose.yaml down --volumes --remove-orphans --timeout 20 >/dev/null 2>&1 || true
   docker image rm "$BACKEND_REF" "$FRONTEND_REF" "${worker_refs[@]}" >/dev/null 2>&1 || true
   rm -f "$ENV_FILE"
   if [[ $rc -ne 0 ]]; then
@@ -106,13 +106,13 @@ docker tag "$FRONTEND_IMAGE" "$FRONTEND_REF"
 for index in "${!worker_targets[@]}"; do
   docker tag "${worker_images[$index]}" "${worker_refs[$index]}"
 done
-docker compose --env-file "$ENV_FILE" -p "$PROJECT" -f docker-compose.prod.yaml up -d >"$WORKDIR/up.log" 2>&1
+docker compose --env-file "$ENV_FILE" -p "$PROJECT" -f deploy/compose.yaml up -d >"$WORKDIR/up.log" 2>&1
 
 for _ in $(seq 1 120); do
-  if curl -fsS "http://127.0.0.1:${APP_PORT}/healthz" >/dev/null 2>&1; then break; fi
+  if curl -fsS "http://127.0.0.1:${HOST_PORT}/healthz" >/dev/null 2>&1; then break; fi
   sleep 1
 done
-curl -fsS "http://127.0.0.1:${APP_PORT}/healthz" | grep -q '^ok$'
+curl -fsS "http://127.0.0.1:${HOST_PORT}/healthz" | grep -q '^ok$'
 
 # The public origin is HTTPS with a non-default port. Requests use loopback HTTP
 # only as a transport simulation; TLS termination is not claimed by this test.
@@ -121,7 +121,7 @@ origin_header="$PUBLIC_ORIGIN"
 username="review_${RUN_ID}"
 password="ReviewPass123!"
 email="${username}@example.test"
-base="http://127.0.0.1:${APP_PORT}"
+base="http://127.0.0.1:${HOST_PORT}"
 
 status="$(curl -sS -o "$WORKDIR/register.body" -w '%{http_code}' \
   -X POST "${base}/api/v2/auth/register" \
@@ -164,7 +164,7 @@ status="$(curl -sS -o "$WORKDIR/logout.body" -w '%{http_code}' \
 
 # The plugin root is a named volume initialized from an image directory owned by
 # 10001. Prove the non-root backend can create a plugin directory.
-docker compose --env-file "$ENV_FILE" -p "$PROJECT" -f docker-compose.prod.yaml exec -T backend \
+docker compose --env-file "$ENV_FILE" -p "$PROJECT" -f deploy/compose.yaml exec -T backend \
   sh -c 'test "$(id -u)" = 10001; mkdir /app/plugins/review-smoke; rmdir /app/plugins/review-smoke'
 
 proxy_network="$(docker network ls --filter label=com.docker.compose.project="$PROJECT" --format '{{.Name}}' | grep 'actfb-proxy' | head -n1)"
@@ -202,7 +202,7 @@ for i in $(seq 1 11); do
 done
 [[ "$c_status" == "429" ]]
 
-distinct_remote_ips="$(docker compose --env-file "$ENV_FILE" -p "$PROJECT" -f docker-compose.prod.yaml logs --no-color backend 2>/dev/null \
+distinct_remote_ips="$(docker compose --env-file "$ENV_FILE" -p "$PROJECT" -f deploy/compose.yaml logs --no-color backend 2>/dev/null \
   | sed -n 's/.*"remote_ip":"\([^"]*\)".*/\1/p' | grep -v '^127\.0\.0\.1$' | sort -u | wc -l | tr -d ' ')"
 [[ "$distinct_remote_ips" -ge 2 ]]
 

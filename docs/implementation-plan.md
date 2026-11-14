@@ -676,7 +676,8 @@ GHCR publication. No product-domain behavior was changed.
 - `Dockerfile` builds independent backend/worker targets; each worker image copies only its own binary and
   required files. `frontend/Dockerfile` and `frontend/nginx.conf` build and serve the SPA with `/healthz` and
   `/api/` proxy. `docker-bake.hcl` publishes all ten images from one bake step.
-- `config.prod.yml` is secret-free; `.env.prod.example` and `docker-compose.prod.yaml` select prebuilt GHCR images.
+- The `deploy/` bundle (`compose.yaml`, `config.yml`, `.env.example`, `realip.conf`) is secret-free except the
+  generated `.env`; it selects prebuilt GHCR images and mounts `config.yml` read-only at `/app/config.yml`.
 - `.github/workflows/go.yml` has the approved four jobs: `backend` and `frontend` quality, serial `integration`
   with the existing critical coverage plus container smoke, and main/manual-main-only `publish`.
 - `docs/ghcr-verification.md` holds measured image digests, sizes, and public-pull evidence after publication.
