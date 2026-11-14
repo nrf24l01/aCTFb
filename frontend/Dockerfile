@@ -24,7 +24,7 @@ ARG IMAGE_TAG=local
 
 LABEL org.opencontainers.image.title="aCTFb frontend" \
       org.opencontainers.image.description="aCTFb Vue SPA served by unprivileged nginx" \
-      org.opencontainers.image.source="https://github.com/nrf24l01/aCTFb" \
+      org.opencontainers.image.source="https://github.com/nrf24l01/actfb" \
       org.opencontainers.image.revision="${GIT_SHA}" \
       org.opencontainers.image.version="${IMAGE_TAG}" \
       org.opencontainers.image.licenses="MIT"

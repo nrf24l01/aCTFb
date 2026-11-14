@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 
-# Production backend and worker image. The Go build stage is never shipped.
+# One shared production build stage produces every command once. Each final
+# target below copies exactly one binary and only the runtime files it reads.
 FROM golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS build
 
 WORKDIR /src
@@ -34,52 +35,100 @@ RUN --mount=type=cache,target=/go/pkg/mod \
         -o "/out/${cmd}" "./cmd/${cmd}"; \
     done
 
-# Alpine runtime has only what the processes and operators need:
-# CA certificates, tzdata, curl for healthchecks, and git/docker-cli for ad-worker.
+# Common minimal Alpine runtime. It has no healthcheck: only the HTTP backend
+# below adds one. Workers therefore report no health instead of a fake one.
 FROM alpine:3.23@sha256:469c9ea410b9215eaee7976ba6c0639039b444be8e5d638f7abbada189971eb2 AS runtime
 
 RUN apk add --no-cache \
       ca-certificates \
       tzdata \
       curl \
-      git \
-      docker-cli \
     && addgroup -S -g 10001 actfb \
     && adduser -S -D -H -u 10001 -G actfb actfb \
-    && mkdir -p /app/plugins/incoming \
-    && chown -R 10001:10001 /app/plugins \
-    && chmod 750 /app/plugins /app/plugins/incoming \
     && ln -snf /usr/share/zoneinfo/UTC /etc/localtime
 
 ARG GIT_SHA=unknown
 ARG IMAGE_TAG=local
 
-LABEL org.opencontainers.image.title="aCTFb backend" \
-      org.opencontainers.image.description="aCTFb backend and worker processes" \
-      org.opencontainers.image.source="https://github.com/nrf24l01/aCTFb" \
+LABEL org.opencontainers.image.source="https://github.com/nrf24l01/actfb" \
       org.opencontainers.image.revision="${GIT_SHA}" \
       org.opencontainers.image.version="${IMAGE_TAG}" \
       org.opencontainers.image.licenses="MIT"
 
 WORKDIR /app
 
-COPY --from=build /out/ /app/
+ENV CONFIG_FILE=/app/config.yml \
+    TZ=UTC
+
+USER 10001:10001
+
+# HTTP backend: the only target with a real readiness healthcheck and the only
+# target allowed to carry the plugin data directory.
+FROM runtime AS backend
+
+USER root
+RUN mkdir -p /app/plugins/incoming \
+    && chown -R 10001:10001 /app/plugins \
+    && chmod 750 /app/plugins /app/plugins/incoming
+USER 10001:10001
+
+COPY --chown=10001:10001 --from=build /out/backend /app/backend
 COPY --chown=10001:10001 migrations /app/migrations
 COPY --chown=10001:10001 email_templates /app/email_templates
 COPY --chown=10001:10001 config.prod.yml /app/config.yml
 
-ENV CONFIG_FILE=/app/config.yml \
-    POSTGRES_MIGRATIONS_PATH=/app/migrations \
-    ACTFB_PLUGINS_DIR=/app/plugins \
-    TZ=UTC
-
-USER 10001:10001
+ENV POSTGRES_MIGRATIONS_PATH=/app/migrations \
+    ACTFB_PLUGINS_DIR=/app/plugins
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=6 \
   CMD curl -fsS http://127.0.0.1:8080/ready || exit 1
 
-# A command override selects a worker. No ENTRYPOINT is used so
-# `command: ["/app/notification"]` replaces the executable cleanly.
 CMD ["/app/backend"]
+
+FROM runtime AS notification
+COPY --chown=10001:10001 --from=build /out/notification /app/notification
+COPY --chown=10001:10001 email_templates /app/email_templates
+COPY --chown=10001:10001 config.prod.yml /app/config.yml
+CMD ["/app/notification"]
+
+FROM runtime AS retention
+COPY --chown=10001:10001 --from=build /out/retention /app/retention
+COPY --chown=10001:10001 config.prod.yml /app/config.yml
+CMD ["/app/retention"]
+
+FROM runtime AS events-dispatcher
+COPY --chown=10001:10001 --from=build /out/events-dispatcher /app/events-dispatcher
+COPY --chown=10001:10001 config.prod.yml /app/config.yml
+CMD ["/app/events-dispatcher"]
+
+FROM runtime AS file-scanner
+COPY --chown=10001:10001 --from=build /out/file-scanner /app/file-scanner
+COPY --chown=10001:10001 config.prod.yml /app/config.yml
+CMD ["/app/file-scanner"]
+
+FROM runtime AS storage-init
+COPY --chown=10001:10001 --from=build /out/storage-init /app/storage-init
+COPY --chown=10001:10001 config.prod.yml /app/config.yml
+CMD ["/app/storage-init"]
+
+FROM runtime AS plugin-runner
+COPY --chown=10001:10001 --from=build /out/plugin-runner /app/plugin-runner
+COPY --chown=10001:10001 config.prod.yml /app/config.yml
+CMD ["/app/plugin-runner"]
+
+# ad-worker executes the Docker CLI and git. These tools exist only in this
+# target; the backend, plugin-runner, and instance-worker use the Go APIs.
+FROM runtime AS ad-worker
+USER root
+RUN apk add --no-cache git docker-cli
+USER 10001:10001
+COPY --chown=10001:10001 --from=build /out/ad-worker /app/ad-worker
+COPY --chown=10001:10001 config.prod.yml /app/config.yml
+CMD ["/app/ad-worker"]
+
+FROM runtime AS instance-worker
+COPY --chown=10001:10001 --from=build /out/instance-worker /app/instance-worker
+COPY --chown=10001:10001 config.prod.yml /app/config.yml
+CMD ["/app/instance-worker"]
