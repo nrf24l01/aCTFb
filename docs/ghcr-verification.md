@@ -1,18 +1,19 @@
 # GHCR publication verification
 
-Status: **published and verified from `main` at commit `d7694b2`**. Ten separate images are publicly pullable
+Status: **published and verified from `main` at commit `2191282`**. Ten separate images are publicly pullable
 without registry credentials. This file records measured results only.
 
 Historical note: the earlier `3ef4d5b` and `fea429a` publications used a shared backend/worker image.
-`f133e3b` was the first one-process-per-container publication. `d7694b2` is the current enforced publication;
-it keeps the same image contents/sizes but updates docs/config/tests, producing new labels/digests.
+`f133e3b` was the first one-process-per-container publication. `d7694b2` enforced the docs/config/tests contract.
+`2191282` is the current final publication; it keeps the same image contents/sizes but updates docs, tests, and
+the bake-file newline, producing new labels/digests.
 
 ## Publication
 
 | Field | Value |
 | --- | --- |
-| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/43591764613 |
-| Commit | `d7694b2f0e04d4d6208953b42f8f4ff1341df1e8` |
+| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/43593223721 |
+| Commit | `21912820d814d87abde92c4f47333c7a1534a5e5` |
 | Conclusion | success (Backend quality, Frontend quality, Integration, Publish images) |
 | Platform | `linux/amd64` only |
 | Provenance attestations | none; single OCI image manifests |
@@ -20,18 +21,18 @@ it keeps the same image contents/sizes but updates docs/config/tests, producing 
 
 | Image | Digest | Compressed | Uncompressed | User |
 | --- | --- | --- | --- | --- |
-| `ghcr.io/nrf24l01/actfb-backend` | `sha256:89aae9f3894bf7adfaa8e160231ad5ee00c5140a6a7dcf9c5bdcd7f77ab70095` | 20,275,304 B | 56,149,571 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-frontend` | `sha256:de6b86ad9dde58c8ef4e37f2d0217c90e2b5025ce7e0dc2714785a4e3d8647ad` | 23,644,020 B | 55,091,714 B | `101:101` |
-| `ghcr.io/nrf24l01/actfb-notification` | `sha256:c1e93ccd2c817e844b92bbbedc3610f34e9fa877e37f5db076f56c60665aa511` | 12,329,083 B | 28,488,097 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-retention` | `sha256:f0a79a8793401014f3bcf5398703baf268e8898f280f31205d3a8db3b6a94e52` | 10,934,376 B | 25,844,302 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `sha256:a1ae836ff9fe2a18675dab71b599b0bcbcab8e15a094d1015c7acff5db8632e5` | 11,994,511 B | 28,699,214 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-file-scanner` | `sha256:b3c555fe0bce9c00158c077cc33b6eee28718cace1c43aac72bb06dd091c4c01` | 13,352,330 B | 32,766,542 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-storage-init` | `sha256:dbbd4e44e02faf8c7743d80d08251cf50d788977de557c2ae6b2f24042864043` | 10,955,456 B | 25,291,342 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-plugin-runner` | `sha256:83dea25c28c868dfdcf78d0c4fd157ced43fda001f0bace52525eded373c61f5` | 9,996,009 B | 22,178,382 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-ad-worker` | `sha256:0ed0537ebd81eaf5bec0257f802b300399d810216eb326cc8ad94eb5ac40fbb8` | 27,016,153 B | 69,429,576 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-instance-worker` | `sha256:0cf34995b4dd2ca247590dff45e255b45936d924d5633dbb4465995d21f4b3c3` | 13,810,377 B | 33,577,550 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-backend` | `sha256:7b911e9ed1ccba713108932b2748b1b4d616a104c459254642b091d7a0cfa45e` | 20,275,304 B | 56,149,571 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-frontend` | `sha256:432c664824217e247c5e2a7f7465d78a40524fdc703868da279acdd4f9f27331` | 23,644,020 B | 55,091,714 B | `101:101` |
+| `ghcr.io/nrf24l01/actfb-notification` | `sha256:c346d70bbef18a2caa925fbd3860f7c934c299ed9073317941534c5fc8764559` | 12,329,083 B | 28,488,097 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-retention` | `sha256:a8974381b6274629f9095ca589aea36555e7f9c9beab41471e480c7a32b4522c` | 10,934,376 B | 25,844,302 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `sha256:d4fa2435bec7a0e29745d9e6a0016360f5d228a26bcee771827332f805f6ba06` | 11,994,511 B | 28,699,214 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-file-scanner` | `sha256:38b586863a760b8e04bea905ef296935bf4cba2a9d35e7da254350459e6312cc` | 13,352,330 B | 32,766,542 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-storage-init` | `sha256:1606d008d4c2aeea5158e0399bbbf947ce5bf59e0d2ed230e626971e17c6c3e2` | 10,955,456 B | 25,291,342 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-plugin-runner` | `sha256:f60a8c5224494206258348d660da362961a7caf6760c734adc682efafc0991c8` | 9,996,009 B | 22,178,382 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-ad-worker` | `sha256:09c54838a7e2adb3f0ef059a4a2c85627ab3cc2ba53366236815b0361fd4acc1` | 27,016,153 B | 69,429,576 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-instance-worker` | `sha256:dd5cbac28c10a940a0d220ee68810adaf869ba511a93b425f2261daea9f82a1e` | 13,810,377 B | 33,577,550 B | `10001:10001` |
 
-Every image has both `latest` and `sha-d7694b2f0e04d4d6208953b42f8f4ff1341df1e8`, resolving to the digest
+Every image has both `latest` and `sha-21912820d814d87abde92c4f47333c7a1534a5e5`, resolving to the digest
 above. OCI source is `https://github.com/nrf24l01/actfb`; revision/version labels match the source commit/tag.
 
 ## Public pull verification

@@ -663,8 +663,8 @@ earlier RustFS full-stack evidence.
 
 ## Packaging and GHCR slice (2026-11-14)
 
-Status: **implemented, locally verified, and published to public GHCR packages from commit `d7694b2`**.
-Actions run `43591764613` passed all four jobs; ten separate backend/frontend/worker images publish `latest`
+Status: **implemented, locally verified, and published to public GHCR packages from commit `2191282`**.
+Actions run `43593223721` passed all four jobs; ten separate backend/frontend/worker images publish `latest`
 plus immutable `sha-*` tags that resolve to the same digests and pull anonymously. The review fixes cover
 trusted-proxy scoping, exact public origin handling, the non-root plugin root, per-profile env documentation,
 and per-worker PostgreSQL role overrides. Production now runs one process per worker image.
