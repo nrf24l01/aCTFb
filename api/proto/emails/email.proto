@@ -10,10 +10,16 @@ message EmailTask {
 
   oneof payload {
     VerificationEmail verification = 3;
+    PasswordResetEmail password_reset = 4;
   }
 }
 
 message VerificationEmail {
     string username = 1;
     string code = 2;
+}
+
+message PasswordResetEmail {
+    string username = 1;
+    string token = 2;
 }

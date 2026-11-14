@@ -41,6 +41,11 @@ type AdminModulePatchRequest struct {
 	// Format: date-time
 	EndsAt *strfmt.DateTime `json:"endsAt,omitempty"`
 
+	// Required when type=EXTENSION; names the installed module/task extension provider. No feature is available without a matching installed provider.
+	// Max Length: 128
+	// Min Length: 1
+	ExtensionKey *string `json:"extensionKey,omitempty"`
+
 	// name
 	// Max Length: 128
 	// Min Length: 1
@@ -56,9 +61,7 @@ type AdminModulePatchRequest struct {
 	StartsAt *strfmt.DateTime `json:"startsAt,omitempty"`
 
 	// task instance settings
-	TaskInstanceSettings struct {
-		TaskInstanceModuleSettings
-	} `json:"taskInstanceSettings,omitempty"`
+	TaskInstanceSettings *TaskInstanceModuleSettings `json:"taskInstanceSettings,omitempty"`
 }
 
 // Validate validates this admin module patch request
@@ -78,6 +81,10 @@ func (m *AdminModulePatchRequest) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateEndsAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateExtensionKey(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -191,6 +198,22 @@ func (m *AdminModulePatchRequest) validateEndsAt(formats strfmt.Registry) error 
 	return nil
 }
 
+func (m *AdminModulePatchRequest) validateExtensionKey(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.ExtensionKey) { // not required
+		return nil
+	}
+
+	if err := validate.MinLength("extensionKey", "body", *m.ExtensionKey, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("extensionKey", "body", *m.ExtensionKey, 128); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (m *AdminModulePatchRequest) validateName(formats strfmt.Registry) error {
 	if typeutils.IsZero(m.Name) { // not required
 		return nil
@@ -238,6 +261,21 @@ func (m *AdminModulePatchRequest) validateStartsAt(formats strfmt.Registry) erro
 func (m *AdminModulePatchRequest) validateTaskInstanceSettings(formats strfmt.Registry) error {
 	if typeutils.IsZero(m.TaskInstanceSettings) { // not required
 		return nil
+	}
+
+	if m.TaskInstanceSettings != nil {
+		if err := m.TaskInstanceSettings.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("taskInstanceSettings")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("taskInstanceSettings")
+			}
+
+			return err
+		}
 	}
 
 	return nil
@@ -318,6 +356,26 @@ func (m *AdminModulePatchRequest) contextValidateAudienceUuids(ctx context.Conte
 }
 
 func (m *AdminModulePatchRequest) contextValidateTaskInstanceSettings(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.TaskInstanceSettings != nil {
+
+		if typeutils.IsZero(m.TaskInstanceSettings) { // not required
+			return nil
+		}
+
+		if err := m.TaskInstanceSettings.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("taskInstanceSettings")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("taskInstanceSettings")
+			}
+
+			return err
+		}
+	}
 
 	return nil
 }

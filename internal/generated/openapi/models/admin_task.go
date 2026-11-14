@@ -4,11 +4,14 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 	stderrors "errors"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag/jsonutils"
+	"github.com/go-openapi/swag/typeutils"
 	"github.com/go-openapi/validate"
 )
 
@@ -16,96 +19,160 @@ import (
 //
 // swagger:model AdminTask
 type AdminTask struct {
-	Task
 
 	// answer configuration
 	// Required: true
-	AnswerConfiguration *AdminTaskAO1AnswerConfiguration `json:"answerConfiguration"`
+	AnswerConfiguration *AdminTaskAnswerConfiguration `json:"answerConfiguration"`
+
+	// Task-provided files uploaded by admins through task-scoped presigned endpoints. Metadata only; download URL requires a separate authorized request.
+	// Required: true
+	Attachments []*FileRef `json:"attachments"`
+
+	// category
+	// Required: true
+	// Max Length: 64
+	// Min Length: 1
+	Category *string `json:"category"`
+
+	// description
+	// Required: true
+	// Max Length: 50000
+	Description *string `json:"description"`
+
+	// Required when type=EXTENSION; names the installed module/task extension provider. No feature is available without a matching installed provider.
+	// Max Length: 128
+	// Min Length: 1
+	ExtensionKey *string `json:"extensionKey,omitempty"`
+
+	// instance
+	// Required: true
+	Instance *TaskInstanceSummary `json:"instance"`
 
 	// instance config
 	// Required: true
 	InstanceConfig *TaskInstanceConfig `json:"instanceConfig"`
+
+	// instance required
+	// Required: true
+	InstanceRequired *bool `json:"instanceRequired"`
+
+	// module Uuid
+	// Required: true
+	// Format: uuid
+	ModuleUUID *UUID `json:"moduleUuid"`
+
+	// points
+	// Required: true
+	// Maximum: 1e+09
+	// Minimum: 0
+	Points *int64 `json:"points"`
+
+	// solved
+	// Required: true
+	Solved *bool `json:"solved"`
+
+	// solves count
+	// Minimum: 0
+	SolvesCount *int64 `json:"solvesCount,omitempty"`
+
+	// status
+	// Required: true
+	// Enum: ["LOCKED","AVAILABLE","SOLVED"]
+	Status *string `json:"status"`
+
+	// submission
+	// Required: true
+	Submission *SubmissionPolicy `json:"submission"`
+
+	// title
+	// Required: true
+	// Max Length: 128
+	// Min Length: 1
+	Title *string `json:"title"`
+
+	// type
+	// Required: true
+	Type *TaskType `json:"type"`
+
+	// uuid
+	// Required: true
+	// Format: uuid
+	UUID *UUID `json:"uuid"`
 
 	// visible
 	// Required: true
 	Visible *bool `json:"visible"`
 }
 
-// UnmarshalJSON unmarshals this object from a JSON structure
-func (m *AdminTask) UnmarshalJSON(raw []byte) error {
-	// AO0
-	var aO0 Task
-	if err := jsonutils.ReadJSON(raw, &aO0); err != nil {
-		return err
-	}
-	m.Task = aO0
-
-	// AO1
-	var dataAO1 struct {
-		AnswerConfiguration *AdminTaskAO1AnswerConfiguration `json:"answerConfiguration"`
-
-		InstanceConfig *TaskInstanceConfig `json:"instanceConfig"`
-
-		Visible *bool `json:"visible"`
-	}
-	if err := jsonutils.ReadJSON(raw, &dataAO1); err != nil {
-		return err
-	}
-
-	m.AnswerConfiguration = dataAO1.AnswerConfiguration
-
-	m.InstanceConfig = dataAO1.InstanceConfig
-
-	m.Visible = dataAO1.Visible
-
-	return nil
-}
-
-// MarshalJSON marshals this object to a JSON structure
-func (m AdminTask) MarshalJSON() ([]byte, error) {
-	_parts := make([][]byte, 0, 2)
-
-	aO0, err := jsonutils.WriteJSON(m.Task)
-	if err != nil {
-		return nil, err
-	}
-	_parts = append(_parts, aO0)
-	var dataAO1 struct {
-		AnswerConfiguration *AdminTaskAO1AnswerConfiguration `json:"answerConfiguration"`
-
-		InstanceConfig *TaskInstanceConfig `json:"instanceConfig"`
-
-		Visible *bool `json:"visible"`
-	}
-
-	dataAO1.AnswerConfiguration = m.AnswerConfiguration
-
-	dataAO1.InstanceConfig = m.InstanceConfig
-
-	dataAO1.Visible = m.Visible
-
-	jsonDataAO1, errAO1 := jsonutils.WriteJSON(dataAO1)
-	if errAO1 != nil {
-		return nil, errAO1
-	}
-	_parts = append(_parts, jsonDataAO1)
-	return jsonutils.ConcatJSON(_parts...), nil
-}
-
 // Validate validates this admin task
 func (m *AdminTask) Validate(formats strfmt.Registry) error {
 	var res []error
-
-	// validation for a type composition with Task
-	if err := m.Task.Validate(formats); err != nil {
-		res = append(res, err)
-	}
 
 	if err := m.validateAnswerConfiguration(formats); err != nil {
 		res = append(res, err)
 	}
 
+	if err := m.validateAttachments(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateCategory(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateDescription(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateExtensionKey(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateInstance(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateInstanceConfig(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateInstanceRequired(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateModuleUUID(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validatePoints(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSolved(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSolvesCount(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSubmission(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTitle(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -143,6 +210,107 @@ func (m *AdminTask) validateAnswerConfiguration(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *AdminTask) validateAttachments(formats strfmt.Registry) error {
+
+	if err := validate.Required("attachments", "body", m.Attachments); err != nil {
+		return err
+	}
+
+	for i := 0; i < len(m.Attachments); i++ {
+		if typeutils.IsZero(m.Attachments[i]) { // not required
+			continue
+		}
+
+		if m.Attachments[i] != nil {
+			if err := m.Attachments[i].Validate(formats); err != nil {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
+					return ve.ValidateName("attachments" + "." + strconv.Itoa(i))
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
+					return ce.ValidateName("attachments" + "." + strconv.Itoa(i))
+				}
+
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *AdminTask) validateCategory(formats strfmt.Registry) error {
+
+	if err := validate.Required("category", "body", m.Category); err != nil {
+		return err
+	}
+
+	if err := validate.MinLength("category", "body", *m.Category, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("category", "body", *m.Category, 64); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AdminTask) validateDescription(formats strfmt.Registry) error {
+
+	if err := validate.Required("description", "body", m.Description); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("description", "body", *m.Description, 50000); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AdminTask) validateExtensionKey(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.ExtensionKey) { // not required
+		return nil
+	}
+
+	if err := validate.MinLength("extensionKey", "body", *m.ExtensionKey, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("extensionKey", "body", *m.ExtensionKey, 128); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AdminTask) validateInstance(formats strfmt.Registry) error {
+
+	if err := validate.Required("instance", "body", m.Instance); err != nil {
+		return err
+	}
+
+	if m.Instance != nil {
+		if err := m.Instance.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("instance")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("instance")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *AdminTask) validateInstanceConfig(formats strfmt.Registry) error {
 
 	if err := validate.Required("instanceConfig", "body", m.InstanceConfig); err != nil {
@@ -167,6 +335,212 @@ func (m *AdminTask) validateInstanceConfig(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *AdminTask) validateInstanceRequired(formats strfmt.Registry) error {
+
+	if err := validate.Required("instanceRequired", "body", m.InstanceRequired); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AdminTask) validateModuleUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("moduleUuid", "body", m.ModuleUUID); err != nil {
+		return err
+	}
+
+	if m.ModuleUUID != nil {
+		if err := m.ModuleUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *AdminTask) validatePoints(formats strfmt.Registry) error {
+
+	if err := validate.Required("points", "body", m.Points); err != nil {
+		return err
+	}
+
+	if err := validate.MinimumInt("points", "body", *m.Points, 0, false); err != nil {
+		return err
+	}
+
+	if err := validate.MaximumInt("points", "body", *m.Points, 1e+09, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AdminTask) validateSolved(formats strfmt.Registry) error {
+
+	if err := validate.Required("solved", "body", m.Solved); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AdminTask) validateSolvesCount(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.SolvesCount) { // not required
+		return nil
+	}
+
+	if err := validate.MinimumInt("solvesCount", "body", *m.SolvesCount, 0, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var adminTaskTypeStatusPropEnum []any
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["LOCKED","AVAILABLE","SOLVED"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		adminTaskTypeStatusPropEnum = append(adminTaskTypeStatusPropEnum, v)
+	}
+}
+
+const (
+
+	// AdminTaskStatusLOCKED captures enum value "LOCKED"
+	AdminTaskStatusLOCKED string = "LOCKED"
+
+	// AdminTaskStatusAVAILABLE captures enum value "AVAILABLE"
+	AdminTaskStatusAVAILABLE string = "AVAILABLE"
+
+	// AdminTaskStatusSOLVED captures enum value "SOLVED"
+	AdminTaskStatusSOLVED string = "SOLVED"
+)
+
+// prop value enum
+func (m *AdminTask) validateStatusEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, adminTaskTypeStatusPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *AdminTask) validateStatus(formats strfmt.Registry) error {
+
+	if err := validate.Required("status", "body", m.Status); err != nil {
+		return err
+	}
+
+	// value enum
+	if err := m.validateStatusEnum("status", "body", *m.Status); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AdminTask) validateSubmission(formats strfmt.Registry) error {
+
+	if err := validate.Required("submission", "body", m.Submission); err != nil {
+		return err
+	}
+
+	if m.Submission != nil {
+		if err := m.Submission.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("submission")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("submission")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *AdminTask) validateTitle(formats strfmt.Registry) error {
+
+	if err := validate.Required("title", "body", m.Title); err != nil {
+		return err
+	}
+
+	if err := validate.MinLength("title", "body", *m.Title, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("title", "body", *m.Title, 128); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AdminTask) validateType(formats strfmt.Registry) error {
+
+	if err := validate.Required("type", "body", m.Type); err != nil {
+		return err
+	}
+
+	if m.Type != nil {
+		if err := m.Type.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("type")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("type")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *AdminTask) validateUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("uuid", "body", m.UUID); err != nil {
+		return err
+	}
+
+	if m.UUID != nil {
+		if err := m.UUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("uuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("uuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *AdminTask) validateVisible(formats strfmt.Registry) error {
 
 	if err := validate.Required("visible", "body", m.Visible); err != nil {
@@ -180,16 +554,35 @@ func (m *AdminTask) validateVisible(formats strfmt.Registry) error {
 func (m *AdminTask) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with Task
-	if err := m.Task.ContextValidate(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.contextValidateAnswerConfiguration(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateAttachments(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateInstance(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateInstanceConfig(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateModuleUUID(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateSubmission(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateUUID(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -220,6 +613,56 @@ func (m *AdminTask) contextValidateAnswerConfiguration(ctx context.Context, form
 	return nil
 }
 
+func (m *AdminTask) contextValidateAttachments(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Attachments); i++ {
+
+		if m.Attachments[i] != nil {
+
+			if typeutils.IsZero(m.Attachments[i]) { // not required
+				continue
+			}
+
+			if err := m.Attachments[i].ContextValidate(ctx, formats); err != nil {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
+					return ve.ValidateName("attachments" + "." + strconv.Itoa(i))
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
+					return ce.ValidateName("attachments" + "." + strconv.Itoa(i))
+				}
+
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *AdminTask) contextValidateInstance(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Instance != nil {
+
+		if err := m.Instance.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("instance")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("instance")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *AdminTask) contextValidateInstanceConfig(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.InstanceConfig != nil {
@@ -232,6 +675,90 @@ func (m *AdminTask) contextValidateInstanceConfig(ctx context.Context, formats s
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
 				return ce.ValidateName("instanceConfig")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *AdminTask) contextValidateModuleUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ModuleUUID != nil {
+
+		if err := m.ModuleUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *AdminTask) contextValidateSubmission(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Submission != nil {
+
+		if err := m.Submission.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("submission")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("submission")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *AdminTask) contextValidateType(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Type != nil {
+
+		if err := m.Type.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("type")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("type")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *AdminTask) contextValidateUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.UUID != nil {
+
+		if err := m.UUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("uuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("uuid")
 			}
 
 			return err
@@ -259,10 +786,10 @@ func (m *AdminTask) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// AdminTaskAO1AnswerConfiguration admin task a o1 answer configuration
+// AdminTaskAnswerConfiguration admin task answer configuration
 //
-// swagger:model AdminTaskAO1AnswerConfiguration
-type AdminTaskAO1AnswerConfiguration struct {
+// swagger:model AdminTaskAnswerConfiguration
+type AdminTaskAnswerConfiguration struct {
 
 	// accepted answers count
 	// Required: true
@@ -274,8 +801,8 @@ type AdminTaskAO1AnswerConfiguration struct {
 	Configured *bool `json:"configured"`
 }
 
-// Validate validates this admin task a o1 answer configuration
-func (m *AdminTaskAO1AnswerConfiguration) Validate(formats strfmt.Registry) error {
+// Validate validates this admin task answer configuration
+func (m *AdminTaskAnswerConfiguration) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateAcceptedAnswersCount(formats); err != nil {
@@ -292,7 +819,7 @@ func (m *AdminTaskAO1AnswerConfiguration) Validate(formats strfmt.Registry) erro
 	return nil
 }
 
-func (m *AdminTaskAO1AnswerConfiguration) validateAcceptedAnswersCount(formats strfmt.Registry) error {
+func (m *AdminTaskAnswerConfiguration) validateAcceptedAnswersCount(formats strfmt.Registry) error {
 
 	if err := validate.Required("answerConfiguration"+"."+"acceptedAnswersCount", "body", m.AcceptedAnswersCount); err != nil {
 		return err
@@ -305,7 +832,7 @@ func (m *AdminTaskAO1AnswerConfiguration) validateAcceptedAnswersCount(formats s
 	return nil
 }
 
-func (m *AdminTaskAO1AnswerConfiguration) validateConfigured(formats strfmt.Registry) error {
+func (m *AdminTaskAnswerConfiguration) validateConfigured(formats strfmt.Registry) error {
 
 	if err := validate.Required("answerConfiguration"+"."+"configured", "body", m.Configured); err != nil {
 		return err
@@ -314,13 +841,13 @@ func (m *AdminTaskAO1AnswerConfiguration) validateConfigured(formats strfmt.Regi
 	return nil
 }
 
-// ContextValidate validates this admin task a o1 answer configuration based on context it is used
-func (m *AdminTaskAO1AnswerConfiguration) ContextValidate(_ context.Context, _ strfmt.Registry) error {
+// ContextValidate validates this admin task answer configuration based on context it is used
+func (m *AdminTaskAnswerConfiguration) ContextValidate(_ context.Context, _ strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *AdminTaskAO1AnswerConfiguration) MarshalBinary() ([]byte, error) {
+func (m *AdminTaskAnswerConfiguration) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -328,8 +855,8 @@ func (m *AdminTaskAO1AnswerConfiguration) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *AdminTaskAO1AnswerConfiguration) UnmarshalBinary(b []byte) error {
-	var res AdminTaskAO1AnswerConfiguration
+func (m *AdminTaskAnswerConfiguration) UnmarshalBinary(b []byte) error {
+	var res AdminTaskAnswerConfiguration
 	if err := jsonutils.ReadJSON(b, &res); err != nil {
 		return err
 	}

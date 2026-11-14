@@ -32,6 +32,9 @@ const (
 
 	// SubmissionCheckerMANUAL captures enum value "MANUAL"
 	SubmissionCheckerMANUAL SubmissionChecker = "MANUAL"
+
+	// SubmissionCheckerPLUGIN captures enum value "PLUGIN"
+	SubmissionCheckerPLUGIN SubmissionChecker = "PLUGIN"
 )
 
 // for schema
@@ -39,7 +42,7 @@ var submissionCheckerEnum []any
 
 func init() {
 	var res []SubmissionChecker
-	if err := json.Unmarshal([]byte(`["AUTOMATIC","MANUAL"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["AUTOMATIC","MANUAL","PLUGIN"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {

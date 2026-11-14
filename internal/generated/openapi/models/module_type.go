@@ -11,7 +11,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ModuleType A board may contain multiple modules of any type, including multiple modules with the same type.
+// ModuleType A board may contain multiple modules of any type, including multiple modules with the same type. EXTENSION requires extensionKey and an installed, enabled provider; it is never silently treated as a native type.
 //
 // swagger:model ModuleType
 type ModuleType string
@@ -35,6 +35,9 @@ const (
 
 	// ModuleTypePENTEST captures enum value "PENTEST"
 	ModuleTypePENTEST ModuleType = "PENTEST"
+
+	// ModuleTypeEXTENSION captures enum value "EXTENSION"
+	ModuleTypeEXTENSION ModuleType = "EXTENSION"
 )
 
 // for schema
@@ -42,7 +45,7 @@ var moduleTypeEnum []any
 
 func init() {
 	var res []ModuleType
-	if err := json.Unmarshal([]byte(`["TASKS","ATTACK_DEFENSE","PENTEST"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["TASKS","ATTACK_DEFENSE","PENTEST","EXTENSION"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {

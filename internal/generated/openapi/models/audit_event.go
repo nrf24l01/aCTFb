@@ -9,6 +9,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag/jsonutils"
+	"github.com/go-openapi/swag/typeutils"
 	"github.com/go-openapi/validate"
 )
 
@@ -42,9 +43,8 @@ type AuditEvent struct {
 	ResourceType *string `json:"resourceType"`
 
 	// resource Uuid
-	// Required: true
 	// Format: uuid
-	ResourceUUID *UUID `json:"resourceUuid"`
+	ResourceUUID *strfmt.UUID `json:"resourceUuid,omitempty"`
 
 	// uuid
 	// Required: true
@@ -158,24 +158,12 @@ func (m *AuditEvent) validateResourceType(formats strfmt.Registry) error {
 }
 
 func (m *AuditEvent) validateResourceUUID(formats strfmt.Registry) error {
-
-	if err := validate.Required("resourceUuid", "body", m.ResourceUUID); err != nil {
-		return err
+	if typeutils.IsZero(m.ResourceUUID) { // not required
+		return nil
 	}
 
-	if m.ResourceUUID != nil {
-		if err := m.ResourceUUID.Validate(formats); err != nil {
-			ve := new(errors.Validation)
-			if stderrors.As(err, &ve) {
-				return ve.ValidateName("resourceUuid")
-			}
-			ce := new(errors.CompositeError)
-			if stderrors.As(err, &ce) {
-				return ce.ValidateName("resourceUuid")
-			}
-
-			return err
-		}
+	if err := validate.FormatOf("resourceUuid", "body", "uuid", m.ResourceUUID.String(), formats); err != nil {
+		return err
 	}
 
 	return nil
@@ -213,10 +201,6 @@ func (m *AuditEvent) ContextValidate(ctx context.Context, formats strfmt.Registr
 		res = append(res, err)
 	}
 
-	if err := m.contextValidateResourceUUID(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.contextValidateUUID(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -239,27 +223,6 @@ func (m *AuditEvent) contextValidateActor(ctx context.Context, formats strfmt.Re
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
 				return ce.ValidateName("actor")
-			}
-
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (m *AuditEvent) contextValidateResourceUUID(ctx context.Context, formats strfmt.Registry) error {
-
-	if m.ResourceUUID != nil {
-
-		if err := m.ResourceUUID.ContextValidate(ctx, formats); err != nil {
-			ve := new(errors.Validation)
-			if stderrors.As(err, &ve) {
-				return ve.ValidateName("resourceUuid")
-			}
-			ce := new(errors.CompositeError)
-			if stderrors.As(err, &ce) {
-				return ce.ValidateName("resourceUuid")
 			}
 
 			return err

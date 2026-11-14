@@ -36,6 +36,11 @@ type AdminTaskCreateRequest struct {
 	// Max Length: 50000
 	Description *string `json:"description"`
 
+	// Required when type=EXTENSION; names the installed module/task extension provider. No feature is available without a matching installed provider.
+	// Max Length: 128
+	// Min Length: 1
+	ExtensionKey *string `json:"extensionKey,omitempty"`
+
 	// instance
 	// Required: true
 	Instance *TaskInstanceConfig `json:"instance"`
@@ -78,6 +83,10 @@ func (m *AdminTaskCreateRequest) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateDescription(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateExtensionKey(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -169,6 +178,22 @@ func (m *AdminTaskCreateRequest) validateDescription(formats strfmt.Registry) er
 	}
 
 	if err := validate.MaxLength("description", "body", *m.Description, 50000); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AdminTaskCreateRequest) validateExtensionKey(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.ExtensionKey) { // not required
+		return nil
+	}
+
+	if err := validate.MinLength("extensionKey", "body", *m.ExtensionKey, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("extensionKey", "body", *m.ExtensionKey, 128); err != nil {
 		return err
 	}
 

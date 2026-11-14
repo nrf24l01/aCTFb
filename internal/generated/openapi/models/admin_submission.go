@@ -5,6 +5,7 @@ package models
 import (
 	"context"
 	stderrors "errors"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -17,12 +18,24 @@ import (
 //
 // swagger:model AdminSubmission
 type AdminSubmission struct {
-	Submission
 
 	// board Uuid
 	// Required: true
 	// Format: uuid
 	BoardUUID *UUID `json:"boardUuid"`
+
+	// created at
+	// Required: true
+	// Format: date-time
+	CreatedAt *strfmt.DateTime `json:"createdAt"`
+
+	// files
+	// Required: true
+	Files []*FileRef `json:"files"`
+
+	// message
+	// Max Length: 2000
+	Message *string `json:"message,omitempty"`
 
 	// module Uuid
 	// Required: true
@@ -33,6 +46,17 @@ type AdminSubmission struct {
 	// Required: true
 	ResourceType *SubmissionResourceType `json:"resourceType"`
 
+	// reviewed at
+	// Format: date-time
+	ReviewedAt *strfmt.DateTime `json:"reviewedAt,omitempty"`
+
+	// score awarded
+	ScoreAwarded *int64 `json:"scoreAwarded,omitempty"`
+
+	// status
+	// Required: true
+	Status *SubmissionStatus `json:"status"`
+
 	// subject
 	// Required: true
 	Subject *ScoreSubject `json:"subject"`
@@ -42,110 +66,35 @@ type AdminSubmission struct {
 	SubmittedByUserUUID UUID `json:"submittedByUserUuid,omitempty"`
 
 	// task Uuid
-	TaskUUID struct {
-		UUID
-	} `json:"taskUuid,omitempty"`
-}
+	// Format: uuid
+	TaskUUID *UUID `json:"taskUuid,omitempty"`
 
-// UnmarshalJSON unmarshals this object from a JSON structure
-func (m *AdminSubmission) UnmarshalJSON(raw []byte) error {
-	// AO0
-	var aO0 Submission
-	if err := jsonutils.ReadJSON(raw, &aO0); err != nil {
-		return err
-	}
-	m.Submission = aO0
+	// text
+	Text *string `json:"text,omitempty"`
 
-	// AO1
-	var dataAO1 struct {
-		BoardUUID *UUID `json:"boardUuid"`
-
-		ModuleUUID *UUID `json:"moduleUuid"`
-
-		ResourceType *SubmissionResourceType `json:"resourceType"`
-
-		Subject *ScoreSubject `json:"subject"`
-
-		SubmittedByUserUUID UUID `json:"submittedByUserUuid,omitempty"`
-
-		TaskUUID struct {
-			UUID
-		} `json:"taskUuid,omitempty"`
-	}
-	if err := jsonutils.ReadJSON(raw, &dataAO1); err != nil {
-		return err
-	}
-
-	m.BoardUUID = dataAO1.BoardUUID
-
-	m.ModuleUUID = dataAO1.ModuleUUID
-
-	m.ResourceType = dataAO1.ResourceType
-
-	m.Subject = dataAO1.Subject
-
-	m.SubmittedByUserUUID = dataAO1.SubmittedByUserUUID
-
-	m.TaskUUID = dataAO1.TaskUUID
-
-	return nil
-}
-
-// MarshalJSON marshals this object to a JSON structure
-func (m AdminSubmission) MarshalJSON() ([]byte, error) {
-	_parts := make([][]byte, 0, 2)
-
-	aO0, err := jsonutils.WriteJSON(m.Submission)
-	if err != nil {
-		return nil, err
-	}
-	_parts = append(_parts, aO0)
-	var dataAO1 struct {
-		BoardUUID *UUID `json:"boardUuid"`
-
-		ModuleUUID *UUID `json:"moduleUuid"`
-
-		ResourceType *SubmissionResourceType `json:"resourceType"`
-
-		Subject *ScoreSubject `json:"subject"`
-
-		SubmittedByUserUUID UUID `json:"submittedByUserUuid,omitempty"`
-
-		TaskUUID struct {
-			UUID
-		} `json:"taskUuid,omitempty"`
-	}
-
-	dataAO1.BoardUUID = m.BoardUUID
-
-	dataAO1.ModuleUUID = m.ModuleUUID
-
-	dataAO1.ResourceType = m.ResourceType
-
-	dataAO1.Subject = m.Subject
-
-	dataAO1.SubmittedByUserUUID = m.SubmittedByUserUUID
-
-	dataAO1.TaskUUID = m.TaskUUID
-
-	jsonDataAO1, errAO1 := jsonutils.WriteJSON(dataAO1)
-	if errAO1 != nil {
-		return nil, errAO1
-	}
-	_parts = append(_parts, jsonDataAO1)
-	return jsonutils.ConcatJSON(_parts...), nil
+	// uuid
+	// Required: true
+	// Format: uuid
+	UUID *UUID `json:"uuid"`
 }
 
 // Validate validates this admin submission
 func (m *AdminSubmission) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with Submission
-	if err := m.Submission.Validate(formats); err != nil {
+	if err := m.validateBoardUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateBoardUUID(formats); err != nil {
+	if err := m.validateCreatedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateFiles(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateMessage(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -154,6 +103,14 @@ func (m *AdminSubmission) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateResourceType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateReviewedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStatus(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -166,6 +123,10 @@ func (m *AdminSubmission) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateTaskUUID(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -194,6 +155,62 @@ func (m *AdminSubmission) validateBoardUUID(formats strfmt.Registry) error {
 
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *AdminSubmission) validateCreatedAt(formats strfmt.Registry) error {
+
+	if err := validate.Required("createdAt", "body", m.CreatedAt); err != nil {
+		return err
+	}
+
+	if err := validate.FormatOf("createdAt", "body", "date-time", m.CreatedAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AdminSubmission) validateFiles(formats strfmt.Registry) error {
+
+	if err := validate.Required("files", "body", m.Files); err != nil {
+		return err
+	}
+
+	for i := 0; i < len(m.Files); i++ {
+		if typeutils.IsZero(m.Files[i]) { // not required
+			continue
+		}
+
+		if m.Files[i] != nil {
+			if err := m.Files[i].Validate(formats); err != nil {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
+					return ve.ValidateName("files" + "." + strconv.Itoa(i))
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
+					return ce.ValidateName("files" + "." + strconv.Itoa(i))
+				}
+
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *AdminSubmission) validateMessage(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.Message) { // not required
+		return nil
+	}
+
+	if err := validate.MaxLength("message", "body", *m.Message, 2000); err != nil {
+		return err
 	}
 
 	return nil
@@ -247,6 +264,42 @@ func (m *AdminSubmission) validateResourceType(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *AdminSubmission) validateReviewedAt(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.ReviewedAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("reviewedAt", "body", "date-time", m.ReviewedAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AdminSubmission) validateStatus(formats strfmt.Registry) error {
+
+	if err := validate.Required("status", "body", m.Status); err != nil {
+		return err
+	}
+
+	if m.Status != nil {
+		if err := m.Status.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("status")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("status")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *AdminSubmission) validateSubject(formats strfmt.Registry) error {
 
 	if err := validate.Required("subject", "body", m.Subject); err != nil {
@@ -272,7 +325,6 @@ func (m *AdminSubmission) validateSubject(formats strfmt.Registry) error {
 }
 
 func (m *AdminSubmission) validateSubmittedByUserUUID(formats strfmt.Registry) error {
-
 	if typeutils.IsZero(m.SubmittedByUserUUID) { // not required
 		return nil
 	}
@@ -294,9 +346,47 @@ func (m *AdminSubmission) validateSubmittedByUserUUID(formats strfmt.Registry) e
 }
 
 func (m *AdminSubmission) validateTaskUUID(formats strfmt.Registry) error {
-
 	if typeutils.IsZero(m.TaskUUID) { // not required
 		return nil
+	}
+
+	if m.TaskUUID != nil {
+		if err := m.TaskUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("taskUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("taskUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *AdminSubmission) validateUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("uuid", "body", m.UUID); err != nil {
+		return err
+	}
+
+	if m.UUID != nil {
+		if err := m.UUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("uuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("uuid")
+			}
+
+			return err
+		}
 	}
 
 	return nil
@@ -306,12 +396,11 @@ func (m *AdminSubmission) validateTaskUUID(formats strfmt.Registry) error {
 func (m *AdminSubmission) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with Submission
-	if err := m.Submission.ContextValidate(ctx, formats); err != nil {
+	if err := m.contextValidateBoardUUID(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.contextValidateBoardUUID(ctx, formats); err != nil {
+	if err := m.contextValidateFiles(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -320,6 +409,10 @@ func (m *AdminSubmission) ContextValidate(ctx context.Context, formats strfmt.Re
 	}
 
 	if err := m.contextValidateResourceType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateStatus(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -332,6 +425,10 @@ func (m *AdminSubmission) ContextValidate(ctx context.Context, formats strfmt.Re
 	}
 
 	if err := m.contextValidateTaskUUID(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateUUID(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -357,6 +454,35 @@ func (m *AdminSubmission) contextValidateBoardUUID(ctx context.Context, formats 
 
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *AdminSubmission) contextValidateFiles(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Files); i++ {
+
+		if m.Files[i] != nil {
+
+			if typeutils.IsZero(m.Files[i]) { // not required
+				continue
+			}
+
+			if err := m.Files[i].ContextValidate(ctx, formats); err != nil {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
+					return ve.ValidateName("files" + "." + strconv.Itoa(i))
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
+					return ce.ValidateName("files" + "." + strconv.Itoa(i))
+				}
+
+				return err
+			}
+		}
+
 	}
 
 	return nil
@@ -395,6 +521,27 @@ func (m *AdminSubmission) contextValidateResourceType(ctx context.Context, forma
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
 				return ce.ValidateName("resourceType")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *AdminSubmission) contextValidateStatus(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Status != nil {
+
+		if err := m.Status.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("status")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("status")
 			}
 
 			return err
@@ -448,6 +595,47 @@ func (m *AdminSubmission) contextValidateSubmittedByUserUUID(ctx context.Context
 }
 
 func (m *AdminSubmission) contextValidateTaskUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.TaskUUID != nil {
+
+		if typeutils.IsZero(m.TaskUUID) { // not required
+			return nil
+		}
+
+		if err := m.TaskUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("taskUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("taskUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *AdminSubmission) contextValidateUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.UUID != nil {
+
+		if err := m.UUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("uuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("uuid")
+			}
+
+			return err
+		}
+	}
 
 	return nil
 }

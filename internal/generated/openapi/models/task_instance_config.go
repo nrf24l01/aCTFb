@@ -19,6 +19,10 @@ import (
 // swagger:model TaskInstanceConfig
 type TaskInstanceConfig struct {
 
+	// deployment template Uuid
+	// Format: uuid
+	DeploymentTemplateUUID *UUID `json:"deploymentTemplateUuid,omitempty"`
+
 	// enabled
 	// Required: true
 	Enabled *bool `json:"enabled"`
@@ -26,12 +30,21 @@ type TaskInstanceConfig struct {
 	// nodes
 	// Max Items: 20
 	// Min Items: 1
-	Nodes []*InstanceNodeConfig `json:"nodes"`
+	Nodes []*InstanceNodeConfig `json:"nodes,omitempty"`
+
+	// Non-secret template parameters selected by the owner/editor; values must match the allowlisted version parameters policy.
+	Parameters map[string]string `json:"parameters,omitempty"`
 
 	// provider integration Uuid
-	ProviderIntegrationUUID struct {
-		UUID
-	} `json:"providerIntegrationUuid,omitempty"`
+	// Format: uuid
+	ProviderIntegrationUUID *UUID `json:"providerIntegrationUuid,omitempty"`
+
+	// Write-only secret template inputs. Sealed immediately to encrypted binding secret parameters; never returned in any response, preview, diff or log.
+	SecretParameters map[string]string `json:"secretParameters,omitempty"`
+
+	// template version
+	// Minimum: 1
+	TemplateVersion *int64 `json:"templateVersion,omitempty"`
 
 	// ttl seconds
 	// Maximum: 604800
@@ -42,6 +55,10 @@ type TaskInstanceConfig struct {
 // Validate validates this task instance config
 func (m *TaskInstanceConfig) Validate(formats strfmt.Registry) error {
 	var res []error
+
+	if err := m.validateDeploymentTemplateUUID(formats); err != nil {
+		res = append(res, err)
+	}
 
 	if err := m.validateEnabled(formats); err != nil {
 		res = append(res, err)
@@ -55,6 +72,10 @@ func (m *TaskInstanceConfig) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateTemplateVersion(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateTTLSeconds(formats); err != nil {
 		res = append(res, err)
 	}
@@ -62,6 +83,29 @@ func (m *TaskInstanceConfig) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *TaskInstanceConfig) validateDeploymentTemplateUUID(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.DeploymentTemplateUUID) { // not required
+		return nil
+	}
+
+	if m.DeploymentTemplateUUID != nil {
+		if err := m.DeploymentTemplateUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("deploymentTemplateUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("deploymentTemplateUuid")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -119,6 +163,33 @@ func (m *TaskInstanceConfig) validateProviderIntegrationUUID(formats strfmt.Regi
 		return nil
 	}
 
+	if m.ProviderIntegrationUUID != nil {
+		if err := m.ProviderIntegrationUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("providerIntegrationUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("providerIntegrationUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *TaskInstanceConfig) validateTemplateVersion(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.TemplateVersion) { // not required
+		return nil
+	}
+
+	if err := validate.MinimumInt("templateVersion", "body", *m.TemplateVersion, 1, false); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -142,6 +213,10 @@ func (m *TaskInstanceConfig) validateTTLSeconds(formats strfmt.Registry) error {
 func (m *TaskInstanceConfig) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.contextValidateDeploymentTemplateUUID(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateNodes(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -153,6 +228,31 @@ func (m *TaskInstanceConfig) ContextValidate(ctx context.Context, formats strfmt
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *TaskInstanceConfig) contextValidateDeploymentTemplateUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.DeploymentTemplateUUID != nil {
+
+		if typeutils.IsZero(m.DeploymentTemplateUUID) { // not required
+			return nil
+		}
+
+		if err := m.DeploymentTemplateUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("deploymentTemplateUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("deploymentTemplateUuid")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -186,6 +286,26 @@ func (m *TaskInstanceConfig) contextValidateNodes(ctx context.Context, formats s
 }
 
 func (m *TaskInstanceConfig) contextValidateProviderIntegrationUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ProviderIntegrationUUID != nil {
+
+		if typeutils.IsZero(m.ProviderIntegrationUUID) { // not required
+			return nil
+		}
+
+		if err := m.ProviderIntegrationUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("providerIntegrationUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("providerIntegrationUuid")
+			}
+
+			return err
+		}
+	}
 
 	return nil
 }

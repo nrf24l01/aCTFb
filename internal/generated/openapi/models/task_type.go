@@ -44,6 +44,9 @@ const (
 
 	// TaskTypePENTESTREPORT captures enum value "PENTEST_REPORT"
 	TaskTypePENTESTREPORT TaskType = "PENTEST_REPORT"
+
+	// TaskTypeEXTENSION captures enum value "EXTENSION"
+	TaskTypeEXTENSION TaskType = "EXTENSION"
 )
 
 // for schema
@@ -51,7 +54,7 @@ var taskTypeEnum []any
 
 func init() {
 	var res []TaskType
-	if err := json.Unmarshal([]byte(`["FLAG","MANUAL","INSTANCE","EXPLOIT","PATCH","PENTEST_REPORT"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["FLAG","MANUAL","INSTANCE","EXPLOIT","PATCH","PENTEST_REPORT","EXTENSION"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {

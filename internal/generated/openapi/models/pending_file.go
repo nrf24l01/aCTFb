@@ -17,76 +17,52 @@ import (
 //
 // swagger:model PendingFile
 type PendingFile struct {
-	FileRef
+
+	// content type
+	// Required: true
+	// Max Length: 255
+	// Min Length: 1
+	ContentType *string `json:"contentType"`
+
+	// filename
+	// Required: true
+	// Max Length: 255
+	// Min Length: 1
+	Filename *string `json:"filename"`
 
 	// Machine-readable reason when status=REJECTED. No malware/signature internals are exposed.
 	// Max Length: 128
 	RejectionCode *string `json:"rejectionCode,omitempty"`
 
+	// sha256
+	// Required: true
+	// Pattern: ^[A-Fa-f0-9]{64}$
+	Sha256 *string `json:"sha256"`
+
+	// size
+	// Required: true
+	// Minimum: 1
+	Size *int64 `json:"size"`
+
 	// status
 	// Required: true
 	Status *FileValidationStatus `json:"status"`
-}
 
-// UnmarshalJSON unmarshals this object from a JSON structure
-func (m *PendingFile) UnmarshalJSON(raw []byte) error {
-	// AO0
-	var aO0 FileRef
-	if err := jsonutils.ReadJSON(raw, &aO0); err != nil {
-		return err
-	}
-	m.FileRef = aO0
-
-	// AO1
-	var dataAO1 struct {
-		RejectionCode *string `json:"rejectionCode,omitempty"`
-
-		Status *FileValidationStatus `json:"status"`
-	}
-	if err := jsonutils.ReadJSON(raw, &dataAO1); err != nil {
-		return err
-	}
-
-	m.RejectionCode = dataAO1.RejectionCode
-
-	m.Status = dataAO1.Status
-
-	return nil
-}
-
-// MarshalJSON marshals this object to a JSON structure
-func (m PendingFile) MarshalJSON() ([]byte, error) {
-	_parts := make([][]byte, 0, 2)
-
-	aO0, err := jsonutils.WriteJSON(m.FileRef)
-	if err != nil {
-		return nil, err
-	}
-	_parts = append(_parts, aO0)
-	var dataAO1 struct {
-		RejectionCode *string `json:"rejectionCode,omitempty"`
-
-		Status *FileValidationStatus `json:"status"`
-	}
-
-	dataAO1.RejectionCode = m.RejectionCode
-
-	dataAO1.Status = m.Status
-
-	jsonDataAO1, errAO1 := jsonutils.WriteJSON(dataAO1)
-	if errAO1 != nil {
-		return nil, errAO1
-	}
-	_parts = append(_parts, jsonDataAO1)
-	return jsonutils.ConcatJSON(_parts...), nil
+	// uuid
+	// Required: true
+	// Format: uuid
+	UUID *UUID `json:"uuid"`
 }
 
 // Validate validates this pending file
 func (m *PendingFile) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with FileRef
-	if err := m.FileRef.Validate(formats); err != nil {
+	if err := m.validateContentType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateFilename(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -94,7 +70,19 @@ func (m *PendingFile) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateSha256(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSize(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -104,13 +92,72 @@ func (m *PendingFile) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *PendingFile) validateRejectionCode(formats strfmt.Registry) error {
+func (m *PendingFile) validateContentType(formats strfmt.Registry) error {
 
+	if err := validate.Required("contentType", "body", m.ContentType); err != nil {
+		return err
+	}
+
+	if err := validate.MinLength("contentType", "body", *m.ContentType, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("contentType", "body", *m.ContentType, 255); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *PendingFile) validateFilename(formats strfmt.Registry) error {
+
+	if err := validate.Required("filename", "body", m.Filename); err != nil {
+		return err
+	}
+
+	if err := validate.MinLength("filename", "body", *m.Filename, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("filename", "body", *m.Filename, 255); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *PendingFile) validateRejectionCode(formats strfmt.Registry) error {
 	if typeutils.IsZero(m.RejectionCode) { // not required
 		return nil
 	}
 
 	if err := validate.MaxLength("rejectionCode", "body", *m.RejectionCode, 128); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *PendingFile) validateSha256(formats strfmt.Registry) error {
+
+	if err := validate.Required("sha256", "body", m.Sha256); err != nil {
+		return err
+	}
+
+	if err := validate.Pattern("sha256", "body", *m.Sha256, `^[A-Fa-f0-9]{64}$`); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *PendingFile) validateSize(formats strfmt.Registry) error {
+
+	if err := validate.Required("size", "body", m.Size); err != nil {
+		return err
+	}
+
+	if err := validate.MinimumInt("size", "body", *m.Size, 1, false); err != nil {
 		return err
 	}
 
@@ -141,16 +188,39 @@ func (m *PendingFile) validateStatus(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *PendingFile) validateUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("uuid", "body", m.UUID); err != nil {
+		return err
+	}
+
+	if m.UUID != nil {
+		if err := m.UUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("uuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("uuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 // ContextValidate validate this pending file based on the context it is used
 func (m *PendingFile) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with FileRef
-	if err := m.FileRef.ContextValidate(ctx, formats); err != nil {
+	if err := m.contextValidateStatus(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.contextValidateStatus(ctx, formats); err != nil {
+	if err := m.contextValidateUUID(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -172,6 +242,27 @@ func (m *PendingFile) contextValidateStatus(ctx context.Context, formats strfmt.
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
 				return ce.ValidateName("status")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *PendingFile) contextValidateUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.UUID != nil {
+
+		if err := m.UUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("uuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("uuid")
 			}
 
 			return err

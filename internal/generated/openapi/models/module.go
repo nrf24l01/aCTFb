@@ -4,10 +4,13 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag/jsonutils"
+	"github.com/go-openapi/swag/typeutils"
 	"github.com/go-openapi/validate"
 )
 
@@ -15,65 +18,80 @@ import (
 //
 // swagger:model Module
 type Module struct {
-	ModuleListItem
+
+	// allowed task types
+	// Required: true
+	// Min Items: 1
+	// Unique: true
+	AllowedTaskTypes []TaskType `json:"allowedTaskTypes"`
+
+	// Empty means available to every joined board subject; otherwise membership in at least one listed audience is required.
+	// Required: true
+	// Unique: true
+	AudienceUuids []UUID `json:"audienceUuids"`
+
+	// board Uuid
+	// Required: true
+	// Format: uuid
+	BoardUUID *UUID `json:"boardUuid"`
 
 	// description
 	// Required: true
 	// Max Length: 50000
 	Description *string `json:"description"`
-}
 
-// UnmarshalJSON unmarshals this object from a JSON structure
-func (m *Module) UnmarshalJSON(raw []byte) error {
-	// AO0
-	var aO0 ModuleListItem
-	if err := jsonutils.ReadJSON(raw, &aO0); err != nil {
-		return err
-	}
-	m.ModuleListItem = aO0
+	// ends at
+	// Format: date-time
+	EndsAt *strfmt.DateTime `json:"endsAt,omitempty"`
 
-	// AO1
-	var dataAO1 struct {
-		Description *string `json:"description"`
-	}
-	if err := jsonutils.ReadJSON(raw, &dataAO1); err != nil {
-		return err
-	}
+	// Required when type=EXTENSION; names the installed module/task extension provider. No feature is available without a matching installed provider.
+	// Max Length: 128
+	// Min Length: 1
+	ExtensionKey *string `json:"extensionKey,omitempty"`
 
-	m.Description = dataAO1.Description
+	// name
+	// Required: true
+	// Max Length: 128
+	// Min Length: 1
+	Name *string `json:"name"`
 
-	return nil
-}
+	// order
+	// Required: true
+	// Maximum: 1e+06
+	// Minimum: 0
+	Order *int64 `json:"order"`
 
-// MarshalJSON marshals this object to a JSON structure
-func (m Module) MarshalJSON() ([]byte, error) {
-	_parts := make([][]byte, 0, 2)
+	// starts at
+	// Format: date-time
+	StartsAt *strfmt.DateTime `json:"startsAt,omitempty"`
 
-	aO0, err := jsonutils.WriteJSON(m.ModuleListItem)
-	if err != nil {
-		return nil, err
-	}
-	_parts = append(_parts, aO0)
-	var dataAO1 struct {
-		Description *string `json:"description"`
-	}
+	// status
+	// Required: true
+	Status *ModuleStatus `json:"status"`
 
-	dataAO1.Description = m.Description
+	// type
+	// Required: true
+	Type *ModuleType `json:"type"`
 
-	jsonDataAO1, errAO1 := jsonutils.WriteJSON(dataAO1)
-	if errAO1 != nil {
-		return nil, errAO1
-	}
-	_parts = append(_parts, jsonDataAO1)
-	return jsonutils.ConcatJSON(_parts...), nil
+	// uuid
+	// Required: true
+	// Format: uuid
+	UUID *UUID `json:"uuid"`
 }
 
 // Validate validates this module
 func (m *Module) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with ModuleListItem
-	if err := m.ModuleListItem.Validate(formats); err != nil {
+	if err := m.validateAllowedTaskTypes(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateAudienceUuids(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateBoardUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -81,9 +99,131 @@ func (m *Module) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateEndsAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateExtensionKey(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateName(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateOrder(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStartsAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUUID(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *Module) validateAllowedTaskTypes(formats strfmt.Registry) error {
+
+	if err := validate.Required("allowedTaskTypes", "body", m.AllowedTaskTypes); err != nil {
+		return err
+	}
+
+	iAllowedTaskTypesSize := int64(len(m.AllowedTaskTypes))
+
+	if err := validate.MinItems("allowedTaskTypes", "body", iAllowedTaskTypesSize, 1); err != nil {
+		return err
+	}
+
+	if err := validate.UniqueItems("allowedTaskTypes", "body", m.AllowedTaskTypes); err != nil {
+		return err
+	}
+
+	for i := 0; i < len(m.AllowedTaskTypes); i++ {
+
+		if err := m.AllowedTaskTypes[i].Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("allowedTaskTypes" + "." + strconv.Itoa(i))
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("allowedTaskTypes" + "." + strconv.Itoa(i))
+			}
+
+			return err
+		}
+
+	}
+
+	return nil
+}
+
+func (m *Module) validateAudienceUuids(formats strfmt.Registry) error {
+
+	if err := validate.Required("audienceUuids", "body", m.AudienceUuids); err != nil {
+		return err
+	}
+
+	if err := validate.UniqueItems("audienceUuids", "body", m.AudienceUuids); err != nil {
+		return err
+	}
+
+	for i := 0; i < len(m.AudienceUuids); i++ {
+
+		if err := m.AudienceUuids[i].Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("audienceUuids" + "." + strconv.Itoa(i))
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("audienceUuids" + "." + strconv.Itoa(i))
+			}
+
+			return err
+		}
+
+	}
+
+	return nil
+}
+
+func (m *Module) validateBoardUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("boardUuid", "body", m.BoardUUID); err != nil {
+		return err
+	}
+
+	if m.BoardUUID != nil {
+		if err := m.BoardUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("boardUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("boardUuid")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -100,18 +240,319 @@ func (m *Module) validateDescription(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Module) validateEndsAt(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.EndsAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("endsAt", "body", "date-time", m.EndsAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Module) validateExtensionKey(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.ExtensionKey) { // not required
+		return nil
+	}
+
+	if err := validate.MinLength("extensionKey", "body", *m.ExtensionKey, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("extensionKey", "body", *m.ExtensionKey, 128); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Module) validateName(formats strfmt.Registry) error {
+
+	if err := validate.Required("name", "body", m.Name); err != nil {
+		return err
+	}
+
+	if err := validate.MinLength("name", "body", *m.Name, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("name", "body", *m.Name, 128); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Module) validateOrder(formats strfmt.Registry) error {
+
+	if err := validate.Required("order", "body", m.Order); err != nil {
+		return err
+	}
+
+	if err := validate.MinimumInt("order", "body", *m.Order, 0, false); err != nil {
+		return err
+	}
+
+	if err := validate.MaximumInt("order", "body", *m.Order, 1e+06, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Module) validateStartsAt(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.StartsAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("startsAt", "body", "date-time", m.StartsAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Module) validateStatus(formats strfmt.Registry) error {
+
+	if err := validate.Required("status", "body", m.Status); err != nil {
+		return err
+	}
+
+	if m.Status != nil {
+		if err := m.Status.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("status")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("status")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Module) validateType(formats strfmt.Registry) error {
+
+	if err := validate.Required("type", "body", m.Type); err != nil {
+		return err
+	}
+
+	if m.Type != nil {
+		if err := m.Type.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("type")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("type")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Module) validateUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("uuid", "body", m.UUID); err != nil {
+		return err
+	}
+
+	if m.UUID != nil {
+		if err := m.UUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("uuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("uuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 // ContextValidate validate this module based on the context it is used
 func (m *Module) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with ModuleListItem
-	if err := m.ModuleListItem.ContextValidate(ctx, formats); err != nil {
+	if err := m.contextValidateAllowedTaskTypes(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateAudienceUuids(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateBoardUUID(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateStatus(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateUUID(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *Module) contextValidateAllowedTaskTypes(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.AllowedTaskTypes); i++ {
+
+		if typeutils.IsZero(m.AllowedTaskTypes[i]) { // not required
+			continue
+		}
+
+		if err := m.AllowedTaskTypes[i].ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("allowedTaskTypes" + "." + strconv.Itoa(i))
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("allowedTaskTypes" + "." + strconv.Itoa(i))
+			}
+
+			return err
+		}
+
+	}
+
+	return nil
+}
+
+func (m *Module) contextValidateAudienceUuids(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.AudienceUuids); i++ {
+
+		if typeutils.IsZero(m.AudienceUuids[i]) { // not required
+			continue
+		}
+
+		if err := m.AudienceUuids[i].ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("audienceUuids" + "." + strconv.Itoa(i))
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("audienceUuids" + "." + strconv.Itoa(i))
+			}
+
+			return err
+		}
+
+	}
+
+	return nil
+}
+
+func (m *Module) contextValidateBoardUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.BoardUUID != nil {
+
+		if err := m.BoardUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("boardUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("boardUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Module) contextValidateStatus(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Status != nil {
+
+		if err := m.Status.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("status")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("status")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Module) contextValidateType(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Type != nil {
+
+		if err := m.Type.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("type")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("type")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Module) contextValidateUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.UUID != nil {
+
+		if err := m.UUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("uuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("uuid")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 

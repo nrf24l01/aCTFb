@@ -16,7 +16,23 @@ import (
 //
 // swagger:model ADRepositoryAssignment
 type ADRepositoryAssignment struct {
-	ADRepositoryAssignmentRequest
+
+	// exploit repository
+	// Required: true
+	ExploitRepository *RepositorySpec `json:"exploitRepository"`
+
+	// source repository
+	// Required: true
+	SourceRepository *RepositorySpec `json:"sourceRepository"`
+
+	// subject type
+	// Required: true
+	SubjectType *SubjectType `json:"subjectType"`
+
+	// subject Uuid
+	// Required: true
+	// Format: uuid
+	SubjectUUID *UUID `json:"subjectUuid"`
 
 	// uuid
 	// Required: true
@@ -24,57 +40,23 @@ type ADRepositoryAssignment struct {
 	UUID *UUID `json:"uuid"`
 }
 
-// UnmarshalJSON unmarshals this object from a JSON structure
-func (m *ADRepositoryAssignment) UnmarshalJSON(raw []byte) error {
-	// AO0
-	var aO0 ADRepositoryAssignmentRequest
-	if err := jsonutils.ReadJSON(raw, &aO0); err != nil {
-		return err
-	}
-	m.ADRepositoryAssignmentRequest = aO0
-
-	// AO1
-	var dataAO1 struct {
-		UUID *UUID `json:"uuid"`
-	}
-	if err := jsonutils.ReadJSON(raw, &dataAO1); err != nil {
-		return err
-	}
-
-	m.UUID = dataAO1.UUID
-
-	return nil
-}
-
-// MarshalJSON marshals this object to a JSON structure
-func (m ADRepositoryAssignment) MarshalJSON() ([]byte, error) {
-	_parts := make([][]byte, 0, 2)
-
-	aO0, err := jsonutils.WriteJSON(m.ADRepositoryAssignmentRequest)
-	if err != nil {
-		return nil, err
-	}
-	_parts = append(_parts, aO0)
-	var dataAO1 struct {
-		UUID *UUID `json:"uuid"`
-	}
-
-	dataAO1.UUID = m.UUID
-
-	jsonDataAO1, errAO1 := jsonutils.WriteJSON(dataAO1)
-	if errAO1 != nil {
-		return nil, errAO1
-	}
-	_parts = append(_parts, jsonDataAO1)
-	return jsonutils.ConcatJSON(_parts...), nil
-}
-
 // Validate validates this a d repository assignment
 func (m *ADRepositoryAssignment) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with ADRepositoryAssignmentRequest
-	if err := m.ADRepositoryAssignmentRequest.Validate(formats); err != nil {
+	if err := m.validateExploitRepository(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSourceRepository(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSubjectType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSubjectUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -85,6 +67,102 @@ func (m *ADRepositoryAssignment) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ADRepositoryAssignment) validateExploitRepository(formats strfmt.Registry) error {
+
+	if err := validate.Required("exploitRepository", "body", m.ExploitRepository); err != nil {
+		return err
+	}
+
+	if m.ExploitRepository != nil {
+		if err := m.ExploitRepository.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("exploitRepository")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("exploitRepository")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ADRepositoryAssignment) validateSourceRepository(formats strfmt.Registry) error {
+
+	if err := validate.Required("sourceRepository", "body", m.SourceRepository); err != nil {
+		return err
+	}
+
+	if m.SourceRepository != nil {
+		if err := m.SourceRepository.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("sourceRepository")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("sourceRepository")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ADRepositoryAssignment) validateSubjectType(formats strfmt.Registry) error {
+
+	if err := validate.Required("subjectType", "body", m.SubjectType); err != nil {
+		return err
+	}
+
+	if m.SubjectType != nil {
+		if err := m.SubjectType.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("subjectType")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("subjectType")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ADRepositoryAssignment) validateSubjectUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("subjectUuid", "body", m.SubjectUUID); err != nil {
+		return err
+	}
+
+	if m.SubjectUUID != nil {
+		if err := m.SubjectUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("subjectUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("subjectUuid")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -116,8 +194,19 @@ func (m *ADRepositoryAssignment) validateUUID(formats strfmt.Registry) error {
 func (m *ADRepositoryAssignment) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with ADRepositoryAssignmentRequest
-	if err := m.ADRepositoryAssignmentRequest.ContextValidate(ctx, formats); err != nil {
+	if err := m.contextValidateExploitRepository(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateSourceRepository(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateSubjectType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateSubjectUUID(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -128,6 +217,90 @@ func (m *ADRepositoryAssignment) ContextValidate(ctx context.Context, formats st
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ADRepositoryAssignment) contextValidateExploitRepository(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ExploitRepository != nil {
+
+		if err := m.ExploitRepository.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("exploitRepository")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("exploitRepository")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ADRepositoryAssignment) contextValidateSourceRepository(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.SourceRepository != nil {
+
+		if err := m.SourceRepository.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("sourceRepository")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("sourceRepository")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ADRepositoryAssignment) contextValidateSubjectType(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.SubjectType != nil {
+
+		if err := m.SubjectType.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("subjectType")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("subjectType")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ADRepositoryAssignment) contextValidateSubjectUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.SubjectUUID != nil {
+
+		if err := m.SubjectUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("subjectUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("subjectUuid")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 

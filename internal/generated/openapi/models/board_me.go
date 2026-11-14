@@ -43,9 +43,7 @@ type BoardMe struct {
 	Score *int64 `json:"score,omitempty"`
 
 	// team
-	Team struct {
-		Team
-	} `json:"team,omitempty"`
+	Team *Team `json:"team,omitempty"`
 }
 
 // Validate validates this board me
@@ -175,6 +173,21 @@ func (m *BoardMe) validateTeam(formats strfmt.Registry) error {
 		return nil
 	}
 
+	if m.Team != nil {
+		if err := m.Team.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("team")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("team")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -251,6 +264,26 @@ func (m *BoardMe) contextValidateParticipationMode(ctx context.Context, formats 
 }
 
 func (m *BoardMe) contextValidateTeam(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Team != nil {
+
+		if typeutils.IsZero(m.Team) { // not required
+			return nil
+		}
+
+		if err := m.Team.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("team")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("team")
+			}
+
+			return err
+		}
+	}
 
 	return nil
 }

@@ -4,6 +4,7 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 	stderrors "errors"
 
 	"github.com/go-openapi/errors"
@@ -25,10 +26,18 @@ type IntegrationCreateRequest struct {
 	// Write-only secrets. Values are encrypted at rest, redacted from logs/audit/error details and never returned by any GET/list response.
 	Credentials map[string]string `json:"credentials,omitempty"`
 
+	// Execution driver; null for Git integrations. Legacy type=PROXMOX maps to VM/proxmox and type=CONTAINER requires a driver.
+	// Enum: ["proxmox","kubevirt","docker","podman","kubernetes"]
+	Driver *string `json:"driver,omitempty"`
+
 	// instance publication policy
 	InstancePublicationPolicy struct {
 		InstancePublicationPolicy
 	} `json:"instancePublicationPolicy,omitempty"`
+
+	// Logical compute kind; null for Git integrations.
+	// Enum: ["VM","CONTAINER"]
+	Kind *string `json:"kind,omitempty"`
 
 	// name
 	// Required: true
@@ -52,7 +61,15 @@ func (m *IntegrationCreateRequest) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateDriver(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateInstancePublicationPolicy(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateKind(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -82,9 +99,102 @@ func (m *IntegrationCreateRequest) validateBaseURL(formats strfmt.Registry) erro
 	return nil
 }
 
+var integrationCreateRequestTypeDriverPropEnum []any
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["proxmox","kubevirt","docker","podman","kubernetes"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		integrationCreateRequestTypeDriverPropEnum = append(integrationCreateRequestTypeDriverPropEnum, v)
+	}
+}
+
+const (
+
+	// IntegrationCreateRequestDriverProxmox captures enum value "proxmox"
+	IntegrationCreateRequestDriverProxmox string = "proxmox"
+
+	// IntegrationCreateRequestDriverKubevirt captures enum value "kubevirt"
+	IntegrationCreateRequestDriverKubevirt string = "kubevirt"
+
+	// IntegrationCreateRequestDriverDocker captures enum value "docker"
+	IntegrationCreateRequestDriverDocker string = "docker"
+
+	// IntegrationCreateRequestDriverPodman captures enum value "podman"
+	IntegrationCreateRequestDriverPodman string = "podman"
+
+	// IntegrationCreateRequestDriverKubernetes captures enum value "kubernetes"
+	IntegrationCreateRequestDriverKubernetes string = "kubernetes"
+)
+
+// prop value enum
+func (m *IntegrationCreateRequest) validateDriverEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, integrationCreateRequestTypeDriverPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *IntegrationCreateRequest) validateDriver(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.Driver) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateDriverEnum("driver", "body", *m.Driver); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (m *IntegrationCreateRequest) validateInstancePublicationPolicy(formats strfmt.Registry) error {
 	if typeutils.IsZero(m.InstancePublicationPolicy) { // not required
 		return nil
+	}
+
+	return nil
+}
+
+var integrationCreateRequestTypeKindPropEnum []any
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["VM","CONTAINER"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		integrationCreateRequestTypeKindPropEnum = append(integrationCreateRequestTypeKindPropEnum, v)
+	}
+}
+
+const (
+
+	// IntegrationCreateRequestKindVM captures enum value "VM"
+	IntegrationCreateRequestKindVM string = "VM"
+
+	// IntegrationCreateRequestKindCONTAINER captures enum value "CONTAINER"
+	IntegrationCreateRequestKindCONTAINER string = "CONTAINER"
+)
+
+// prop value enum
+func (m *IntegrationCreateRequest) validateKindEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, integrationCreateRequestTypeKindPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *IntegrationCreateRequest) validateKind(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.Kind) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateKindEnum("kind", "body", *m.Kind); err != nil {
+		return err
 	}
 
 	return nil

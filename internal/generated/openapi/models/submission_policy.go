@@ -22,19 +22,20 @@ type SubmissionPolicy struct {
 	// Required: true
 	Checker *SubmissionChecker `json:"checker"`
 
+	// Required when checker=PLUGIN; names the installed checker provider. No checker is available without a matching installed provider.
+	// Max Length: 128
+	// Min Length: 1
+	CheckerKey *string `json:"checkerKey,omitempty"`
+
 	// files
-	Files struct {
-		SubmissionFilesPolicy
-	} `json:"files,omitempty"`
+	Files *SubmissionFilesPolicy `json:"files,omitempty"`
 
 	// mode
 	// Required: true
 	Mode *SubmissionMode `json:"mode"`
 
 	// text
-	Text struct {
-		SubmissionTextPolicy
-	} `json:"text,omitempty"`
+	Text *SubmissionTextPolicy `json:"text,omitempty"`
 }
 
 // Validate validates this submission policy
@@ -42,6 +43,10 @@ func (m *SubmissionPolicy) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateChecker(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateCheckerKey(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -87,9 +92,40 @@ func (m *SubmissionPolicy) validateChecker(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *SubmissionPolicy) validateCheckerKey(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.CheckerKey) { // not required
+		return nil
+	}
+
+	if err := validate.MinLength("checkerKey", "body", *m.CheckerKey, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("checkerKey", "body", *m.CheckerKey, 128); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (m *SubmissionPolicy) validateFiles(formats strfmt.Registry) error {
 	if typeutils.IsZero(m.Files) { // not required
 		return nil
+	}
+
+	if m.Files != nil {
+		if err := m.Files.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("files")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("files")
+			}
+
+			return err
+		}
 	}
 
 	return nil
@@ -122,6 +158,21 @@ func (m *SubmissionPolicy) validateMode(formats strfmt.Registry) error {
 func (m *SubmissionPolicy) validateText(formats strfmt.Registry) error {
 	if typeutils.IsZero(m.Text) { // not required
 		return nil
+	}
+
+	if m.Text != nil {
+		if err := m.Text.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("text")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("text")
+			}
+
+			return err
+		}
 	}
 
 	return nil
@@ -176,6 +227,26 @@ func (m *SubmissionPolicy) contextValidateChecker(ctx context.Context, formats s
 
 func (m *SubmissionPolicy) contextValidateFiles(ctx context.Context, formats strfmt.Registry) error {
 
+	if m.Files != nil {
+
+		if typeutils.IsZero(m.Files) { // not required
+			return nil
+		}
+
+		if err := m.Files.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("files")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("files")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -201,6 +272,26 @@ func (m *SubmissionPolicy) contextValidateMode(ctx context.Context, formats strf
 }
 
 func (m *SubmissionPolicy) contextValidateText(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Text != nil {
+
+		if typeutils.IsZero(m.Text) { // not required
+			return nil
+		}
+
+		if err := m.Text.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("text")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("text")
+			}
+
+			return err
+		}
+	}
 
 	return nil
 }

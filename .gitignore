@@ -1,2 +1,9 @@
+proxier
 .air-tmp
 bin/
+/backend
+/events-dispatcher
+.env
+.env.*
+!.env.example
+aCTFb_Codex_kit.zip

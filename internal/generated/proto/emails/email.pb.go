@@ -28,6 +28,7 @@ type EmailTask struct {
 	// Types that are valid to be assigned to Payload:
 	//
 	//	*EmailTask_Verification
+	//	*EmailTask_PasswordReset
 	Payload       isEmailTask_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -93,6 +94,15 @@ func (x *EmailTask) GetVerification() *VerificationEmail {
 	return nil
 }
 
+func (x *EmailTask) GetPasswordReset() *PasswordResetEmail {
+	if x != nil {
+		if x, ok := x.Payload.(*EmailTask_PasswordReset); ok {
+			return x.PasswordReset
+		}
+	}
+	return nil
+}
+
 type isEmailTask_Payload interface {
 	isEmailTask_Payload()
 }
@@ -101,7 +111,13 @@ type EmailTask_Verification struct {
 	Verification *VerificationEmail `protobuf:"bytes,3,opt,name=verification,proto3,oneof"`
 }
 
+type EmailTask_PasswordReset struct {
+	PasswordReset *PasswordResetEmail `protobuf:"bytes,4,opt,name=password_reset,json=passwordReset,proto3,oneof"`
+}
+
 func (*EmailTask_Verification) isEmailTask_Payload() {}
+
+func (*EmailTask_PasswordReset) isEmailTask_Payload() {}
 
 type VerificationEmail struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -155,19 +171,75 @@ func (x *VerificationEmail) GetCode() string {
 	return ""
 }
 
+type PasswordResetEmail struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	Token         string                 `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PasswordResetEmail) Reset() {
+	*x = PasswordResetEmail{}
+	mi := &file_emails_email_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PasswordResetEmail) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PasswordResetEmail) ProtoMessage() {}
+
+func (x *PasswordResetEmail) ProtoReflect() protoreflect.Message {
+	mi := &file_emails_email_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PasswordResetEmail.ProtoReflect.Descriptor instead.
+func (*PasswordResetEmail) Descriptor() ([]byte, []int) {
+	return file_emails_email_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *PasswordResetEmail) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *PasswordResetEmail) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
 var File_emails_email_proto protoreflect.FileDescriptor
 
 const file_emails_email_proto_rawDesc = "" +
 	"\n" +
-	"\x12emails/email.proto\x12\temails.v1\"z\n" +
+	"\x12emails/email.proto\x12\temails.v1\"\xc2\x01\n" +
 	"\tEmailTask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x0e\n" +
 	"\x02to\x18\x02 \x01(\tR\x02to\x12B\n" +
-	"\fverification\x18\x03 \x01(\v2\x1c.emails.v1.VerificationEmailH\x00R\fverificationB\t\n" +
+	"\fverification\x18\x03 \x01(\v2\x1c.emails.v1.VerificationEmailH\x00R\fverification\x12F\n" +
+	"\x0epassword_reset\x18\x04 \x01(\v2\x1d.emails.v1.PasswordResetEmailH\x00R\rpasswordResetB\t\n" +
 	"\apayload\"C\n" +
 	"\x11VerificationEmail\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x12\n" +
-	"\x04code\x18\x02 \x01(\tR\x04codeBFZDgithub.com/nrf24l01/actfb/internal/generated/proto/emails/v1;emailv1b\x06proto3"
+	"\x04code\x18\x02 \x01(\tR\x04code\"F\n" +
+	"\x12PasswordResetEmail\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05tokenBFZDgithub.com/nrf24l01/actfb/internal/generated/proto/emails/v1;emailv1b\x06proto3"
 
 var (
 	file_emails_email_proto_rawDescOnce sync.Once
@@ -181,18 +253,20 @@ func file_emails_email_proto_rawDescGZIP() []byte {
 	return file_emails_email_proto_rawDescData
 }
 
-var file_emails_email_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_emails_email_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_emails_email_proto_goTypes = []any{
-	(*EmailTask)(nil),         // 0: emails.v1.EmailTask
-	(*VerificationEmail)(nil), // 1: emails.v1.VerificationEmail
+	(*EmailTask)(nil),          // 0: emails.v1.EmailTask
+	(*VerificationEmail)(nil),  // 1: emails.v1.VerificationEmail
+	(*PasswordResetEmail)(nil), // 2: emails.v1.PasswordResetEmail
 }
 var file_emails_email_proto_depIdxs = []int32{
 	1, // 0: emails.v1.EmailTask.verification:type_name -> emails.v1.VerificationEmail
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	2, // 1: emails.v1.EmailTask.password_reset:type_name -> emails.v1.PasswordResetEmail
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_emails_email_proto_init() }
@@ -202,6 +276,7 @@ func file_emails_email_proto_init() {
 	}
 	file_emails_email_proto_msgTypes[0].OneofWrappers = []any{
 		(*EmailTask_Verification)(nil),
+		(*EmailTask_PasswordReset)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -209,7 +284,7 @@ func file_emails_email_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_emails_email_proto_rawDesc), len(file_emails_email_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

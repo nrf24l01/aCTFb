@@ -36,6 +36,11 @@ type AdminTaskPatchRequest struct {
 	// Max Length: 50000
 	Description string `json:"description,omitempty"`
 
+	// Required when type=EXTENSION; names the installed module/task extension provider. No feature is available without a matching installed provider.
+	// Max Length: 128
+	// Min Length: 1
+	ExtensionKey *string `json:"extensionKey,omitempty"`
+
 	// instance
 	Instance *TaskInstanceConfig `json:"instance,omitempty"`
 
@@ -69,6 +74,10 @@ func (m *AdminTaskPatchRequest) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateDescription(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateExtensionKey(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -150,6 +159,22 @@ func (m *AdminTaskPatchRequest) validateDescription(formats strfmt.Registry) err
 	}
 
 	if err := validate.MaxLength("description", "body", m.Description, 50000); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *AdminTaskPatchRequest) validateExtensionKey(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.ExtensionKey) { // not required
+		return nil
+	}
+
+	if err := validate.MinLength("extensionKey", "body", *m.ExtensionKey, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("extensionKey", "body", *m.ExtensionKey, 128); err != nil {
 		return err
 	}
 

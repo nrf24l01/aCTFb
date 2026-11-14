@@ -4,6 +4,7 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 	stderrors "errors"
 	"strconv"
 
@@ -18,105 +19,88 @@ import (
 //
 // swagger:model Task
 type Task struct {
-	TaskListItem
 
 	// Task-provided files uploaded by admins through task-scoped presigned endpoints. Metadata only; download URL requires a separate authorized request.
 	// Required: true
 	Attachments []*FileRef `json:"attachments"`
+
+	// category
+	// Required: true
+	// Max Length: 64
+	// Min Length: 1
+	Category *string `json:"category"`
 
 	// description
 	// Required: true
 	// Max Length: 50000
 	Description *string `json:"description"`
 
+	// Required when type=EXTENSION; names the installed module/task extension provider. No feature is available without a matching installed provider.
+	// Max Length: 128
+	// Min Length: 1
+	ExtensionKey *string `json:"extensionKey,omitempty"`
+
 	// instance
 	// Required: true
 	Instance *TaskInstanceSummary `json:"instance"`
 
+	// instance required
+	// Required: true
+	InstanceRequired *bool `json:"instanceRequired"`
+
+	// module Uuid
+	// Required: true
+	// Format: uuid
+	ModuleUUID *UUID `json:"moduleUuid"`
+
+	// points
+	// Required: true
+	// Maximum: 1e+09
+	// Minimum: 0
+	Points *int64 `json:"points"`
+
+	// solved
+	// Required: true
+	Solved *bool `json:"solved"`
+
+	// solves count
+	// Minimum: 0
+	SolvesCount *int64 `json:"solvesCount,omitempty"`
+
+	// status
+	// Required: true
+	// Enum: ["LOCKED","AVAILABLE","SOLVED"]
+	Status *string `json:"status"`
+
 	// submission
 	// Required: true
 	Submission *SubmissionPolicy `json:"submission"`
-}
 
-// UnmarshalJSON unmarshals this object from a JSON structure
-func (m *Task) UnmarshalJSON(raw []byte) error {
-	// AO0
-	var aO0 TaskListItem
-	if err := jsonutils.ReadJSON(raw, &aO0); err != nil {
-		return err
-	}
-	m.TaskListItem = aO0
+	// title
+	// Required: true
+	// Max Length: 128
+	// Min Length: 1
+	Title *string `json:"title"`
 
-	// AO1
-	var dataAO1 struct {
-		Attachments []*FileRef `json:"attachments"`
+	// type
+	// Required: true
+	Type *TaskType `json:"type"`
 
-		Description *string `json:"description"`
-
-		Instance *TaskInstanceSummary `json:"instance"`
-
-		Submission *SubmissionPolicy `json:"submission"`
-	}
-	if err := jsonutils.ReadJSON(raw, &dataAO1); err != nil {
-		return err
-	}
-
-	m.Attachments = dataAO1.Attachments
-
-	m.Description = dataAO1.Description
-
-	m.Instance = dataAO1.Instance
-
-	m.Submission = dataAO1.Submission
-
-	return nil
-}
-
-// MarshalJSON marshals this object to a JSON structure
-func (m Task) MarshalJSON() ([]byte, error) {
-	_parts := make([][]byte, 0, 2)
-
-	aO0, err := jsonutils.WriteJSON(m.TaskListItem)
-	if err != nil {
-		return nil, err
-	}
-	_parts = append(_parts, aO0)
-	var dataAO1 struct {
-		Attachments []*FileRef `json:"attachments"`
-
-		Description *string `json:"description"`
-
-		Instance *TaskInstanceSummary `json:"instance"`
-
-		Submission *SubmissionPolicy `json:"submission"`
-	}
-
-	dataAO1.Attachments = m.Attachments
-
-	dataAO1.Description = m.Description
-
-	dataAO1.Instance = m.Instance
-
-	dataAO1.Submission = m.Submission
-
-	jsonDataAO1, errAO1 := jsonutils.WriteJSON(dataAO1)
-	if errAO1 != nil {
-		return nil, errAO1
-	}
-	_parts = append(_parts, jsonDataAO1)
-	return jsonutils.ConcatJSON(_parts...), nil
+	// uuid
+	// Required: true
+	// Format: uuid
+	UUID *UUID `json:"uuid"`
 }
 
 // Validate validates this task
 func (m *Task) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with TaskListItem
-	if err := m.TaskListItem.Validate(formats); err != nil {
+	if err := m.validateAttachments(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateAttachments(formats); err != nil {
+	if err := m.validateCategory(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -124,11 +108,51 @@ func (m *Task) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateExtensionKey(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateInstance(formats); err != nil {
 		res = append(res, err)
 	}
 
+	if err := m.validateInstanceRequired(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateModuleUUID(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validatePoints(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSolved(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSolvesCount(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateSubmission(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTitle(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -169,6 +193,23 @@ func (m *Task) validateAttachments(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Task) validateCategory(formats strfmt.Registry) error {
+
+	if err := validate.Required("category", "body", m.Category); err != nil {
+		return err
+	}
+
+	if err := validate.MinLength("category", "body", *m.Category, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("category", "body", *m.Category, 64); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (m *Task) validateDescription(formats strfmt.Registry) error {
 
 	if err := validate.Required("description", "body", m.Description); err != nil {
@@ -176,6 +217,22 @@ func (m *Task) validateDescription(formats strfmt.Registry) error {
 	}
 
 	if err := validate.MaxLength("description", "body", *m.Description, 50000); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Task) validateExtensionKey(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.ExtensionKey) { // not required
+		return nil
+	}
+
+	if err := validate.MinLength("extensionKey", "body", *m.ExtensionKey, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("extensionKey", "body", *m.ExtensionKey, 128); err != nil {
 		return err
 	}
 
@@ -206,6 +263,123 @@ func (m *Task) validateInstance(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Task) validateInstanceRequired(formats strfmt.Registry) error {
+
+	if err := validate.Required("instanceRequired", "body", m.InstanceRequired); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Task) validateModuleUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("moduleUuid", "body", m.ModuleUUID); err != nil {
+		return err
+	}
+
+	if m.ModuleUUID != nil {
+		if err := m.ModuleUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Task) validatePoints(formats strfmt.Registry) error {
+
+	if err := validate.Required("points", "body", m.Points); err != nil {
+		return err
+	}
+
+	if err := validate.MinimumInt("points", "body", *m.Points, 0, false); err != nil {
+		return err
+	}
+
+	if err := validate.MaximumInt("points", "body", *m.Points, 1e+09, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Task) validateSolved(formats strfmt.Registry) error {
+
+	if err := validate.Required("solved", "body", m.Solved); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Task) validateSolvesCount(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.SolvesCount) { // not required
+		return nil
+	}
+
+	if err := validate.MinimumInt("solvesCount", "body", *m.SolvesCount, 0, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var taskTypeStatusPropEnum []any
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["LOCKED","AVAILABLE","SOLVED"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		taskTypeStatusPropEnum = append(taskTypeStatusPropEnum, v)
+	}
+}
+
+const (
+
+	// TaskStatusLOCKED captures enum value "LOCKED"
+	TaskStatusLOCKED string = "LOCKED"
+
+	// TaskStatusAVAILABLE captures enum value "AVAILABLE"
+	TaskStatusAVAILABLE string = "AVAILABLE"
+
+	// TaskStatusSOLVED captures enum value "SOLVED"
+	TaskStatusSOLVED string = "SOLVED"
+)
+
+// prop value enum
+func (m *Task) validateStatusEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, taskTypeStatusPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *Task) validateStatus(formats strfmt.Registry) error {
+
+	if err := validate.Required("status", "body", m.Status); err != nil {
+		return err
+	}
+
+	// value enum
+	if err := m.validateStatusEnum("status", "body", *m.Status); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (m *Task) validateSubmission(formats strfmt.Registry) error {
 
 	if err := validate.Required("submission", "body", m.Submission); err != nil {
@@ -230,14 +404,74 @@ func (m *Task) validateSubmission(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Task) validateTitle(formats strfmt.Registry) error {
+
+	if err := validate.Required("title", "body", m.Title); err != nil {
+		return err
+	}
+
+	if err := validate.MinLength("title", "body", *m.Title, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("title", "body", *m.Title, 128); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Task) validateType(formats strfmt.Registry) error {
+
+	if err := validate.Required("type", "body", m.Type); err != nil {
+		return err
+	}
+
+	if m.Type != nil {
+		if err := m.Type.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("type")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("type")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Task) validateUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("uuid", "body", m.UUID); err != nil {
+		return err
+	}
+
+	if m.UUID != nil {
+		if err := m.UUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("uuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("uuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 // ContextValidate validate this task based on the context it is used
 func (m *Task) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
-
-	// validation for a type composition with TaskListItem
-	if err := m.TaskListItem.ContextValidate(ctx, formats); err != nil {
-		res = append(res, err)
-	}
 
 	if err := m.contextValidateAttachments(ctx, formats); err != nil {
 		res = append(res, err)
@@ -247,7 +481,19 @@ func (m *Task) ContextValidate(ctx context.Context, formats strfmt.Registry) err
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateModuleUUID(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateSubmission(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateUUID(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -307,6 +553,27 @@ func (m *Task) contextValidateInstance(ctx context.Context, formats strfmt.Regis
 	return nil
 }
 
+func (m *Task) contextValidateModuleUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ModuleUUID != nil {
+
+		if err := m.ModuleUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *Task) contextValidateSubmission(ctx context.Context, formats strfmt.Registry) error {
 
 	if m.Submission != nil {
@@ -319,6 +586,48 @@ func (m *Task) contextValidateSubmission(ctx context.Context, formats strfmt.Reg
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
 				return ce.ValidateName("submission")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Task) contextValidateType(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Type != nil {
+
+		if err := m.Type.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("type")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("type")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Task) contextValidateUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.UUID != nil {
+
+		if err := m.UUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("uuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("uuid")
 			}
 
 			return err

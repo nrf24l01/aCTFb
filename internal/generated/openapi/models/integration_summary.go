@@ -27,6 +27,14 @@ type IntegrationSummary struct {
 	// Required: true
 	CredentialsConfigured *bool `json:"credentialsConfigured"`
 
+	// Execution driver; null for Git integrations. Legacy type=PROXMOX maps to VM/proxmox and type=CONTAINER requires a driver.
+	// Enum: ["proxmox","kubevirt","docker","podman","kubernetes"]
+	Driver *string `json:"driver,omitempty"`
+
+	// Logical compute kind; null for Git integrations.
+	// Enum: ["VM","CONTAINER"]
+	Kind *string `json:"kind,omitempty"`
+
 	// name
 	// Required: true
 	// Max Length: 128
@@ -60,6 +68,14 @@ func (m *IntegrationSummary) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateCredentialsConfigured(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateDriver(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateKind(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -100,6 +116,99 @@ func (m *IntegrationSummary) validateBaseURL(formats strfmt.Registry) error {
 func (m *IntegrationSummary) validateCredentialsConfigured(formats strfmt.Registry) error {
 
 	if err := validate.Required("credentialsConfigured", "body", m.CredentialsConfigured); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var integrationSummaryTypeDriverPropEnum []any
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["proxmox","kubevirt","docker","podman","kubernetes"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		integrationSummaryTypeDriverPropEnum = append(integrationSummaryTypeDriverPropEnum, v)
+	}
+}
+
+const (
+
+	// IntegrationSummaryDriverProxmox captures enum value "proxmox"
+	IntegrationSummaryDriverProxmox string = "proxmox"
+
+	// IntegrationSummaryDriverKubevirt captures enum value "kubevirt"
+	IntegrationSummaryDriverKubevirt string = "kubevirt"
+
+	// IntegrationSummaryDriverDocker captures enum value "docker"
+	IntegrationSummaryDriverDocker string = "docker"
+
+	// IntegrationSummaryDriverPodman captures enum value "podman"
+	IntegrationSummaryDriverPodman string = "podman"
+
+	// IntegrationSummaryDriverKubernetes captures enum value "kubernetes"
+	IntegrationSummaryDriverKubernetes string = "kubernetes"
+)
+
+// prop value enum
+func (m *IntegrationSummary) validateDriverEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, integrationSummaryTypeDriverPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *IntegrationSummary) validateDriver(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.Driver) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateDriverEnum("driver", "body", *m.Driver); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var integrationSummaryTypeKindPropEnum []any
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["VM","CONTAINER"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		integrationSummaryTypeKindPropEnum = append(integrationSummaryTypeKindPropEnum, v)
+	}
+}
+
+const (
+
+	// IntegrationSummaryKindVM captures enum value "VM"
+	IntegrationSummaryKindVM string = "VM"
+
+	// IntegrationSummaryKindCONTAINER captures enum value "CONTAINER"
+	IntegrationSummaryKindCONTAINER string = "CONTAINER"
+)
+
+// prop value enum
+func (m *IntegrationSummary) validateKindEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, integrationSummaryTypeKindPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *IntegrationSummary) validateKind(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.Kind) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateKindEnum("kind", "body", *m.Kind); err != nil {
 		return err
 	}
 

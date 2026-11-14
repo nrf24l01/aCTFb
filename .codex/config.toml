@@ -1,0 +1,6 @@
+# Merge this [agents] section into your existing project config if present.
+# Provider/authentication config belongs in ~/.codex/config.toml (not in git).
+[agents]
+enabled = true
+default_subagent_model = "ali/deepseek-v4.1-flash"
+max_concurrent_threads_per_session = 4

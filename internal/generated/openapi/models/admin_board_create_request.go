@@ -58,9 +58,7 @@ type AdminBoardCreateRequest struct {
 	StartsAt *strfmt.DateTime `json:"startsAt,omitempty"`
 
 	// team settings
-	TeamSettings struct {
-		TeamSettings
-	} `json:"teamSettings,omitempty"`
+	TeamSettings *TeamSettings `json:"teamSettings,omitempty"`
 
 	// visibility
 	// Required: true
@@ -304,6 +302,21 @@ func (m *AdminBoardCreateRequest) validateTeamSettings(formats strfmt.Registry) 
 		return nil
 	}
 
+	if m.TeamSettings != nil {
+		if err := m.TeamSettings.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("teamSettings")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("teamSettings")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -480,6 +493,26 @@ func (m *AdminBoardCreateRequest) contextValidateSlug(ctx context.Context, forma
 }
 
 func (m *AdminBoardCreateRequest) contextValidateTeamSettings(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.TeamSettings != nil {
+
+		if typeutils.IsZero(m.TeamSettings) { // not required
+			return nil
+		}
+
+		if err := m.TeamSettings.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("teamSettings")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("teamSettings")
+			}
+
+			return err
+		}
+	}
 
 	return nil
 }

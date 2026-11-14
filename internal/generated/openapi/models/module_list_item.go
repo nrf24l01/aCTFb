@@ -39,6 +39,11 @@ type ModuleListItem struct {
 	// Format: date-time
 	EndsAt *strfmt.DateTime `json:"endsAt,omitempty"`
 
+	// Required when type=EXTENSION; names the installed module/task extension provider. No feature is available without a matching installed provider.
+	// Max Length: 128
+	// Min Length: 1
+	ExtensionKey *string `json:"extensionKey,omitempty"`
+
 	// name
 	// Required: true
 	// Max Length: 128
@@ -86,6 +91,10 @@ func (m *ModuleListItem) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateEndsAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateExtensionKey(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -215,6 +224,22 @@ func (m *ModuleListItem) validateEndsAt(formats strfmt.Registry) error {
 	}
 
 	if err := validate.FormatOf("endsAt", "body", "date-time", m.EndsAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *ModuleListItem) validateExtensionKey(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.ExtensionKey) { // not required
+		return nil
+	}
+
+	if err := validate.MinLength("extensionKey", "body", *m.ExtensionKey, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("extensionKey", "body", *m.ExtensionKey, 128); err != nil {
 		return err
 	}
 

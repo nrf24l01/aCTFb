@@ -42,6 +42,24 @@ type PutOptions struct {
 	CacheControl       string
 	ContentDisposition string
 	Metadata           map[string]string
+
+	// ContentLength is signed into a presigned PUT when greater than zero. It
+	// caps the upload body at the declared size. Callers must not return
+	// Content-Length in required client headers: browsers generate it.
+	ContentLength int64
+
+	// IfNoneMatch enables create-only writes (for example "*"). It is used for
+	// immutable clean objects so an existing key can never be overwritten.
+	IfNoneMatch string
+}
+
+// GetOptions contains response overrides for presigned GET requests.
+//
+// Response overrides are part of the SigV4 query string; the object key itself
+// is never changed by a client.
+type GetOptions struct {
+	ContentDisposition string
+	ContentType        string
 }
 
 // Object is a streaming S3 object.
@@ -377,6 +395,18 @@ func (c *Client) PresignGet(
 	key string,
 	expires time.Duration,
 ) (*PresignedRequest, error) {
+	return c.PresignGetWithOptions(ctx, key, expires, GetOptions{})
+}
+
+// PresignGetWithOptions creates a presigned GET request with response header
+// overrides. Content-Disposition can force attachment disposition without
+// proxying bytes through the backend.
+func (c *Client) PresignGetWithOptions(
+	ctx context.Context,
+	key string,
+	expires time.Duration,
+	options GetOptions,
+) (*PresignedRequest, error) {
 	if err := validateKey(key); err != nil {
 		return nil, err
 	}
@@ -384,12 +414,20 @@ func (c *Client) PresignGet(
 		return nil, err
 	}
 
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(key),
+	}
+	if options.ContentDisposition != "" {
+		input.ResponseContentDisposition = aws.String(options.ContentDisposition)
+	}
+	if options.ContentType != "" {
+		input.ResponseContentType = aws.String(options.ContentType)
+	}
+
 	result, err := c.presigner.PresignGetObject(
 		ctx,
-		&s3.GetObjectInput{
-			Bucket: aws.String(c.bucket),
-			Key:    aws.String(key),
-		},
+		input,
 		func(options *s3.PresignOptions) {
 			options.Expires = expires
 		},
@@ -516,6 +554,14 @@ func applyPutOptions(
 	if len(options.Metadata) != 0 {
 		input.Metadata = cloneStringMap(options.Metadata)
 	}
+
+	if options.ContentLength > 0 {
+		input.ContentLength = aws.Int64(options.ContentLength)
+	}
+
+	if options.IfNoneMatch != "" {
+		input.IfNoneMatch = aws.String(options.IfNoneMatch)
+	}
 }
 
 func validateConfig(cfg config.S3Config) error {
@@ -564,7 +610,11 @@ func validateConfig(cfg config.S3Config) error {
 func validateEndpoint(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return err
+		return errors.New("endpoint URL is malformed")
+	}
+
+	if u.User != nil {
+		return errors.New("endpoint userinfo is not supported")
 	}
 
 	if u.Scheme != "http" && u.Scheme != "https" {
@@ -595,7 +645,11 @@ func validateEndpoint(rawURL string) error {
 func validatePublicBaseURL(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return err
+		return errors.New("public base URL is malformed")
+	}
+
+	if u.User != nil {
+		return errors.New("public base URL userinfo is not supported")
 	}
 
 	if u.Scheme != "http" && u.Scheme != "https" {

@@ -9,6 +9,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag/jsonutils"
+	"github.com/go-openapi/swag/typeutils"
 	"github.com/go-openapi/validate"
 )
 
@@ -16,7 +17,6 @@ import (
 //
 // swagger:model ScoreAdjustment
 type ScoreAdjustment struct {
-	ScoreAdjustmentRequest
 
 	// actor
 	// Required: true
@@ -27,87 +27,66 @@ type ScoreAdjustment struct {
 	// Format: date-time
 	CreatedAt *strfmt.DateTime `json:"createdAt"`
 
+	// delta
+	// Required: true
+	// Maximum: 1e+09
+	// Minimum: -1e+09
+	Delta *int64 `json:"delta"`
+
+	// module Uuid
+	// Format: uuid
+	ModuleUUID *UUID `json:"moduleUuid,omitempty"`
+
+	// reason
+	// Required: true
+	// Max Length: 1000
+	// Min Length: 1
+	Reason *string `json:"reason"`
+
+	// subject type
+	// Required: true
+	SubjectType *SubjectType `json:"subjectType"`
+
+	// subject Uuid
+	// Required: true
+	// Format: uuid
+	SubjectUUID *UUID `json:"subjectUuid"`
+
 	// uuid
 	// Required: true
 	// Format: uuid
 	UUID *UUID `json:"uuid"`
 }
 
-// UnmarshalJSON unmarshals this object from a JSON structure
-func (m *ScoreAdjustment) UnmarshalJSON(raw []byte) error {
-	// AO0
-	var aO0 ScoreAdjustmentRequest
-	if err := jsonutils.ReadJSON(raw, &aO0); err != nil {
-		return err
-	}
-	m.ScoreAdjustmentRequest = aO0
-
-	// AO1
-	var dataAO1 struct {
-		Actor *UserSummary `json:"actor"`
-
-		CreatedAt *strfmt.DateTime `json:"createdAt"`
-
-		UUID *UUID `json:"uuid"`
-	}
-	if err := jsonutils.ReadJSON(raw, &dataAO1); err != nil {
-		return err
-	}
-
-	m.Actor = dataAO1.Actor
-
-	m.CreatedAt = dataAO1.CreatedAt
-
-	m.UUID = dataAO1.UUID
-
-	return nil
-}
-
-// MarshalJSON marshals this object to a JSON structure
-func (m ScoreAdjustment) MarshalJSON() ([]byte, error) {
-	_parts := make([][]byte, 0, 2)
-
-	aO0, err := jsonutils.WriteJSON(m.ScoreAdjustmentRequest)
-	if err != nil {
-		return nil, err
-	}
-	_parts = append(_parts, aO0)
-	var dataAO1 struct {
-		Actor *UserSummary `json:"actor"`
-
-		CreatedAt *strfmt.DateTime `json:"createdAt"`
-
-		UUID *UUID `json:"uuid"`
-	}
-
-	dataAO1.Actor = m.Actor
-
-	dataAO1.CreatedAt = m.CreatedAt
-
-	dataAO1.UUID = m.UUID
-
-	jsonDataAO1, errAO1 := jsonutils.WriteJSON(dataAO1)
-	if errAO1 != nil {
-		return nil, errAO1
-	}
-	_parts = append(_parts, jsonDataAO1)
-	return jsonutils.ConcatJSON(_parts...), nil
-}
-
 // Validate validates this score adjustment
 func (m *ScoreAdjustment) Validate(formats strfmt.Registry) error {
 	var res []error
-
-	// validation for a type composition with ScoreAdjustmentRequest
-	if err := m.ScoreAdjustmentRequest.Validate(formats); err != nil {
-		res = append(res, err)
-	}
 
 	if err := m.validateActor(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if err := m.validateCreatedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateDelta(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateModuleUUID(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateReason(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSubjectType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSubjectUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -158,6 +137,111 @@ func (m *ScoreAdjustment) validateCreatedAt(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *ScoreAdjustment) validateDelta(formats strfmt.Registry) error {
+
+	if err := validate.Required("delta", "body", m.Delta); err != nil {
+		return err
+	}
+
+	if err := validate.MinimumInt("delta", "body", *m.Delta, -1e+09, false); err != nil {
+		return err
+	}
+
+	if err := validate.MaximumInt("delta", "body", *m.Delta, 1e+09, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *ScoreAdjustment) validateModuleUUID(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.ModuleUUID) { // not required
+		return nil
+	}
+
+	if m.ModuleUUID != nil {
+		if err := m.ModuleUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ScoreAdjustment) validateReason(formats strfmt.Registry) error {
+
+	if err := validate.Required("reason", "body", m.Reason); err != nil {
+		return err
+	}
+
+	if err := validate.MinLength("reason", "body", *m.Reason, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("reason", "body", *m.Reason, 1000); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *ScoreAdjustment) validateSubjectType(formats strfmt.Registry) error {
+
+	if err := validate.Required("subjectType", "body", m.SubjectType); err != nil {
+		return err
+	}
+
+	if m.SubjectType != nil {
+		if err := m.SubjectType.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("subjectType")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("subjectType")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ScoreAdjustment) validateSubjectUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("subjectUuid", "body", m.SubjectUUID); err != nil {
+		return err
+	}
+
+	if m.SubjectUUID != nil {
+		if err := m.SubjectUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("subjectUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("subjectUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *ScoreAdjustment) validateUUID(formats strfmt.Registry) error {
 
 	if err := validate.Required("uuid", "body", m.UUID); err != nil {
@@ -186,12 +270,19 @@ func (m *ScoreAdjustment) validateUUID(formats strfmt.Registry) error {
 func (m *ScoreAdjustment) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with ScoreAdjustmentRequest
-	if err := m.ScoreAdjustmentRequest.ContextValidate(ctx, formats); err != nil {
+	if err := m.contextValidateActor(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.contextValidateActor(ctx, formats); err != nil {
+	if err := m.contextValidateModuleUUID(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateSubjectType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateSubjectUUID(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -217,6 +308,73 @@ func (m *ScoreAdjustment) contextValidateActor(ctx context.Context, formats strf
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
 				return ce.ValidateName("actor")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ScoreAdjustment) contextValidateModuleUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ModuleUUID != nil {
+
+		if typeutils.IsZero(m.ModuleUUID) { // not required
+			return nil
+		}
+
+		if err := m.ModuleUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ScoreAdjustment) contextValidateSubjectType(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.SubjectType != nil {
+
+		if err := m.SubjectType.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("subjectType")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("subjectType")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ScoreAdjustment) contextValidateSubjectUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.SubjectUUID != nil {
+
+		if err := m.SubjectUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("subjectUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("subjectUuid")
 			}
 
 			return err

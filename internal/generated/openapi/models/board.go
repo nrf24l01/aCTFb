@@ -5,10 +5,12 @@ package models
 import (
 	"context"
 	stderrors "errors"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag/jsonutils"
+	"github.com/go-openapi/swag/typeutils"
 	"github.com/go-openapi/validate"
 )
 
@@ -16,81 +18,123 @@ import (
 //
 // swagger:model Board
 type Board struct {
-	BoardListItem
 
 	// description
 	// Required: true
 	// Max Length: 50000
 	Description *string `json:"description"`
 
+	// ends at
+	// Format: date-time
+	EndsAt *strfmt.DateTime `json:"endsAt,omitempty"`
+
+	// joined
+	// Required: true
+	Joined *bool `json:"joined"`
+
+	// module types
+	// Required: true
+	// Unique: true
+	ModuleTypes []ModuleType `json:"moduleTypes"`
+
+	// modules count
+	// Required: true
+	// Minimum: 0
+	ModulesCount *int64 `json:"modulesCount"`
+
+	// name
+	// Required: true
+	// Max Length: 128
+	// Min Length: 1
+	Name *string `json:"name"`
+
+	// participation mode
+	// Required: true
+	ParticipationMode *ParticipationMode `json:"participationMode"`
+
+	// rating
+	// Required: true
+	Rating *RatingConfig `json:"rating"`
+
+	// registration mode
+	// Required: true
+	RegistrationMode *RegistrationMode `json:"registrationMode"`
+
+	// slug
+	// Required: true
+	Slug *Slug `json:"slug"`
+
+	// starts at
+	// Format: date-time
+	StartsAt *strfmt.DateTime `json:"startsAt,omitempty"`
+
+	// status
+	// Required: true
+	Status *BoardStatus `json:"status"`
+
+	// uuid
+	// Required: true
+	// Format: uuid
+	UUID *UUID `json:"uuid"`
+
 	// visibility
 	// Required: true
 	Visibility *BoardVisibility `json:"visibility"`
-}
-
-// UnmarshalJSON unmarshals this object from a JSON structure
-func (m *Board) UnmarshalJSON(raw []byte) error {
-	// AO0
-	var aO0 BoardListItem
-	if err := jsonutils.ReadJSON(raw, &aO0); err != nil {
-		return err
-	}
-	m.BoardListItem = aO0
-
-	// AO1
-	var dataAO1 struct {
-		Description *string `json:"description"`
-
-		Visibility *BoardVisibility `json:"visibility"`
-	}
-	if err := jsonutils.ReadJSON(raw, &dataAO1); err != nil {
-		return err
-	}
-
-	m.Description = dataAO1.Description
-
-	m.Visibility = dataAO1.Visibility
-
-	return nil
-}
-
-// MarshalJSON marshals this object to a JSON structure
-func (m Board) MarshalJSON() ([]byte, error) {
-	_parts := make([][]byte, 0, 2)
-
-	aO0, err := jsonutils.WriteJSON(m.BoardListItem)
-	if err != nil {
-		return nil, err
-	}
-	_parts = append(_parts, aO0)
-	var dataAO1 struct {
-		Description *string `json:"description"`
-
-		Visibility *BoardVisibility `json:"visibility"`
-	}
-
-	dataAO1.Description = m.Description
-
-	dataAO1.Visibility = m.Visibility
-
-	jsonDataAO1, errAO1 := jsonutils.WriteJSON(dataAO1)
-	if errAO1 != nil {
-		return nil, errAO1
-	}
-	_parts = append(_parts, jsonDataAO1)
-	return jsonutils.ConcatJSON(_parts...), nil
 }
 
 // Validate validates this board
 func (m *Board) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with BoardListItem
-	if err := m.BoardListItem.Validate(formats); err != nil {
+	if err := m.validateDescription(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateDescription(formats); err != nil {
+	if err := m.validateEndsAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateJoined(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateModuleTypes(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateModulesCount(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateName(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateParticipationMode(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateRating(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateRegistrationMode(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSlug(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStartsAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -112,6 +156,243 @@ func (m *Board) validateDescription(formats strfmt.Registry) error {
 
 	if err := validate.MaxLength("description", "body", *m.Description, 50000); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (m *Board) validateEndsAt(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.EndsAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("endsAt", "body", "date-time", m.EndsAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Board) validateJoined(formats strfmt.Registry) error {
+
+	if err := validate.Required("joined", "body", m.Joined); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Board) validateModuleTypes(formats strfmt.Registry) error {
+
+	if err := validate.Required("moduleTypes", "body", m.ModuleTypes); err != nil {
+		return err
+	}
+
+	if err := validate.UniqueItems("moduleTypes", "body", m.ModuleTypes); err != nil {
+		return err
+	}
+
+	for i := 0; i < len(m.ModuleTypes); i++ {
+
+		if err := m.ModuleTypes[i].Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleTypes" + "." + strconv.Itoa(i))
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleTypes" + "." + strconv.Itoa(i))
+			}
+
+			return err
+		}
+
+	}
+
+	return nil
+}
+
+func (m *Board) validateModulesCount(formats strfmt.Registry) error {
+
+	if err := validate.Required("modulesCount", "body", m.ModulesCount); err != nil {
+		return err
+	}
+
+	if err := validate.MinimumInt("modulesCount", "body", *m.ModulesCount, 0, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Board) validateName(formats strfmt.Registry) error {
+
+	if err := validate.Required("name", "body", m.Name); err != nil {
+		return err
+	}
+
+	if err := validate.MinLength("name", "body", *m.Name, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("name", "body", *m.Name, 128); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Board) validateParticipationMode(formats strfmt.Registry) error {
+
+	if err := validate.Required("participationMode", "body", m.ParticipationMode); err != nil {
+		return err
+	}
+
+	if m.ParticipationMode != nil {
+		if err := m.ParticipationMode.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("participationMode")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("participationMode")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Board) validateRating(formats strfmt.Registry) error {
+
+	if err := validate.Required("rating", "body", m.Rating); err != nil {
+		return err
+	}
+
+	if m.Rating != nil {
+		if err := m.Rating.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("rating")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("rating")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Board) validateRegistrationMode(formats strfmt.Registry) error {
+
+	if err := validate.Required("registrationMode", "body", m.RegistrationMode); err != nil {
+		return err
+	}
+
+	if m.RegistrationMode != nil {
+		if err := m.RegistrationMode.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("registrationMode")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("registrationMode")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Board) validateSlug(formats strfmt.Registry) error {
+
+	if err := validate.Required("slug", "body", m.Slug); err != nil {
+		return err
+	}
+
+	if m.Slug != nil {
+		if err := m.Slug.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("slug")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("slug")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Board) validateStartsAt(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.StartsAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("startsAt", "body", "date-time", m.StartsAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Board) validateStatus(formats strfmt.Registry) error {
+
+	if err := validate.Required("status", "body", m.Status); err != nil {
+		return err
+	}
+
+	if m.Status != nil {
+		if err := m.Status.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("status")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("status")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Board) validateUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("uuid", "body", m.UUID); err != nil {
+		return err
+	}
+
+	if m.UUID != nil {
+		if err := m.UUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("uuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("uuid")
+			}
+
+			return err
+		}
 	}
 
 	return nil
@@ -145,8 +426,31 @@ func (m *Board) validateVisibility(formats strfmt.Registry) error {
 func (m *Board) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with BoardListItem
-	if err := m.BoardListItem.ContextValidate(ctx, formats); err != nil {
+	if err := m.contextValidateModuleTypes(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateParticipationMode(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateRating(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateRegistrationMode(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateSlug(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateStatus(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateUUID(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -157,6 +461,158 @@ func (m *Board) ContextValidate(ctx context.Context, formats strfmt.Registry) er
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *Board) contextValidateModuleTypes(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.ModuleTypes); i++ {
+
+		if typeutils.IsZero(m.ModuleTypes[i]) { // not required
+			continue
+		}
+
+		if err := m.ModuleTypes[i].ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleTypes" + "." + strconv.Itoa(i))
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleTypes" + "." + strconv.Itoa(i))
+			}
+
+			return err
+		}
+
+	}
+
+	return nil
+}
+
+func (m *Board) contextValidateParticipationMode(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ParticipationMode != nil {
+
+		if err := m.ParticipationMode.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("participationMode")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("participationMode")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Board) contextValidateRating(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Rating != nil {
+
+		if err := m.Rating.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("rating")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("rating")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Board) contextValidateRegistrationMode(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.RegistrationMode != nil {
+
+		if err := m.RegistrationMode.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("registrationMode")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("registrationMode")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Board) contextValidateSlug(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Slug != nil {
+
+		if err := m.Slug.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("slug")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("slug")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Board) contextValidateStatus(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Status != nil {
+
+		if err := m.Status.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("status")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("status")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Board) contextValidateUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.UUID != nil {
+
+		if err := m.UUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("uuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("uuid")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 

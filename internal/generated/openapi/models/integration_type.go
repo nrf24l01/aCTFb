@@ -41,6 +41,18 @@ const (
 
 	// IntegrationTypeCONTAINER captures enum value "CONTAINER"
 	IntegrationTypeCONTAINER IntegrationType = "CONTAINER"
+
+	// IntegrationTypeKUBEVIRT captures enum value "KUBEVIRT"
+	IntegrationTypeKUBEVIRT IntegrationType = "KUBEVIRT"
+
+	// IntegrationTypeDOCKER captures enum value "DOCKER"
+	IntegrationTypeDOCKER IntegrationType = "DOCKER"
+
+	// IntegrationTypePODMAN captures enum value "PODMAN"
+	IntegrationTypePODMAN IntegrationType = "PODMAN"
+
+	// IntegrationTypeKUBERNETES captures enum value "KUBERNETES"
+	IntegrationTypeKUBERNETES IntegrationType = "KUBERNETES"
 )
 
 // for schema
@@ -48,7 +60,7 @@ var integrationTypeEnum []any
 
 func init() {
 	var res []IntegrationType
-	if err := json.Unmarshal([]byte(`["GITLAB","GITHUB","GITEA","PROXMOX","CONTAINER"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["GITLAB","GITHUB","GITEA","PROXMOX","CONTAINER","KUBEVIRT","DOCKER","PODMAN","KUBERNETES"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {

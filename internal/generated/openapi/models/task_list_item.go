@@ -25,6 +25,11 @@ type TaskListItem struct {
 	// Min Length: 1
 	Category *string `json:"category"`
 
+	// Required when type=EXTENSION; names the installed module/task extension provider. No feature is available without a matching installed provider.
+	// Max Length: 128
+	// Min Length: 1
+	ExtensionKey *string `json:"extensionKey,omitempty"`
+
 	// instance required
 	// Required: true
 	InstanceRequired *bool `json:"instanceRequired"`
@@ -74,6 +79,10 @@ func (m *TaskListItem) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateCategory(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateExtensionKey(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -130,6 +139,22 @@ func (m *TaskListItem) validateCategory(formats strfmt.Registry) error {
 	}
 
 	if err := validate.MaxLength("category", "body", *m.Category, 64); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *TaskListItem) validateExtensionKey(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.ExtensionKey) { // not required
+		return nil
+	}
+
+	if err := validate.MinLength("extensionKey", "body", *m.ExtensionKey, 1); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("extensionKey", "body", *m.ExtensionKey, 128); err != nil {
 		return err
 	}
 

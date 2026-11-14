@@ -27,6 +27,9 @@ type InstanceNodeConfig struct {
 	// credentials
 	Credentials *CredentialGeneratorConfig `json:"credentials,omitempty"`
 
+	// Namespaced optional driver settings. Each driver validates its own block strictly; unknown options are rejected, never silently ignored. Admin-only; never accepted from participants.
+	DriverOptions any `json:"driverOptions,omitempty"`
+
 	// endpoints
 	// Required: true
 	// Max Items: 64
@@ -58,6 +61,12 @@ type InstanceNodeConfig struct {
 	// Max Length: 128
 	// Min Length: 1
 	Name *string `json:"name"`
+
+	// resources
+	Resources *NodeResources `json:"resources,omitempty"`
+
+	// source
+	Source *NodeSource `json:"source,omitempty"`
 
 	// template vmid
 	// Minimum: 1
@@ -97,6 +106,14 @@ func (m *InstanceNodeConfig) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateName(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateResources(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSource(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -280,6 +297,52 @@ func (m *InstanceNodeConfig) validateName(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *InstanceNodeConfig) validateResources(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.Resources) { // not required
+		return nil
+	}
+
+	if m.Resources != nil {
+		if err := m.Resources.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("resources")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("resources")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *InstanceNodeConfig) validateSource(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.Source) { // not required
+		return nil
+	}
+
+	if m.Source != nil {
+		if err := m.Source.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("source")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("source")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *InstanceNodeConfig) validateTemplateVmid(formats strfmt.Registry) error {
 	if typeutils.IsZero(m.TemplateVmid) { // not required
 		return nil
@@ -305,6 +368,14 @@ func (m *InstanceNodeConfig) ContextValidate(ctx context.Context, formats strfmt
 	}
 
 	if err := m.contextValidateKind(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateResources(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateSource(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -380,6 +451,56 @@ func (m *InstanceNodeConfig) contextValidateKind(ctx context.Context, formats st
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
 				return ce.ValidateName("kind")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *InstanceNodeConfig) contextValidateResources(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Resources != nil {
+
+		if typeutils.IsZero(m.Resources) { // not required
+			return nil
+		}
+
+		if err := m.Resources.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("resources")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("resources")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *InstanceNodeConfig) contextValidateSource(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Source != nil {
+
+		if typeutils.IsZero(m.Source) { // not required
+			return nil
+		}
+
+		if err := m.Source.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("source")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("source")
 			}
 
 			return err

@@ -4,101 +4,254 @@ package models
 
 import (
 	"context"
+	stderrors "errors"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag/jsonutils"
+	"github.com/go-openapi/swag/typeutils"
+	"github.com/go-openapi/validate"
 )
 
 // ADRun a d run
 //
 // swagger:model ADRun
 type ADRun struct {
-	ADRunSummary
+
+	// commit sha
+	// Required: true
+	// Pattern: ^[A-Fa-f0-9]{40}$|^[A-Fa-f0-9]{64}$
+	CommitSha *string `json:"commitSha"`
+
+	// created at
+	// Required: true
+	// Format: date-time
+	CreatedAt *strfmt.DateTime `json:"createdAt"`
+
+	// finished at
+	// Format: date-time
+	FinishedAt *strfmt.DateTime `json:"finishedAt,omitempty"`
+
+	// kind
+	// Required: true
+	Kind *ADRunKind `json:"kind"`
+
+	// module Uuid
+	// Required: true
+	// Format: uuid
+	ModuleUUID *UUID `json:"moduleUuid"`
 
 	// regression tests
 	RegressionTests map[string]int64 `json:"regressionTests,omitempty"`
 
 	// results
-	Results []any `json:"results"`
+	Results []any `json:"results,omitempty"`
 
 	// security tests
 	SecurityTests map[string]int64 `json:"securityTests,omitempty"`
-}
 
-// UnmarshalJSON unmarshals this object from a JSON structure
-func (m *ADRun) UnmarshalJSON(raw []byte) error {
-	// AO0
-	var aO0 ADRunSummary
-	if err := jsonutils.ReadJSON(raw, &aO0); err != nil {
-		return err
-	}
-	m.ADRunSummary = aO0
+	// started at
+	// Format: date-time
+	StartedAt *strfmt.DateTime `json:"startedAt,omitempty"`
 
-	// AO1
-	var dataAO1 struct {
-		RegressionTests map[string]int64 `json:"regressionTests,omitempty"`
+	// status
+	// Required: true
+	Status *ADRunStatus `json:"status"`
 
-		Results []any `json:"results"`
+	// summary
+	Summary map[string]int64 `json:"summary,omitempty"`
 
-		SecurityTests map[string]int64 `json:"securityTests,omitempty"`
-	}
-	if err := jsonutils.ReadJSON(raw, &dataAO1); err != nil {
-		return err
-	}
-
-	m.RegressionTests = dataAO1.RegressionTests
-
-	m.Results = dataAO1.Results
-
-	m.SecurityTests = dataAO1.SecurityTests
-
-	return nil
-}
-
-// MarshalJSON marshals this object to a JSON structure
-func (m ADRun) MarshalJSON() ([]byte, error) {
-	_parts := make([][]byte, 0, 2)
-
-	aO0, err := jsonutils.WriteJSON(m.ADRunSummary)
-	if err != nil {
-		return nil, err
-	}
-	_parts = append(_parts, aO0)
-	var dataAO1 struct {
-		RegressionTests map[string]int64 `json:"regressionTests,omitempty"`
-
-		Results []any `json:"results"`
-
-		SecurityTests map[string]int64 `json:"securityTests,omitempty"`
-	}
-
-	dataAO1.RegressionTests = m.RegressionTests
-
-	dataAO1.Results = m.Results
-
-	dataAO1.SecurityTests = m.SecurityTests
-
-	jsonDataAO1, errAO1 := jsonutils.WriteJSON(dataAO1)
-	if errAO1 != nil {
-		return nil, errAO1
-	}
-	_parts = append(_parts, jsonDataAO1)
-	return jsonutils.ConcatJSON(_parts...), nil
+	// uuid
+	// Required: true
+	// Format: uuid
+	UUID *UUID `json:"uuid"`
 }
 
 // Validate validates this a d run
 func (m *ADRun) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with ADRunSummary
-	if err := m.ADRunSummary.Validate(formats); err != nil {
+	if err := m.validateCommitSha(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateCreatedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateFinishedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateKind(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateModuleUUID(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStartedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUUID(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ADRun) validateCommitSha(formats strfmt.Registry) error {
+
+	if err := validate.Required("commitSha", "body", m.CommitSha); err != nil {
+		return err
+	}
+
+	if err := validate.Pattern("commitSha", "body", *m.CommitSha, `^[A-Fa-f0-9]{40}$|^[A-Fa-f0-9]{64}$`); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *ADRun) validateCreatedAt(formats strfmt.Registry) error {
+
+	if err := validate.Required("createdAt", "body", m.CreatedAt); err != nil {
+		return err
+	}
+
+	if err := validate.FormatOf("createdAt", "body", "date-time", m.CreatedAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *ADRun) validateFinishedAt(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.FinishedAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("finishedAt", "body", "date-time", m.FinishedAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *ADRun) validateKind(formats strfmt.Registry) error {
+
+	if err := validate.Required("kind", "body", m.Kind); err != nil {
+		return err
+	}
+
+	if m.Kind != nil {
+		if err := m.Kind.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("kind")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("kind")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ADRun) validateModuleUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("moduleUuid", "body", m.ModuleUUID); err != nil {
+		return err
+	}
+
+	if m.ModuleUUID != nil {
+		if err := m.ModuleUUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ADRun) validateStartedAt(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.StartedAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("startedAt", "body", "date-time", m.StartedAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *ADRun) validateStatus(formats strfmt.Registry) error {
+
+	if err := validate.Required("status", "body", m.Status); err != nil {
+		return err
+	}
+
+	if m.Status != nil {
+		if err := m.Status.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("status")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("status")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ADRun) validateUUID(formats strfmt.Registry) error {
+
+	if err := validate.Required("uuid", "body", m.UUID); err != nil {
+		return err
+	}
+
+	if m.UUID != nil {
+		if err := m.UUID.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("uuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("uuid")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -106,14 +259,109 @@ func (m *ADRun) Validate(formats strfmt.Registry) error {
 func (m *ADRun) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with ADRunSummary
-	if err := m.ADRunSummary.ContextValidate(ctx, formats); err != nil {
+	if err := m.contextValidateKind(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateModuleUUID(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateStatus(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateUUID(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ADRun) contextValidateKind(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Kind != nil {
+
+		if err := m.Kind.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("kind")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("kind")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ADRun) contextValidateModuleUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ModuleUUID != nil {
+
+		if err := m.ModuleUUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("moduleUuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("moduleUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ADRun) contextValidateStatus(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Status != nil {
+
+		if err := m.Status.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("status")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("status")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ADRun) contextValidateUUID(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.UUID != nil {
+
+		if err := m.UUID.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("uuid")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("uuid")
+			}
+
+			return err
+		}
+	}
+
 	return nil
 }
 
