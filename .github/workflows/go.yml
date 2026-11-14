@@ -22,6 +22,7 @@ on:
       - "frontend/nginx.conf"
       - "frontend/.dockerignore"
       - "frontend/realip.conf"
+      - "docker-bake.hcl"
       - ".dockerignore"
       - "config.dev.yml"
       - "config.prod.yml"
@@ -47,6 +48,7 @@ on:
       - "frontend/nginx.conf"
       - "frontend/.dockerignore"
       - "frontend/realip.conf"
+      - "docker-bake.hcl"
       - ".dockerignore"
       - "config.dev.yml"
       - "config.prod.yml"
@@ -236,24 +238,31 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build production backend image (no push)
+      - name: Build all production images (no push)
         run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --load \
-            --tag actfb-backend:ci \
-            --cache-from type=gha,scope=actfb-backend \
-            --cache-to type=gha,mode=max,scope=actfb-backend \
-            --file Dockerfile \
-            .
-
-      - name: Build production frontend image (no push)
-        run: |
+          set -euo pipefail
+          for target in \
+            backend notification retention events-dispatcher file-scanner \
+            storage-init plugin-runner ad-worker instance-worker; do
+            docker buildx build \
+              --platform linux/amd64 \
+              --load \
+              --target "$target" \
+              --tag "actfb-${target}:ci" \
+              --build-arg GIT_SHA="${{ github.sha }}" \
+              --build-arg IMAGE_TAG="sha-${{ github.sha }}" \
+              --cache-from "type=gha,scope=actfb-${target}" \
+              --cache-to "type=gha,mode=max,scope=actfb-${target}" \
+              --file Dockerfile \
+              .
+          done
           docker buildx build \
             --platform linux/amd64 \
             --load \
             --tag actfb-frontend:ci \
             --build-arg VITE_API_BASE_URL=/api \
+            --build-arg GIT_SHA="${{ github.sha }}" \
+            --build-arg IMAGE_TAG="sha-${{ github.sha }}" \
             --cache-from type=gha,scope=actfb-frontend \
             --cache-to type=gha,mode=max,scope=actfb-frontend \
             --file frontend/Dockerfile \
@@ -262,20 +271,19 @@ jobs:
       - name: Packaging contract checks
         env:
           ACTFB_TEST_IMAGES: "1"
-          ACTFB_BACKEND_IMAGE: actfb-backend:ci
-          ACTFB_FRONTEND_IMAGE: actfb-frontend:ci
+          ACTFB_IMAGE_SUFFIX: ci
         run: ./scripts/test-production-packaging.sh
 
       - name: Production image runtime smoke
         env:
           ACTFB_BACKEND_IMAGE: actfb-backend:ci
           ACTFB_FRONTEND_IMAGE: actfb-frontend:ci
+          ACTFB_IMAGE_SUFFIX: ci
         run: ./scripts/test-production-runtime.sh
 
       - name: Production auth and proxy smoke
         env:
-          ACTFB_BACKEND_IMAGE: actfb-backend:ci
-          ACTFB_FRONTEND_IMAGE: actfb-frontend:ci
+          ACTFB_IMAGE_SUFFIX: ci
         run: ./scripts/test-production-auth-proxy.sh
 
       - name: Upload failed browser artifacts
@@ -300,8 +308,8 @@ jobs:
       packages: write
 
     env:
-      BACKEND_IMAGE: ghcr.io/nrf24l01/actfb-backend
-      FRONTEND_IMAGE: ghcr.io/nrf24l01/actfb-frontend
+      REGISTRY: ghcr.io
+      REPO: nrf24l01/actfb
 
     steps:
       - name: Checkout repository
@@ -317,59 +325,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push backend image
-        id: backend_push
-        uses: docker/build-push-action@v7
+      - name: Publish containers
+        uses: docker/bake-action@v7
+        env:
+          LATEST_TAG: latest
+          SHA_TAG: sha-${{ github.sha }}
+          GIT_SHA: ${{ github.sha }}
         with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64
+          files: docker-bake.hcl
+          source: .
           push: true
           provenance: false
-          tags: |
-            ghcr.io/nrf24l01/actfb-backend:latest
-            ghcr.io/nrf24l01/actfb-backend:sha-${{ github.sha }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=sha-${{ github.sha }}
-            org.opencontainers.image.licenses=MIT
-          build-args: |
-            GIT_SHA=${{ github.sha }}
-            IMAGE_TAG=sha-${{ github.sha }}
-          cache-from: type=gha,scope=actfb-backend
-          cache-to: type=gha,mode=max,scope=actfb-backend
-
-      - name: Build and push frontend image
-        id: frontend_push
-        uses: docker/build-push-action@v7
-        with:
-          context: ./frontend
-          file: ./frontend/Dockerfile
-          platforms: linux/amd64
-          push: true
-          provenance: false
-          tags: |
-            ghcr.io/nrf24l01/actfb-frontend:latest
-            ghcr.io/nrf24l01/actfb-frontend:sha-${{ github.sha }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=sha-${{ github.sha }}
-            org.opencontainers.image.licenses=MIT
-          build-args: |
-            VITE_API_BASE_URL=/api
-            GIT_SHA=${{ github.sha }}
-            IMAGE_TAG=sha-${{ github.sha }}
-          cache-from: type=gha,scope=actfb-frontend
-          cache-to: type=gha,mode=max,scope=actfb-frontend
 
       - name: Publish summary
         run: |
           set -euo pipefail
           immutable_tag="sha-${GITHUB_SHA}"
-          backend_digest='${{ steps.backend_push.outputs.digest }}'
-          frontend_digest='${{ steps.frontend_push.outputs.digest }}'
+          images=(backend frontend notification retention events-dispatcher file-scanner storage-init plugin-runner ad-worker instance-worker)
 
           compressed_size() {
             local ref="$1"
@@ -383,16 +355,17 @@ jobs:
             jq -r '([.layers[]?.size] | add) // "n/a"' <<<"$raw"
           }
 
-          backend_size="$(compressed_size "${BACKEND_IMAGE}:${immutable_tag}")"
-          frontend_size="$(compressed_size "${FRONTEND_IMAGE}:${immutable_tag}")"
-
           {
-            echo "## Published images"
+            echo "## Published containers"
             echo
             echo "| Image | Tags | Digest | Compressed size |"
             echo "| --- | --- | --- | --- |"
-            echo "| \`${BACKEND_IMAGE}\` | \`latest\`, \`${immutable_tag}\` | \`${backend_digest}\` | ${backend_size} bytes |"
-            echo "| \`${FRONTEND_IMAGE}\` | \`latest\`, \`${immutable_tag}\` | \`${frontend_digest}\` | ${frontend_size} bytes |"
+            for name in "${images[@]}"; do
+              ref="${REGISTRY}/${REPO}-${name}"
+              digest="$(docker buildx imagetools inspect "${ref}:${immutable_tag}" --format '{{json .Manifest}}' | jq -r '.digest')"
+              size="$(compressed_size "${ref}:${immutable_tag}")"
+              echo "| \`${ref}\` | \`latest\`, \`${immutable_tag}\` | \`${digest}\` | ${size} bytes |"
+            done
             echo
             echo "Platform: \`linux/amd64\`."
           } >> "$GITHUB_STEP_SUMMARY"
