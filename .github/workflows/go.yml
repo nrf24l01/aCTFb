@@ -20,6 +20,8 @@ on:
       - "Dockerfile"
       - "frontend/Dockerfile"
       - "frontend/nginx.conf"
+      - "frontend/.dockerignore"
+      - "frontend/realip.conf"
       - ".dockerignore"
       - "config.dev.yml"
       - "config.prod.yml"
@@ -43,6 +45,8 @@ on:
       - "Dockerfile"
       - "frontend/Dockerfile"
       - "frontend/nginx.conf"
+      - "frontend/.dockerignore"
+      - "frontend/realip.conf"
       - ".dockerignore"
       - "config.dev.yml"
       - "config.prod.yml"
@@ -59,7 +63,8 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Serialize runs instead of cancelling one half of a publish pair.
+  cancel-in-progress: false
 
 jobs:
   backend:
@@ -266,6 +271,12 @@ jobs:
           ACTFB_BACKEND_IMAGE: actfb-backend:ci
           ACTFB_FRONTEND_IMAGE: actfb-frontend:ci
         run: ./scripts/test-production-runtime.sh
+
+      - name: Production auth and proxy smoke
+        env:
+          ACTFB_BACKEND_IMAGE: actfb-backend:ci
+          ACTFB_FRONTEND_IMAGE: actfb-frontend:ci
+        run: ./scripts/test-production-auth-proxy.sh
 
       - name: Upload failed browser artifacts
         if: failure()
