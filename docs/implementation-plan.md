@@ -663,10 +663,11 @@ earlier RustFS full-stack evidence.
 
 ## Packaging and GHCR slice (2026-11-14)
 
-Status: **implemented, locally verified, and published to public GHCR packages from commit `fea429a`**.
-Actions run `43584264028` passed all four jobs; backend and frontend `latest` plus immutable `sha-*` tags
-resolve to the same digests and pull anonymously. The review fixes cover trusted-proxy scoping, exact public
-origin handling, and the non-root plugin root.
+Status: **implemented, locally verified, and published to public GHCR packages from commit `f133e3b`**.
+Actions run `43589194111` passed all four jobs; ten separate backend/frontend/worker images publish `latest`
+plus immutable `sha-*` tags that resolve to the same digests and pull anonymously. The review fixes cover
+trusted-proxy scoping, exact public origin handling, and the non-root plugin root; production now runs one
+process per worker image.
 Scope: root README, production Dockerfiles/runtime contracts, production Compose, four-job Actions pipeline, and
 GHCR publication. No product-domain behavior was changed.
 
@@ -674,7 +675,7 @@ GHCR publication. No product-domain behavior was changed.
   rollback/TLS/email/plugin limitations.
 - `Dockerfile` builds independent backend/worker targets; each worker image copies only its own binary and
   required files. `frontend/Dockerfile` and `frontend/nginx.conf` build and serve the SPA with `/healthz` and
-  `/api/` proxy.
+  `/api/` proxy. `docker-bake.hcl` publishes all ten images from one bake step.
 - `config.prod.yml` is secret-free; `.env.prod.example` and `docker-compose.prod.yaml` select prebuilt GHCR images.
 - `.github/workflows/go.yml` has the approved four jobs: `backend` and `frontend` quality, serial `integration`
   with the existing critical coverage plus container smoke, and main/manual-main-only `publish`.

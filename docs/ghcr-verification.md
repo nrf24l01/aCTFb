@@ -1,109 +1,104 @@
 # GHCR publication verification
 
-Status: **published and verified from `main` at commit `fea429a`**. The packages are publicly pullable without
-registry credentials. This file records only measured results.
+Status: **published and verified from `main` at commit `f133e3b`**. Ten separate images are publicly pullable
+without registry credentials. This file records measured results only.
 
-The earlier `3ef4d5b` publication is superseded by this revision.
+Historical note: the earlier `3ef4d5b` and `fea429a` publications used a shared backend/worker image. They are
+superseded by this one-process-per-container revision.
 
 ## Publication
 
 | Field | Value |
 | --- | --- |
-| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/43584264028 |
-| Commit | `fea429a26e8bcde7da5f9af1b6cd896245e55fef` |
+| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/43589194111 |
+| Commit | `f133e3b52cc9deda52e46f897884b01060079461` |
 | Conclusion | success (Backend quality, Frontend quality, Integration, Publish images) |
 | Platform | `linux/amd64` only |
-| Registry visibility | public, verified by anonymous pull with an empty temporary `DOCKER_CONFIG` |
+| Provenance attestations | none; single OCI image manifests |
+| Registry visibility | public, verified by anonymous manifests and pulls with an empty temporary `DOCKER_CONFIG` |
 
-| Image | Tags | Digest | Compressed size | Uncompressed size |
+| Image | Digest | Compressed | Uncompressed | User |
 | --- | --- | --- | --- | --- |
-| `ghcr.io/nrf24l01/actfb-backend` | `latest`, `sha-fea429a26e8bcde7da5f9af1b6cd896245e55fef` | `sha256:8e712efb4a1f5d6db9a4b8958716025bec1cad1d8319324e19aa3dbec25a091c` | 76,634,891 bytes | 205,295,938 bytes |
-| `ghcr.io/nrf24l01/actfb-frontend` | `latest`, `sha-fea429a26e8bcde7da5f9af1b6cd896245e55fef` | `sha256:872b90c9194f3707e851a39b83d744b7f27b21f932418d2cb1ac177f18229598` | 23,644,020 bytes | 55,091,714 bytes |
+| `ghcr.io/nrf24l01/actfb-backend` | `sha256:d293dcbd4a38fa521201ff2933d3928e5aa4e3a7d4635dc321545491fd24b139` | 20,275,304 B | 56,149,571 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-frontend` | `sha256:6fca121386c76fd5234ef437a843458cd3b462ccc4bf1b1bfcf4c760df5da886` | 23,644,020 B | 55,091,714 B | `101:101` |
+| `ghcr.io/nrf24l01/actfb-notification` | `sha256:6b30c67674860159742d922b397e36bd3a9089b42fef94cc97828ccbc952928c` | 12,329,083 B | 28,488,097 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-retention` | `sha256:3e5a61fa37274f2a5de7d6b0cfdbf5bc568920a22030239f2cfe8bb07e5b70a4` | 10,934,376 B | 25,844,302 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `sha256:587f5a9fcbbb51f8db9cc3ce769582323c1a3c63e314bced455d072d72cd4ea5` | 11,994,511 B | 28,699,214 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-file-scanner` | `sha256:4fde9851ee3013ba302089f612fa20ce729bedcb37c3a3b89fb98ebbfcbecd5c` | 13,352,330 B | 32,766,542 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-storage-init` | `sha256:ddf07b3a1691ee03dbbfeea35c2c43092154b793ae172f2ed861bf2ddda55af8` | 10,955,456 B | 25,291,342 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-plugin-runner` | `sha256:2119cb92667a036f48de7b5585355a3a7b21d3e225827f4d911d7496c53bfb1f` | 9,996,009 B | 22,178,382 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-ad-worker` | `sha256:846d4dce7894e4da263f504a7264936576fdad9bf967f74f8b9830b656d424fc` | 27,016,153 B | 69,429,576 B | `10001:10001` |
+| `ghcr.io/nrf24l01/actfb-instance-worker` | `sha256:e7d8c6f8fd1c6140e6c454c644610745e5d6192c9fb5446776065c5331507fd2` | 13,810,377 B | 33,577,550 B | `10001:10001` |
 
-For both images, `latest` and the immutable `sha-*` tag resolve to the same digest. Published OCI labels carry
-`org.opencontainers.image.revision=fea429a...` and `.version=sha-fea429a...`. Backend runtime user is
-`10001:10001`; frontend runtime user is `101:101`.
+Every image has both `latest` and `sha-f133e3b52cc9deda52e46f897884b01060079461`, resolving to the digest
+above. OCI source is `https://github.com/nrf24l01/actfb`; revision/version labels match the source commit/tag.
 
 ## Public pull verification
 
-Anonymous pulls were tested with an empty temporary `DOCKER_CONFIG`, so no local GitHub/Docker credential was
-used:
+All ten packages were checked with an empty temporary `DOCKER_CONFIG`:
 
 ```bash
 docker pull ghcr.io/nrf24l01/actfb-backend:latest
 docker pull ghcr.io/nrf24l01/actfb-frontend:latest
-docker buildx imagetools inspect ghcr.io/nrf24l01/actfb-backend:sha-fea429a26e8bcde7da5f9af1b6cd896245e55fef
-docker buildx imagetools inspect ghcr.io/nrf24l01/actfb-frontend:sha-fea429a26e8bcde7da5f9af1b6cd896245e55fef
+docker pull ghcr.io/nrf24l01/actfb-notification:latest
+docker pull ghcr.io/nrf24l01/actfb-retention:latest
+docker pull ghcr.io/nrf24l01/actfb-events-dispatcher:latest
+docker pull ghcr.io/nrf24l01/actfb-file-scanner:latest
+docker pull ghcr.io/nrf24l01/actfb-storage-init:latest
+docker pull ghcr.io/nrf24l01/actfb-plugin-runner:latest
+docker pull ghcr.io/nrf24l01/actfb-ad-worker:latest
+docker pull ghcr.io/nrf24l01/actfb-instance-worker:latest
 ```
 
-The pulled backend image was also checked for the non-root `/app/plugins` directory, and the frontend image for
-`Host $http_host`, overwritten `X-Forwarded-For $remote_addr`, and `/etc/nginx/realip.conf`.
+The same check resolved each immutable `sha-*` tag anonymously.
 
-## Review fixes and actual test results
+## One process per worker image
 
-### C1: trusted proxy and client identity
+The production Dockerfile has one shared Go build stage and separate final targets. Each target copies exactly
+one binary and only the files it reads. The backend image contains only the backend, migrations, email templates,
+config, and the non-root plugin data root. It contains no worker binaries, Git, Docker CLI, source, compiler, or
+caches. Only `ad-worker` includes `git` and Docker CLI. `plugin-runner` and `instance-worker` use the Go Docker
+API and have no CLI.
 
-Scope: dedicated `actfb-proxy` bridge used only by frontend and backend. One env value,
-`ACTFB_PROXY_SUBNET` (default `10.213.77.0/28`), drives both the Docker IPAM subnet and the backend
-`APP_TRUSTED_PROXIES`. PostgreSQL, Redis, NATS, and workers remain on `actfb-net` and cannot forge a client IP.
-No static container IPs or host networking. Nginx overwrites `X-Forwarded-For` with `$remote_addr`; it never
-appends a client-supplied chain. An external TLS edge must opt into an explicit empty-by-default
-`/etc/nginx/realip.conf` trust for only its source CIDR.
+| Worker | Image | Profile/dependencies |
+| --- | --- | --- |
+| retention | `actfb-retention` | default; PostgreSQL only |
+| events-dispatcher | `actfb-events-dispatcher` | default; PostgreSQL + NATS |
+| notification | `actfb-notification` | `email`; NATS + SMTP + templates |
+| file-scanner | `actfb-file-scanner` | `files`; PostgreSQL + NATS + S3 + ClamAV |
+| storage-init | `actfb-storage-init` | `files`; one-shot, `restart: "no"` |
+| plugin-runner | `actfb-plugin-runner` | `plugins`; trusted Docker API + loopback endpoint |
+| ad-worker | `actfb-ad-worker` | `ad`; trusted Docker CLI + git |
+| instance-worker | `actfb-instance-worker` | `runtime`; trusted Go Docker API |
 
-Actual result: passed. The real Compose test saw **4 distinct backend remote IPs** for the tested clients.
-After client A hit login 429, independent client B received 401, proving distinct identities. Client C sent 11
-unique spoofed `X-Forwarded-For` values and still hit 429, proving no limiter bypass. `docker compose config`
-asserted the proxy subnet, trust value, network membership, and plugin mount.
+Only the backend has a healthcheck (`/ready`). Worker images have no healthcheck and no HTTP endpoint. The
+socket is mounted only into trusted worker services; the backend never receives it. Compose uses the dedicated
+proxy bridge, required exact origin, Host port preservation, and XFF overwrite from the prior review fixes.
 
-### C2: Host, exact origin, and session flow
+## Actual tests
 
-Scope: nginx forwards `Host $http_host` and `X-Forwarded-Host $http_host`, preserving a non-default port.
-`APP_ALLOWED_ORIGINS` is required by production Compose and must be the exact public origin. The frontend sets
-`X-Forwarded-Proto` itself and never trusts a client-supplied value. Worker healthcheck overrides are documented
-with `--no-healthcheck`.
-
-Actual result: passed from the production nginx + backend stack with origin `https://ctf.example:8443` and
-`APP_SECURE_COOKIES=true`: registration, login, refresh, and logout succeeded while manually forwarding the
-Secure refresh cookie over loopback HTTP. A different Origin returned 403 `ORIGIN_NOT_ALLOWED`. Secure and
-HttpOnly cookies were observed. This is an HTTP transport simulation of an HTTPS origin; TLS termination itself
-is not claimed as verified.
-
-### I1: plugin root and data volume
-
-Scope: the backend image creates `/app/plugins/incoming`, owned by `10001:10001` with mode `750`; it exports
-`ACTFB_PLUGINS_DIR=/app/plugins`. Production Compose mounts the named `plugins-data` volume there.
-
-Actual result: passed. The non-root backend created and removed `/app/plugins/review-smoke` at runtime; the
-pulled image check also created/removed a directory under `/app/plugins`. No `0777` mode is used.
-
-### Low-cost follow-ups
-
-- `frontend/.dockerignore` now excludes env files, credentials/private keys, dependencies, and browser artifacts;
-  the workflow includes that file and `frontend/realip.conf`.
-- The workflow uses `cancel-in-progress: false` so a new push cannot cancel one half of the image pair. The two
-  registry pushes are not an atomic pair; a failed second push can leave `latest` mixed until the next successful
-  run, and the docs direct rollback to matching `sha-*` tags.
-- Production PostgreSQL, Redis, and NATS images are pinned by digest.
-- The duplicate asset `Cache-Control` header was collapsed into one immutable header.
-- Worker healthchecks are explicitly disabled in Compose and documented for direct `docker run` use.
-
-## Local packaging evidence
-
-- Backend binary: statically linked, stripped, no dynamic `NEEDED` entries.
-- Backend image contains migrations `001`–`016`, email templates, `/app/config.yml`, and the writable plugin root;
-  it contains no Go toolchain, module files, or `node_modules`.
-- Frontend image contains the static SPA, nginx config, and empty-default realip config; no Bun or `node_modules`.
-- Real PostgreSQL 18 applied migrations through version `16`; backend `/ready` and `/health` passed as UID
-  `10001`.
-- Frontend `/healthz`, SPA deep link, `/api/` proxy, security headers, and immutable asset caching passed.
-- All worker command overrides dispatched from the shared image; retention completed a real `--once` pass.
-- `go test ./...`, `go vet ./...`, `go build ./...`, `go test -race ./...`; frontend typecheck and 68/68 tests;
-  actionlint clean; shellcheck warning-level clean; bash syntax clean.
+- `docker buildx build --target <target>` for all nine Go targets plus the frontend, all `linux/amd64`.
+- Packaging contract: **290 checks passed** with all ten images. Each image was inspected for architecture,
+  non-root user, exactly one app binary, no other worker binaries, static/stripped/no `NEEDED` binary, no
+  toolchain/source/cache, and per-target tools. Backend only has `/ready`; workers have no healthcheck.
+- All worker entrypoints reached their expected validation path: notification (SMTP disabled), events
+  (PostgreSQL), file-scanner (files disabled), storage-init (S3 endpoint), plugin-runner (token), AD/instance
+  (credential key). Retention parsed its flags and completed a real `--once` pass against PostgreSQL.
+- Runtime smoke: real PostgreSQL 18 migrations through `16`, backend `/ready`/`/health`, frontend `/healthz`,
+  SPA deep link, and `/api` proxy.
+- Auth/proxy smoke: exact HTTPS origin with non-default port, login → refresh → logout, wrong origin 403,
+  four distinct backend client IPs, independent rate-limit identities, attacker XFF rejected, non-root plugin
+  volume writable.
+- `go test ./...`, `go vet ./...`, `go build ./...`, `go test -race ./...`; frontend typecheck and 68/68 tests.
+- Quality gates: actionlint, shellcheck warning-level, bash syntax, and `docker buildx bake --print` with ten
+  targets all passed.
+- CI ran the existing Playwright/full integration coverage. No test browsers or containers remain.
 
 ## Tradeoffs
 
-The shared backend/worker image is 205,295,938 bytes uncompressed because it carries nine separately linked Go
-binaries. It also includes `git` and `docker-cli` solely because `ad-worker` executes them; the HTTP backend does
-not receive a Docker socket. A future split worker image would reduce HTTP image bytes at the cost of a third
-package. No UPX or blind binary packing is used. The frontend image is 55,091,714 bytes uncompressed and contains
-no Node/Bun runtime.
+The standalone images total more registry bytes than the old shared image, but each running container is much
+smaller and has a much smaller attack surface. The backend fell from 205,295,938 B to 56,149,571 B uncompressed.
+The AD worker remains the largest worker at 69,429,576 B because it alone carries Git and Docker CLI. The
+frontend is unchanged at 55,091,714 B. Workers run on the same Docker host under the operator's trust boundary;
+this does not make untrusted host code safe. Plugin-enabled production still has the separate asset-origin
+caveat.
