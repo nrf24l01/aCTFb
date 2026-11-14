@@ -211,7 +211,7 @@ func (s *store) resetPentestInstanceAtomic(ctx context.Context, moduleID uuid.UU
 	if used >= maxResets {
 		return 0, nil, conflict(CodeResetLimitReached, "reset limit reached")
 	}
-	generation, operations, err := s.resetInstance(ctx, instanceID, authorized)
+	generation, operations, err := resetInstanceInTx(ctx, tx, instanceID, authorized)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -233,6 +233,20 @@ func (s *store) resetInstance(ctx context.Context, instanceID uuid.UUID, authori
 		return 0, nil, err
 	}
 	defer tx.Rollback(ctx)
+	generation, operations, err := resetInstanceInTx(ctx, tx, instanceID, authorized)
+	if err != nil {
+		return 0, nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, nil, err
+	}
+	return generation, operations, nil
+}
+
+// resetInstanceInTx performs the reset in the caller's transaction. Keeping it
+// in the same transaction avoids acquiring a second pool connection while the
+// caller already holds one (for example the serialized PENTEST reset path).
+func resetInstanceInTx(ctx context.Context, tx pgx.Tx, instanceID uuid.UUID, authorized AuthorizedContext) (int64, []Operation, error) {
 	var generation int64
 	if err := tx.QueryRow(ctx, `
 		UPDATE instances SET generation = generation + 1, status = 'RESETTING'
@@ -286,9 +300,6 @@ func (s *store) resetInstance(ctx context.Context, instanceID uuid.UUID, authori
 	}
 	// Rotate core-issued public ports only after the provider destroy/create
 	// confirms; the current endpoints stay visible until then.
-	if err := tx.Commit(ctx); err != nil {
-		return 0, nil, err
-	}
 	return generation, operations, nil
 }
 
