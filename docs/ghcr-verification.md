@@ -1,14 +1,16 @@
 # GHCR publication verification
 
-Status: **published and verified from `main` at commit `07c5545`** (the `deploy/` operator-bundle change).
-Ten separate images are publicly pullable without registry credentials. The measured size/digest table below is
-the previous full `2191282` measurement; the `07c5545` publish re-ran all ten images and was verified through
-anonymous manifest checks plus a cleanroom `pull`/`up -d --wait`/health/readiness/config-bind smoke.
+Status: **published and verified from `main` at commit `29227d7`** (YAML application settings and
+datasource-only production env). Ten separate images are publicly pullable without registry credentials. The
+measured size/digest table below is the previous full `2191282` measurement; the current publish re-ran all ten
+images and was verified through anonymous manifest checks plus a cleanroom raw-bundle
+`pull`/`up -d --wait`/health/readiness/0640 config-bind/login-refresh smoke.
 
-Current publication: run https://github.com/nrf24l01/aCTFb/actions/runs/43613130199, image source commit
-`07c55451c3d930897c26dbd5baa8c43afa87fe89`, immutable tag
-`sha-07c55451c3d930897c26dbd5baa8c43afa87fe89`. The binaries are unchanged; the backend image now copies
-`deploy/config.yaml` instead of the removed root `config.prod.yml`.
+Current publication: run https://github.com/nrf24l01/aCTFb/actions/runs/43638812660, image source commit
+`29227d785a78cc0047d2cf434b3c9dea14397e5b`, immutable tag
+`sha-29227d785a78cc0047d2cf434b3c9dea14397e5b`. This publication includes YAML readers for retention, plugin
+runner, and A+D worker settings; the production Compose file no longer injects APP/JWT/auth/feature flags, and
+`config.yaml` is mounted read-only with host mode `0640` group `10001`.
 
 Historical note: the earlier `3ef4d5b` and `fea429a` publications used a shared backend/worker image.
 `f133e3b` was the first one-process-per-container publication. `d7694b2` enforced the docs/config/tests contract.

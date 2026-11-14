@@ -147,10 +147,10 @@ The roles column is read live; refresh `/me` or sign in again after promotion.
 all images:
 
 ```bash
-sed -i 's/^ACTFB_IMAGE_TAG=.*/ACTFB_IMAGE_TAG=sha-<full-git-sha>/' .env
+sed -i 's/^ACTFB_IMAGE_TAG=.*/ACTFB_IMAGE_TAG=sha-29227d785a78cc0047d2cf434b3c9dea14397e5b/' .env
 ```
 
-Use the full SHA recorded in `docs/ghcr-verification.md`. `latest` is simpler but moves.
+The documented ten-image publication at `29227d7` matches this bundle. `latest` is simpler but moves.
 
 ```bash
 docker compose --env-file .env ps

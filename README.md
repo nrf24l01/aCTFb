@@ -72,8 +72,8 @@ automatic admin seed or bootstrap-admin environment variable.
 
 The default baseline starts `backend`, `frontend`, `postgres`, `redis`, `nats`, `retention`, and
 `events-dispatcher`. Optional profiles select the notification/file/plugin/AD/runtime worker images. For a
-reproducible deployment or rollback, pin the full `ACTFB_IMAGE_TAG=sha-<full-git-sha>` recorded in
-`docs/ghcr-verification.md` in `deploy/.env` instead of `latest`.
+reproducible deployment or rollback, pin `ACTFB_IMAGE_TAG=sha-29227d785a78cc0047d2cf434b3c9dea14397e5b`
+(recorded in `docs/ghcr-verification.md`) in `deploy/.env` instead of `latest`.
 
 The default baseline does not start SMTP delivery. Email verification and password-reset email remain
 unavailable until SMTP values are configured and the `email` profile is enabled:
