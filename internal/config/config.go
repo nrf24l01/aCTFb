@@ -55,24 +55,44 @@ const (
 	DefaultPluginsRoot                  = "./plugins"
 	DefaultPluginIframeOrigin           = "http://127.0.0.2:8091"
 	DefaultPluginAssetsListenAddr       = "127.0.0.2:8091"
+	DefaultPluginRunnerListenAddr       = "127.0.0.2:8092"
 	DefaultPluginHTTPTimeout            = 5 * time.Second
 	MaxPluginHTTPTimeout                = 30 * time.Second
 	DefaultPluginMaxBodyBytes     int64 = 1 << 20
+
+	DefaultADWorkerConcurrency = 1
+	DefaultADCheckerCPUs       = "1"
+	DefaultADCheckerMemory     = "512m"
+	DefaultADCheckerPIDs       = 128
+	DefaultADCheckerTmpfs      = "64m"
+	DefaultADDockerBinary      = "docker"
+	DefaultADGitBinary         = "git"
+	DefaultADGitTimeout        = 2 * time.Minute
+	DefaultADReconcileInterval = 30 * time.Second
+
+	DefaultRetentionDays       = 7
+	DefaultRetentionInterval   = time.Hour
+	DefaultRetentionBatchSize  = 500
+	DefaultRetentionMaxBatches = 100
+	DefaultRetentionRunTimeout = 5 * time.Minute
 
 	minJWTSecretLength = 32
 )
 
 type Config struct {
-	JWT         JWTConfig         `yaml:"jwt"`
-	Datasources DatasourcesConfig `yaml:"datasources"`
-	Argon2id    Argon2idConfig    `yaml:"argon2id"`
-	WebApp      WebAppConfig      `yaml:"web_app"`
-	Email       EmailConfig       `yaml:"email"`
-	Logging     LoggingConfig     `yaml:"logging"`
-	Security    SecurityConfig    `yaml:"security"`
-	Deployment  DeploymentConfig  `yaml:"deployment"`
-	Plugins     PluginsConfig     `yaml:"plugins"`
-	Files       FilesConfig       `yaml:"files"`
+	JWT           JWTConfig           `yaml:"jwt"`
+	Datasources   DatasourcesConfig   `yaml:"datasources"`
+	Argon2id      Argon2idConfig      `yaml:"argon2id"`
+	WebApp        WebAppConfig        `yaml:"web_app"`
+	Email         EmailConfig         `yaml:"email"`
+	Logging       LoggingConfig       `yaml:"logging"`
+	Security      SecurityConfig      `yaml:"security"`
+	Deployment    DeploymentConfig    `yaml:"deployment"`
+	Plugins       PluginsConfig       `yaml:"plugins"`
+	Files         FilesConfig         `yaml:"files"`
+	AttackDefense AttackDefenseConfig `yaml:"attack_defense"`
+	Integrations  IntegrationsConfig  `yaml:"integrations"`
+	Retention     RetentionConfig     `yaml:"retention"`
 }
 
 type JWTConfig struct {
@@ -258,6 +278,12 @@ type PluginsConfig struct {
 	MaxBodyBytes        int64         `yaml:"max_body_bytes" env:"ACTFB_PLUGIN_MAX_BODY_BYTES"`
 	AllowExec           bool          `yaml:"allow_exec" env:"ACTFB_PLUGIN_ALLOW_EXEC"`
 	AllowTrustedJS      bool          `yaml:"allow_trusted_js" env:"ACTFB_PLUGIN_ALLOW_TRUSTED_JS"`
+
+	RunnerURL           string `yaml:"runner_url" env:"ACTFB_PLUGIN_RUNNER_URL"`
+	RunnerToken         string `yaml:"runner_token" env:"ACTFB_PLUGIN_RUNNER_TOKEN"`
+	RunnerListenAddress string `yaml:"runner_listen_address" env:"ACTFB_PLUGIN_RUNNER_ADDR"`
+	RunnerID            string `yaml:"runner_id" env:"ACTFB_PLUGIN_RUNNER_ID"`
+	CoreSDKURL          string `yaml:"core_sdk_url" env:"ACTFB_PLUGIN_CORE_SDK_URL"`
 }
 
 // UnmarshalYAML accepts a readable plugin HTTP timeout such as "5s".
@@ -272,6 +298,11 @@ func (p *PluginsConfig) UnmarshalYAML(value *yaml.Node) error {
 		MaxBodyBytes        int64   `yaml:"max_body_bytes"`
 		AllowExec           bool    `yaml:"allow_exec"`
 		AllowTrustedJS      bool    `yaml:"allow_trusted_js"`
+		RunnerURL           string  `yaml:"runner_url"`
+		RunnerToken         string  `yaml:"runner_token"`
+		RunnerListenAddress string  `yaml:"runner_listen_address"`
+		RunnerID            string  `yaml:"runner_id"`
+		CoreSDKURL          string  `yaml:"core_sdk_url"`
 	}
 
 	if err := value.Decode(&raw); err != nil {
@@ -287,6 +318,11 @@ func (p *PluginsConfig) UnmarshalYAML(value *yaml.Node) error {
 	p.MaxBodyBytes = raw.MaxBodyBytes
 	p.AllowExec = raw.AllowExec
 	p.AllowTrustedJS = raw.AllowTrustedJS
+	p.RunnerURL = raw.RunnerURL
+	p.RunnerToken = raw.RunnerToken
+	p.RunnerListenAddress = raw.RunnerListenAddress
+	p.RunnerID = raw.RunnerID
+	p.CoreSDKURL = raw.CoreSDKURL
 
 	if raw.HTTPTimeout != nil && strings.TrimSpace(*raw.HTTPTimeout) != "" {
 		timeout, err := time.ParseDuration(strings.TrimSpace(*raw.HTTPTimeout))
@@ -333,6 +369,116 @@ func (f *FilesConfig) UnmarshalYAML(value *yaml.Node) error {
 		f.requireClamAVSet = true
 	}
 
+	return nil
+}
+
+type AttackDefenseConfig struct {
+	Enabled               bool          `yaml:"enabled" env:"ACTFB_AD_ENABLED"`
+	RunnerImages          []string      `yaml:"runner_images"`
+	WebhookBaseURL        string        `yaml:"webhook_base_url" env:"ACTFB_AD_WEBHOOK_BASE_URL"`
+	AllowInsecureLoopback bool          `yaml:"allow_insecure_loopback" env:"ACTFB_AD_ALLOW_INSECURE_LOOPBACK"`
+	WorkerConcurrency     int           `yaml:"worker_concurrency" env:"ACTFB_AD_WORKER_CONCURRENCY"`
+	CheckerCPUs           string        `yaml:"checker_cpus" env:"ACTFB_AD_CHECKER_CPUS"`
+	CheckerMemory         string        `yaml:"checker_memory" env:"ACTFB_AD_CHECKER_MEMORY"`
+	CheckerPIDs           int           `yaml:"checker_pids" env:"ACTFB_AD_CHECKER_PIDS"`
+	CheckerTmpfs          string        `yaml:"checker_tmpfs" env:"ACTFB_AD_CHECKER_TMPFS"`
+	DockerBinary          string        `yaml:"docker_binary" env:"ACTFB_AD_DOCKER_BIN"`
+	GitBinary             string        `yaml:"git_binary" env:"ACTFB_AD_GIT_BIN"`
+	GitTimeout            time.Duration `yaml:"git_timeout"`
+	ReconcileInterval     time.Duration `yaml:"reconcile_interval"`
+}
+
+func (a *AttackDefenseConfig) UnmarshalYAML(value *yaml.Node) error {
+	var raw struct {
+		Enabled               bool     `yaml:"enabled"`
+		RunnerImages          []string `yaml:"runner_images"`
+		WebhookBaseURL        string   `yaml:"webhook_base_url"`
+		AllowInsecureLoopback bool     `yaml:"allow_insecure_loopback"`
+		WorkerConcurrency     int      `yaml:"worker_concurrency"`
+		CheckerCPUs           string   `yaml:"checker_cpus"`
+		CheckerMemory         string   `yaml:"checker_memory"`
+		CheckerPIDs           int      `yaml:"checker_pids"`
+		CheckerTmpfs          string   `yaml:"checker_tmpfs"`
+		DockerBinary          string   `yaml:"docker_binary"`
+		GitBinary             string   `yaml:"git_binary"`
+		GitTimeout            *string  `yaml:"git_timeout"`
+		ReconcileInterval     *string  `yaml:"reconcile_interval"`
+	}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	a.Enabled = raw.Enabled
+	a.RunnerImages = raw.RunnerImages
+	a.WebhookBaseURL = raw.WebhookBaseURL
+	a.AllowInsecureLoopback = raw.AllowInsecureLoopback
+	a.WorkerConcurrency = raw.WorkerConcurrency
+	a.CheckerCPUs = raw.CheckerCPUs
+	a.CheckerMemory = raw.CheckerMemory
+	a.CheckerPIDs = raw.CheckerPIDs
+	a.CheckerTmpfs = raw.CheckerTmpfs
+	a.DockerBinary = raw.DockerBinary
+	a.GitBinary = raw.GitBinary
+	a.GitTimeout = 0
+	a.ReconcileInterval = 0
+	if raw.GitTimeout != nil && strings.TrimSpace(*raw.GitTimeout) != "" {
+		d, err := time.ParseDuration(strings.TrimSpace(*raw.GitTimeout))
+		if err != nil {
+			return fmt.Errorf("attack_defense.git_timeout must be a duration such as 2m: %w", err)
+		}
+		a.GitTimeout = d
+	}
+	if raw.ReconcileInterval != nil && strings.TrimSpace(*raw.ReconcileInterval) != "" {
+		d, err := time.ParseDuration(strings.TrimSpace(*raw.ReconcileInterval))
+		if err != nil {
+			return fmt.Errorf("attack_defense.reconcile_interval must be a duration such as 30s: %w", err)
+		}
+		a.ReconcileInterval = d
+	}
+	return nil
+}
+
+type IntegrationsConfig struct {
+	Enabled bool `yaml:"enabled" env:"ACTFB_INTEGRATIONS_ENABLED"`
+}
+
+type RetentionConfig struct {
+	Days       int           `yaml:"days"`
+	Interval   time.Duration `yaml:"interval"`
+	BatchSize  int           `yaml:"batch_size"`
+	MaxBatches int           `yaml:"max_batches"`
+	RunTimeout time.Duration `yaml:"run_timeout"`
+}
+
+func (r *RetentionConfig) UnmarshalYAML(value *yaml.Node) error {
+	var raw struct {
+		Days       int     `yaml:"days"`
+		Interval   *string `yaml:"interval"`
+		BatchSize  int     `yaml:"batch_size"`
+		MaxBatches int     `yaml:"max_batches"`
+		RunTimeout *string `yaml:"run_timeout"`
+	}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	r.Days = raw.Days
+	r.BatchSize = raw.BatchSize
+	r.MaxBatches = raw.MaxBatches
+	r.Interval = 0
+	r.RunTimeout = 0
+	if raw.Interval != nil && strings.TrimSpace(*raw.Interval) != "" {
+		d, err := time.ParseDuration(strings.TrimSpace(*raw.Interval))
+		if err != nil {
+			return fmt.Errorf("retention.interval must be a duration such as 1h: %w", err)
+		}
+		r.Interval = d
+	}
+	if raw.RunTimeout != nil && strings.TrimSpace(*raw.RunTimeout) != "" {
+		d, err := time.ParseDuration(strings.TrimSpace(*raw.RunTimeout))
+		if err != nil {
+			return fmt.Errorf("retention.run_timeout must be a duration such as 5m: %w", err)
+		}
+		r.RunTimeout = d
+	}
 	return nil
 }
 
@@ -411,6 +557,56 @@ func (c *Config) ApplyDefaults() {
 	if c.Plugins.MaxBodyBytes == 0 {
 		c.Plugins.MaxBodyBytes = DefaultPluginMaxBodyBytes
 	}
+	if c.Plugins.RunnerListenAddress == "" {
+		c.Plugins.RunnerListenAddress = DefaultPluginRunnerListenAddr
+	}
+	if c.Plugins.RunnerID == "" {
+		c.Plugins.RunnerID = "default"
+	}
+
+	if c.AttackDefense.WorkerConcurrency == 0 {
+		c.AttackDefense.WorkerConcurrency = DefaultADWorkerConcurrency
+	}
+	if c.AttackDefense.CheckerCPUs == "" {
+		c.AttackDefense.CheckerCPUs = DefaultADCheckerCPUs
+	}
+	if c.AttackDefense.CheckerMemory == "" {
+		c.AttackDefense.CheckerMemory = DefaultADCheckerMemory
+	}
+	if c.AttackDefense.CheckerPIDs == 0 {
+		c.AttackDefense.CheckerPIDs = DefaultADCheckerPIDs
+	}
+	if c.AttackDefense.CheckerTmpfs == "" {
+		c.AttackDefense.CheckerTmpfs = DefaultADCheckerTmpfs
+	}
+	if c.AttackDefense.DockerBinary == "" {
+		c.AttackDefense.DockerBinary = DefaultADDockerBinary
+	}
+	if c.AttackDefense.GitBinary == "" {
+		c.AttackDefense.GitBinary = DefaultADGitBinary
+	}
+	if c.AttackDefense.GitTimeout == 0 {
+		c.AttackDefense.GitTimeout = DefaultADGitTimeout
+	}
+	if c.AttackDefense.ReconcileInterval == 0 {
+		c.AttackDefense.ReconcileInterval = DefaultADReconcileInterval
+	}
+
+	if c.Retention.Days == 0 {
+		c.Retention.Days = DefaultRetentionDays
+	}
+	if c.Retention.Interval == 0 {
+		c.Retention.Interval = DefaultRetentionInterval
+	}
+	if c.Retention.BatchSize == 0 {
+		c.Retention.BatchSize = DefaultRetentionBatchSize
+	}
+	if c.Retention.MaxBatches == 0 {
+		c.Retention.MaxBatches = DefaultRetentionMaxBatches
+	}
+	if c.Retention.RunTimeout == 0 {
+		c.Retention.RunTimeout = DefaultRetentionRunTimeout
+	}
 
 	if !c.Files.requireClamAVSet {
 		c.Files.RequireClamAV = true
@@ -473,6 +669,8 @@ func (c *Config) ValidateBackend() error {
 	problems = append(problems, validateDeployment(c)...)
 	problems = append(problems, validatePlugins(c)...)
 	problems = append(problems, validateFiles(c)...)
+	problems = append(problems, validateAttackDefense(c)...)
+	problems = append(problems, validateRetention(c.Retention)...)
 
 	if c.Logging.Level != "" {
 		switch strings.ToLower(strings.TrimSpace(c.Logging.Level)) {
@@ -532,8 +730,9 @@ func validateDeployment(c *Config) []string {
 			problems = append(problems, "deployment.credential_key must be a base64-encoded 32-byte key")
 		}
 	}
-	if c.Deployment.Enabled && strings.TrimSpace(c.Deployment.CredentialKey) == "" {
-		problems = append(problems, "deployment.credential_key is required when runtime is enabled")
+	needsCredentialKey := c.Deployment.Enabled || c.Plugins.Enabled || c.AttackDefense.Enabled || c.Integrations.Enabled
+	if needsCredentialKey && strings.TrimSpace(c.Deployment.CredentialKey) == "" {
+		problems = append(problems, "deployment.credential_key is required when runtime, plugins, A+D, or integrations are enabled")
 	}
 	if c.Deployment.KeyVersion == 0 {
 		problems = append(problems, "deployment.key_version must be positive")
@@ -548,6 +747,19 @@ func validatePlugins(c *Config) []string {
 	if c.Plugins.ServiceKey != "" {
 		if err := secrets.ValidateKey(c.Plugins.ServiceKey); err != nil {
 			problems = append(problems, "plugins.service_key must be a base64-encoded 32-byte key")
+		}
+	}
+	runnerURL := strings.TrimSpace(c.Plugins.RunnerURL)
+	runnerToken := strings.TrimSpace(c.Plugins.RunnerToken)
+	if (runnerURL == "") != (runnerToken == "") {
+		problems = append(problems, "plugins.runner_url and plugins.runner_token must be set together")
+	}
+	if runnerToken != "" && len(runnerToken) < 32 {
+		problems = append(problems, "plugins.runner_token must be at least 32 characters")
+	}
+	if c.Plugins.RunnerListenAddress != "" {
+		if err := validateListenAddress(c.Plugins.RunnerListenAddress); err != nil {
+			problems = append(problems, "plugins.runner_listen_address must be a host:port listen address")
 		}
 	}
 	if c.Plugins.IframeOrigin != "" {
@@ -622,6 +834,75 @@ func validateFiles(c *Config) []string {
 		}
 	}
 
+	return problems
+}
+
+func validateAttackDefense(c *Config) []string {
+	if !c.AttackDefense.Enabled {
+		return nil
+	}
+	var problems []string
+	if len(c.AttackDefense.RunnerImages) == 0 {
+		problems = append(problems, "attack_defense.runner_images must list at least one pinned sha256 image")
+	}
+	for index, image := range c.AttackDefense.RunnerImages {
+		if !pinnedSHA256Image(image) {
+			problems = append(problems, fmt.Sprintf(
+				"attack_defense.runner_images[%d] must be an immutable repository@sha256:<64 hex> reference",
+				index,
+			))
+		}
+	}
+	if c.AttackDefense.WorkerConcurrency < 1 || c.AttackDefense.WorkerConcurrency > 8 {
+		problems = append(problems, "attack_defense.worker_concurrency must be between 1 and 8")
+	}
+	if c.AttackDefense.GitTimeout < time.Second {
+		problems = append(problems, "attack_defense.git_timeout must be at least 1s")
+	}
+	if c.AttackDefense.ReconcileInterval < time.Second {
+		problems = append(problems, "attack_defense.reconcile_interval must be at least 1s")
+	}
+	if strings.TrimSpace(c.Datasources.Nats.Host) == "" {
+		problems = append(problems, "datasources.nats.host is required when attack-defense is enabled")
+	}
+	if !validPort(c.Datasources.Nats.Port) {
+		problems = append(problems, "datasources.nats.port must be between 1 and 65535 when attack-defense is enabled")
+	}
+	return problems
+}
+
+func pinnedSHA256Image(image string) bool {
+	image = strings.TrimSpace(image)
+	const marker = "@sha256:"
+	index := strings.Index(image, marker)
+	if index <= 0 || len(image) != index+len(marker)+64 {
+		return false
+	}
+	for _, char := range image[index+len(marker):] {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func validateRetention(c RetentionConfig) []string {
+	var problems []string
+	if c.Days < 1 || c.Days > 365 {
+		problems = append(problems, "retention.days must be between 1 and 365")
+	}
+	if c.Interval < time.Second {
+		problems = append(problems, "retention.interval must be at least 1s")
+	}
+	if c.BatchSize < 1 || c.BatchSize > 5000 {
+		problems = append(problems, "retention.batch_size must be between 1 and 5000")
+	}
+	if c.MaxBatches < 1 || c.MaxBatches > 1000 {
+		problems = append(problems, "retention.max_batches must be between 1 and 1000")
+	}
+	if c.RunTimeout < time.Second {
+		problems = append(problems, "retention.run_timeout must be at least 1s")
+	}
 	return problems
 }
 
@@ -790,8 +1071,10 @@ func (c *Config) String() string {
 			"jwt={access_expiry:%d access_secret_set:%t refresh_expiry:%d refresh_secret_set:%t}, "+
 			"auth_rate_limit_backend:%s, password_reset_period:%s, "+
 			"deployment={enabled:%t key_version:%d credential_key_set:%t}, "+
-			"plugins={enabled:%t root:%s iframe_origin_set:%t assets_listen_set:%t http_timeout:%s max_body_bytes:%d allow_exec:%t allow_trusted_js:%t service_key_set:%t}, "+
+			"plugins={enabled:%t root:%s iframe_origin_set:%t assets_listen_set:%t http_timeout:%s max_body_bytes:%d allow_exec:%t allow_trusted_js:%t service_key_set:%t runner_url_set:%t runner_token_set:%t}, "+
 			"files={enabled:%t clamav_address_set:%t require_clamav:%t scan_key_set:%t}, "+
+			"attack_defense={enabled:%t runner_images:%d allow_insecure_loopback:%t concurrency:%d}, "+
+			"integrations_enabled:%t retention={days:%d interval:%s batch_size:%d max_batches:%d run_timeout:%s}, "+
 			"email_enabled:%t email_verify:%t email_verify_period:%s, logging_level:%s}",
 		c.WebApp.AppHost,
 		c.WebApp.Port,
@@ -825,10 +1108,22 @@ func (c *Config) String() string {
 		c.Plugins.AllowExec,
 		c.Plugins.AllowTrustedJS,
 		c.Plugins.ServiceKey != "",
+		c.Plugins.RunnerURL != "",
+		c.Plugins.RunnerToken != "",
 		c.Files.Enabled,
 		c.Files.ClamAVAddress != "",
 		c.Files.RequireClamAV,
 		c.Files.ScanKey != "",
+		c.AttackDefense.Enabled,
+		len(c.AttackDefense.RunnerImages),
+		c.AttackDefense.AllowInsecureLoopback,
+		c.AttackDefense.WorkerConcurrency,
+		c.Integrations.Enabled,
+		c.Retention.Days,
+		c.Retention.Interval.String(),
+		c.Retention.BatchSize,
+		c.Retention.MaxBatches,
+		c.Retention.RunTimeout.String(),
 		c.Email.Enabled,
 		c.Security.EmailVerifyEnabled,
 		c.Security.EmailVerifyPeriod.String(),

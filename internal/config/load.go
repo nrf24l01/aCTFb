@@ -20,7 +20,7 @@ func LoadConfig() (*Config, error) {
 
 	configFile := os.Getenv("CONFIG_FILE")
 	if configFile == "" {
-		configFile = "config.yml"
+		configFile = "config.yaml"
 	}
 
 	if err := cleanenv.ReadConfig(configFile, &cfg); err != nil {
@@ -46,6 +46,14 @@ func LoadConfig() (*Config, error) {
 	}
 
 	if err := applyFilesEnv(&cfg); err != nil {
+		return nil, err
+	}
+
+	if err := applyAttackDefenseEnv(&cfg); err != nil {
+		return nil, err
+	}
+
+	if err := applyRetentionEnv(&cfg); err != nil {
 		return nil, err
 	}
 
@@ -185,4 +193,74 @@ func applyFilesEnv(cfg *Config) error {
 	cfg.Files.requireClamAVSet = true
 
 	return nil
+}
+
+// applyAttackDefenseEnv preserves the legacy comma-separated image allowlist
+// and duration overrides. YAML remains the canonical production source.
+func applyAttackDefenseEnv(cfg *Config) error {
+	if raw, ok := os.LookupEnv("ACTFB_AD_RUNNER_IMAGES"); ok {
+		cfg.AttackDefense.RunnerImages = splitList(raw)
+	}
+	if raw, ok := os.LookupEnv("ACTFB_AD_GIT_TIMEOUT"); ok && strings.TrimSpace(raw) != "" {
+		value, err := time.ParseDuration(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("ACTFB_AD_GIT_TIMEOUT must be a duration such as 2m: %w", err)
+		}
+		cfg.AttackDefense.GitTimeout = value
+	}
+	if raw, ok := os.LookupEnv("ACTFB_AD_RECONCILE_INTERVAL"); ok && strings.TrimSpace(raw) != "" {
+		value, err := time.ParseDuration(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("ACTFB_AD_RECONCILE_INTERVAL must be a duration such as 30s: %w", err)
+		}
+		cfg.AttackDefense.ReconcileInterval = value
+	}
+	return nil
+}
+
+func applyRetentionEnv(cfg *Config) error {
+	if days, err := intEnv("AUTH_RETENTION_DAYS"); err != nil {
+		return err
+	} else if days != nil {
+		cfg.Retention.Days = *days
+	}
+	if batch, err := intEnv("AUTH_RETENTION_BATCH_SIZE"); err != nil {
+		return err
+	} else if batch != nil {
+		cfg.Retention.BatchSize = *batch
+	}
+	if maxBatches, err := intEnv("AUTH_RETENTION_MAX_BATCHES"); err != nil {
+		return err
+	} else if maxBatches != nil {
+		cfg.Retention.MaxBatches = *maxBatches
+	}
+	if raw, ok := os.LookupEnv("AUTH_RETENTION_INTERVAL"); ok && strings.TrimSpace(raw) != "" {
+		value, err := time.ParseDuration(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("AUTH_RETENTION_INTERVAL must be a duration such as 1h: %w", err)
+		}
+		cfg.Retention.Interval = value
+	}
+	if raw, ok := os.LookupEnv("AUTH_RETENTION_RUN_TIMEOUT"); ok && strings.TrimSpace(raw) != "" {
+		value, err := time.ParseDuration(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("AUTH_RETENTION_RUN_TIMEOUT must be a duration such as 5m: %w", err)
+		}
+		cfg.Retention.RunTimeout = value
+	}
+	return nil
+}
+
+func splitList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	values := make([]string, 0, 4)
+	for _, item := range strings.Split(raw, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			values = append(values, item)
+		}
+	}
+	return values
 }

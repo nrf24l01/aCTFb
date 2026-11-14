@@ -37,13 +37,20 @@ func run(parent context.Context, logger *slog.Logger) (runErr error) {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	logger = newLogger(cfg.Logging.Level)
+	slog.SetDefault(logger)
+
 	fs := flag.NewFlagSet("retention", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	once := fs.Bool("once", false, "run one bounded retention pass and exit (default is daemon mode)")
-	interval := fs.Duration("interval", time.Hour, "delay between passes in daemon mode")
-	runTimeout := fs.Duration("run-timeout", defaultRunTimeout, "maximum duration of one retention pass")
-	batchSize := fs.Int("batch-size", authretention.DefaultBatchSize, "rows deleted per transaction")
-	maxBatches := fs.Int("max-batches", authretention.DefaultMaxBatches, "maximum transactions per table per pass")
+	interval := fs.Duration("interval", cfg.Retention.Interval, "delay between passes in daemon mode")
+	runTimeout := fs.Duration("run-timeout", cfg.Retention.RunTimeout, "maximum duration of one retention pass")
+	batchSize := fs.Int("batch-size", cfg.Retention.BatchSize, "rows deleted per transaction")
+	maxBatches := fs.Int("max-batches", cfg.Retention.MaxBatches, "maximum transactions per table per pass")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -61,25 +68,12 @@ func run(parent context.Context, logger *slog.Logger) (runErr error) {
 		return fmt.Errorf("--run-timeout must be at least %s", minInterval)
 	}
 
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-
-	logger = newLogger(cfg.Logging.Level)
-	slog.SetDefault(logger)
-
 	if err := validatePostgresConfig(&cfg.Datasources.Postgres); err != nil {
 		return err
 	}
 
-	retentionDays, err := authretention.ResolveRetentionDays(os.Getenv("AUTH_RETENTION_DAYS"))
-	if err != nil {
-		return err
-	}
-
 	options, err := authretention.NormalizeOptions(authretention.Options{
-		RetentionDays: retentionDays,
+		RetentionDays: cfg.Retention.Days,
 		BatchSize:     *batchSize,
 		MaxBatches:    *maxBatches,
 	})

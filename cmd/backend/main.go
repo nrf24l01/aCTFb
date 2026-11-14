@@ -159,8 +159,8 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		sealer = cipher
 	}
 
-	adEnabled := envBool("ACTFB_AD_ENABLED", false)
-	integrationsEnabled := envBool("ACTFB_INTEGRATIONS_ENABLED", false)
+	adEnabled := cfg.AttackDefense.Enabled
+	integrationsEnabled := cfg.Integrations.Enabled
 
 	// Any feature that needs the shared bus must initialize NATS even when SMTP
 	// mail is disabled. This avoids the historical "SMTP-only" bootstrap bug.
@@ -238,7 +238,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	var instancesService *instances.Service
 	if cfg.Deployment.Enabled {
 		if sealer == nil {
-			return errors.New("ACTFB_CREDENTIAL_ENCRYPTION_KEY is required when runtime instances are enabled")
+			return errors.New("deployment.credential_key (legacy ACTFB_CREDENTIAL_ENCRYPTION_KEY) is required when runtime instances are enabled")
 		}
 		if sharedNATS == nil {
 			return errors.New("NATS is required when runtime instances are enabled")
@@ -321,7 +321,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	var integrationsService *integrations.Service
 	if integrationsEnabled {
 		if sealer == nil {
-			return errors.New("ACTFB_CREDENTIAL_ENCRYPTION_KEY is required when integrations are enabled")
+			return errors.New("deployment.credential_key (legacy ACTFB_CREDENTIAL_ENCRYPTION_KEY) is required when integrations are enabled")
 		}
 		if sharedNATS == nil {
 			return errors.New("NATS is required when integrations are enabled")

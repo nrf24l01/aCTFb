@@ -68,7 +68,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 	if strings.TrimSpace(cfg.Deployment.CredentialKey) == "" {
-		return errors.New("ACTFB_CREDENTIAL_ENCRYPTION_KEY is required by the trusted instance worker")
+		return errors.New("deployment.credential_key (legacy ACTFB_CREDENTIAL_ENCRYPTION_KEY) is required by the trusted instance worker")
 	}
 	sealer, err := secrets.NewCipher(cfg.Deployment.CredentialKey, cfg.Deployment.KeyVersion)
 	if err != nil {

@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -1196,6 +1197,190 @@ func TestLoadConfigSharedFoundationEnv(t *testing.T) {
 	}
 }
 
+func TestLoadConfigYAMLApplicationSettings(t *testing.T) {
+	runnerImage := "registry.example/ad-checker@sha256:" + strings.Repeat("a", 64)
+	path := writeConfig(t, fmt.Sprintf(`
+jwt:
+  access:
+    secret: %s
+    expiry: 900
+  refresh:
+    secret: %s
+    expiry: 604800
+web_app:
+  app_host: 127.0.0.1
+  port: 9090
+  secure_cookies: false
+  allowed_origins: [http://localhost:9090]
+  trusted_proxies: [10.213.77.0/28]
+datasources:
+  postgres:
+    host: postgres
+    port: 5432
+    user: actfb
+    dbname: actfb
+    sslmode: disable
+    timezone: UTC
+    migrations_path: /app/migrations
+  nats:
+    host: nats
+    port: 4222
+  redis:
+    host: redis
+    port: 6379
+security:
+  email_verify: true
+  email_verify_period: 20m
+  auth_rate_limit_backend: memory
+  password_reset_period: 30m
+email:
+  enabled: false
+  templates_dir: /app/email_templates
+deployment:
+  enabled: true
+  credential_key: %s
+  key_version: 2
+plugins:
+  enabled: true
+  root: /app/plugins
+  service_key: %s
+  iframe_origin: http://127.0.0.2:8091
+  assets_listen_address: 127.0.0.2:8091
+  http_timeout: 5s
+  max_body_bytes: 1048576
+  allow_exec: false
+  allow_trusted_js: false
+  runner_url: http://127.0.0.2:8092
+  runner_token: %s
+  runner_listen_address: 127.0.0.2:8092
+  runner_id: yaml-runner
+  core_sdk_url: http://backend:8080
+files:
+  enabled: true
+  scan_key: %s
+  require_clamav: false
+attack_defense:
+  enabled: true
+  runner_images: [%s]
+  webhook_base_url: https://ctf.example
+  allow_insecure_loopback: false
+  worker_concurrency: 2
+  checker_cpus: "2"
+  checker_memory: 1g
+  checker_pids: 256
+  checker_tmpfs: 128m
+  docker_binary: docker
+  git_binary: git
+  git_timeout: 3m
+  reconcile_interval: 45s
+integrations:
+  enabled: true
+retention:
+  days: 9
+  interval: 2h
+  batch_size: 100
+  max_batches: 20
+  run_timeout: 10m
+`, testAccessSecret, testRefreshSecret, testBase64Key(11), testBase64Key(12), strings.Repeat("r", 40), testBase64Key(13), runnerImage))
+	t.Setenv("CONFIG_FILE", path)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.JWT.Access.Secret != testAccessSecret || cfg.JWT.Refresh.Secret != testRefreshSecret {
+		t.Fatal("JWT secrets were not read from YAML")
+	}
+	if cfg.WebApp.Port != 9090 || cfg.WebApp.SecureCookies || len(cfg.WebApp.AllowedOrigins) != 1 ||
+		cfg.WebApp.AllowedOrigins[0] != "http://localhost:9090" || len(cfg.WebApp.TrustedProxies) != 1 {
+		t.Fatalf("web_app YAML settings not applied: %+v", cfg.WebApp)
+	}
+	if !cfg.Deployment.Enabled || cfg.Deployment.CredentialKey != testBase64Key(11) || cfg.Deployment.KeyVersion != 2 {
+		t.Fatalf("deployment YAML settings not applied: %+v", cfg.Deployment)
+	}
+	if !cfg.Plugins.Enabled || cfg.Plugins.ServiceKey != testBase64Key(12) ||
+		cfg.Plugins.RunnerURL != "http://127.0.0.2:8092" || cfg.Plugins.RunnerToken != strings.Repeat("r", 40) ||
+		cfg.Plugins.RunnerID != "yaml-runner" || cfg.Plugins.CoreSDKURL != "http://backend:8080" {
+		t.Fatalf("plugins YAML settings not applied: %+v", cfg.Plugins)
+	}
+	if !cfg.Files.Enabled || cfg.Files.ScanKey != testBase64Key(13) || cfg.Files.RequireClamAV {
+		t.Fatalf("files YAML settings not applied: %+v", cfg.Files)
+	}
+	if !cfg.AttackDefense.Enabled || len(cfg.AttackDefense.RunnerImages) != 1 ||
+		cfg.AttackDefense.RunnerImages[0] != runnerImage || cfg.AttackDefense.WorkerConcurrency != 2 ||
+		cfg.AttackDefense.GitTimeout != 3*time.Minute || cfg.AttackDefense.ReconcileInterval != 45*time.Second {
+		t.Fatalf("attack_defense YAML settings not applied: %+v", cfg.AttackDefense)
+	}
+	if !cfg.Integrations.Enabled {
+		t.Fatal("integrations YAML setting not applied")
+	}
+	if cfg.Retention.Days != 9 || cfg.Retention.Interval != 2*time.Hour ||
+		cfg.Retention.BatchSize != 100 || cfg.Retention.MaxBatches != 20 ||
+		cfg.Retention.RunTimeout != 10*time.Minute {
+		t.Fatalf("retention YAML settings not applied: %+v", cfg.Retention)
+	}
+	if err := cfg.ValidateBackend(); err != nil {
+		t.Fatalf("ValidateBackend() error = %v", err)
+	}
+}
+
+func TestLoadConfigLegacyNewFeatureEnvironmentOverrides(t *testing.T) {
+	path := writeConfig(t, "logging:\n  level: info\n")
+	image := "registry.example/ad-checker@sha256:" + strings.Repeat("b", 64)
+	t.Setenv("CONFIG_FILE", path)
+	t.Setenv("ACTFB_AD_ENABLED", "true")
+	t.Setenv("ACTFB_AD_RUNNER_IMAGES", image+",registry.example/other@sha256:"+strings.Repeat("c", 64))
+	t.Setenv("ACTFB_AD_WORKER_CONCURRENCY", "3")
+	t.Setenv("ACTFB_AD_GIT_TIMEOUT", "4m")
+	t.Setenv("ACTFB_AD_RECONCILE_INTERVAL", "50s")
+	t.Setenv("ACTFB_PLUGIN_RUNNER_URL", "http://127.0.0.2:8092")
+	t.Setenv("ACTFB_PLUGIN_RUNNER_TOKEN", strings.Repeat("t", 40))
+	t.Setenv("AUTH_RETENTION_DAYS", "11")
+	t.Setenv("AUTH_RETENTION_INTERVAL", "3h")
+	t.Setenv("AUTH_RETENTION_BATCH_SIZE", "7")
+	t.Setenv("AUTH_RETENTION_MAX_BATCHES", "8")
+	t.Setenv("AUTH_RETENTION_RUN_TIMEOUT", "9m")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if !cfg.AttackDefense.Enabled || len(cfg.AttackDefense.RunnerImages) != 2 ||
+		cfg.AttackDefense.WorkerConcurrency != 3 || cfg.AttackDefense.GitTimeout != 4*time.Minute ||
+		cfg.AttackDefense.ReconcileInterval != 50*time.Second {
+		t.Fatalf("legacy A+D env overrides not applied: %+v", cfg.AttackDefense)
+	}
+	if cfg.Plugins.RunnerURL != "http://127.0.0.2:8092" || cfg.Plugins.RunnerToken != strings.Repeat("t", 40) {
+		t.Fatalf("legacy plugin runner env overrides not applied: %+v", cfg.Plugins)
+	}
+	if cfg.Retention.Days != 11 || cfg.Retention.Interval != 3*time.Hour ||
+		cfg.Retention.BatchSize != 7 || cfg.Retention.MaxBatches != 8 ||
+		cfg.Retention.RunTimeout != 9*time.Minute {
+		t.Fatalf("legacy retention env overrides not applied: %+v", cfg.Retention)
+	}
+}
+
+func TestDeployConfigTemplateParsesAndFailsClosed(t *testing.T) {
+	path := filepath.Join("..", "..", "deploy", "config.yaml")
+	t.Setenv("CONFIG_FILE", path)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("deploy/config.yaml template does not parse: %v", err)
+	}
+	if cfg.JWT.Access.Secret != "CHANGE_ME_ACCESS_SECRET" || cfg.JWT.Refresh.Secret != "CHANGE_ME_REFRESH_SECRET" {
+		t.Fatal("deploy template placeholder JWT fields changed unexpectedly")
+	}
+	if len(cfg.WebApp.AllowedOrigins) != 1 || cfg.WebApp.AllowedOrigins[0] != "CHANGE_ME_PUBLIC_ORIGIN" {
+		t.Fatal("deploy template placeholder origin changed unexpectedly")
+	}
+	if err := cfg.ValidateBackend(); err == nil {
+		t.Fatal("deploy template must fail closed before placeholder replacement")
+	} else if !strings.Contains(err.Error(), "jwt.access.secret") && !strings.Contains(err.Error(), "allowed_origins") {
+		t.Fatalf("template failure does not identify secrets/origin: %v", err)
+	}
+}
+
 func TestLoadConfigMalformedSharedFoundationEnv(t *testing.T) {
 	path := writeConfig(t, "logging:\n  level: info\n")
 
@@ -1264,6 +1449,7 @@ func TestValidatePluginsFeature(t *testing.T) {
 	validPlugins := func() *Config {
 		cfg := validBackendConfig()
 		cfg.Plugins.Enabled = true
+		cfg.Deployment.CredentialKey = testBase64Key(3)
 		cfg.Plugins.ServiceKey = testBase64Key(2)
 		cfg.Plugins.Root = "./plugins"
 		cfg.Plugins.IframeOrigin = "http://127.0.0.2:8091"

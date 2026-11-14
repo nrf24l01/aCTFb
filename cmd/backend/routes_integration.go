@@ -134,11 +134,11 @@ func buildPluginManager(
 	logger *slog.Logger,
 ) (*plugins.Manager, error) {
 	if sealer == nil {
-		return nil, errors.New("ACTFB_CREDENTIAL_ENCRYPTION_KEY is required when plugins are enabled")
+		return nil, errors.New("deployment.credential_key (legacy ACTFB_CREDENTIAL_ENCRYPTION_KEY) is required when plugins are enabled")
 	}
 	serviceKey, err := decodeBase64Key(cfg.Plugins.ServiceKey)
 	if err != nil {
-		return nil, fmt.Errorf("decode ACTFB_PLUGIN_SERVICE_KEY: %w", err)
+		return nil, fmt.Errorf("decode plugins.service_key (legacy ACTFB_PLUGIN_SERVICE_KEY): %w", err)
 	}
 	platformOrigin := platformOrigin(cfg)
 	if platformOrigin == "" {
@@ -146,11 +146,11 @@ func buildPluginManager(
 	}
 
 	var runner process.Runner
-	runnerURL := strings.TrimSpace(os.Getenv("ACTFB_PLUGIN_RUNNER_URL"))
-	runnerToken := strings.TrimSpace(os.Getenv("ACTFB_PLUGIN_RUNNER_TOKEN"))
+	runnerURL := strings.TrimSpace(cfg.Plugins.RunnerURL)
+	runnerToken := strings.TrimSpace(cfg.Plugins.RunnerToken)
 	if runnerURL != "" || runnerToken != "" {
 		if runnerURL == "" || runnerToken == "" {
-			return nil, errors.New("ACTFB_PLUGIN_RUNNER_URL and ACTFB_PLUGIN_RUNNER_TOKEN must be set together")
+			return nil, errors.New("plugins.runner_url and plugins.runner_token must be set together")
 		}
 		remote, err := process.NewRemoteRunner(runnerURL, runnerToken)
 		if err != nil {
@@ -173,7 +173,7 @@ func buildPluginManager(
 		IframeOrigin:   cfg.Plugins.IframeOrigin,
 		AssetOrigin:    cfg.Plugins.IframeOrigin,
 		PlatformOrigin: platformOrigin,
-		CoreSDKURL:     strings.TrimSpace(os.Getenv("ACTFB_PLUGIN_CORE_SDK_URL")),
+		CoreSDKURL:     strings.TrimSpace(cfg.Plugins.CoreSDKURL),
 		HTTPTimeout:    cfg.Plugins.HTTPTimeout,
 		MaxBodyBytes:   cfg.Plugins.MaxBodyBytes,
 		NATS:           sharedNATS,
@@ -238,7 +238,7 @@ func buildAttackDefense(
 	logger *slog.Logger,
 ) (*attackdefense.Service, error) {
 	if sealer == nil {
-		return nil, errors.New("ACTFB_CREDENTIAL_ENCRYPTION_KEY is required when attack-defense is enabled")
+		return nil, errors.New("deployment.credential_key (legacy ACTFB_CREDENTIAL_ENCRYPTION_KEY) is required when attack-defense is enabled")
 	}
 	if sharedNATS == nil {
 		return nil, errors.New("NATS is required when attack-defense is enabled")
@@ -249,14 +249,14 @@ func buildAttackDefense(
 	}
 	options := []attackdefense.Option{
 		attackdefense.WithJobPublisher(publisher),
-		attackdefense.WithAllowInsecureWebhookTransport(envBool("ACTFB_AD_ALLOW_INSECURE_LOOPBACK", false)),
+		attackdefense.WithAllowInsecureWebhookTransport(cfg.AttackDefense.AllowInsecureLoopback),
 		attackdefense.WithKeyVersion(cfg.Deployment.KeyVersion),
 		attackdefense.WithLogger(logger),
 	}
-	if images := envList("ACTFB_AD_RUNNER_IMAGES"); len(images) > 0 {
+	if images := cfg.AttackDefense.RunnerImages; len(images) > 0 {
 		options = append(options, attackdefense.WithRunnerImageAllowlist(images))
 	}
-	if baseURL := strings.TrimSpace(os.Getenv("ACTFB_AD_WEBHOOK_BASE_URL")); baseURL != "" {
+	if baseURL := strings.TrimSpace(cfg.AttackDefense.WebhookBaseURL); baseURL != "" {
 		options = append(options, attackdefense.WithWebhookBaseURL(baseURL))
 	}
 	service, err := attackdefense.NewService(db, authorizer, sealer, options...)

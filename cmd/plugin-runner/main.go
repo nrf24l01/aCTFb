@@ -1,15 +1,18 @@
 // Command plugin-runner is the separate trusted supervisor for OCI plugin
 // backends. The core backend never receives DOCKER_HOST or a Docker socket.
 //
-// Required environment:
+// Required configuration:
 //
-//	ACTFB_PLUGIN_RUNNER_TOKEN  shared control token (>= 32 characters)
+//	plugins.runner_token        shared control token (>= 32 characters)
 //
-// Optional:
+// Optional configuration:
 //
-//	ACTFB_PLUGIN_RUNNER_ADDR   loopback control address (default 127.0.0.2:8092)
-//	ACTFB_DOCKER_SOCKET        Docker API unix socket (default /var/run/docker.sock)
-//	ACTFB_PLUGIN_RUNNER_NETWORK Docker network (default bridge)
+//	plugins.runner_listen_address  loopback control address (default 127.0.0.2:8092)
+//	plugins.runner_id              stable runner identity
+//	ACTFB_DOCKER_SOCKET            Docker API unix socket (default /var/run/docker.sock)
+//	ACTFB_PLUGIN_RUNNER_NETWORK    Docker network (default bridge)
+//
+// Legacy environment overrides for the YAML fields remain supported.
 package main
 
 import (
@@ -24,6 +27,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nrf24l01/actfb/internal/config"
 	"github.com/nrf24l01/actfb/internal/plugins/process"
 )
 
@@ -31,23 +35,28 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	token := strings.TrimSpace(os.Getenv("ACTFB_PLUGIN_RUNNER_TOKEN"))
-	if len(token) < 32 {
-		logger.Error("ACTFB_PLUGIN_RUNNER_TOKEN must be at least 32 characters")
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		logger.Error("load config", "error", err)
 		os.Exit(2)
 	}
-	addr := strings.TrimSpace(os.Getenv("ACTFB_PLUGIN_RUNNER_ADDR"))
+	token := strings.TrimSpace(cfg.Plugins.RunnerToken)
+	if len(token) < 32 {
+		logger.Error("plugins.runner_token (legacy ACTFB_PLUGIN_RUNNER_TOKEN) must be at least 32 characters")
+		os.Exit(2)
+	}
+	addr := strings.TrimSpace(cfg.Plugins.RunnerListenAddress)
 	if addr == "" {
-		addr = "127.0.0.2:8092"
+		addr = config.DefaultPluginRunnerListenAddr
 	}
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		logger.Error("invalid ACTFB_PLUGIN_RUNNER_ADDR", "error", err)
+		logger.Error("invalid plugins.runner_listen_address (legacy ACTFB_PLUGIN_RUNNER_ADDR)", "error", err)
 		os.Exit(2)
 	}
 	ip := net.ParseIP(host)
 	if host != "localhost" && (ip == nil || !ip.IsLoopback()) {
-		logger.Error("ACTFB_PLUGIN_RUNNER_ADDR must bind a loopback address")
+		logger.Error("plugins.runner_listen_address (legacy ACTFB_PLUGIN_RUNNER_ADDR) must bind a loopback address")
 		os.Exit(2)
 	}
 
@@ -55,7 +64,7 @@ func main() {
 	if dockerSocket == "" {
 		dockerSocket = "/var/run/docker.sock"
 	}
-	runnerID := strings.TrimSpace(os.Getenv("ACTFB_PLUGIN_RUNNER_ID"))
+	runnerID := strings.TrimSpace(cfg.Plugins.RunnerID)
 	if runnerID == "" {
 		runnerID = "default"
 	}

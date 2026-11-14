@@ -13,7 +13,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -53,18 +52,18 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 	if strings.TrimSpace(cfg.Deployment.CredentialKey) == "" {
-		return errors.New("ACTFB_CREDENTIAL_ENCRYPTION_KEY is required to decrypt Git integration credentials")
+		return errors.New("deployment.credential_key (legacy ACTFB_CREDENTIAL_ENCRYPTION_KEY) is required to decrypt Git integration credentials")
 	}
 	sealer, err := secrets.NewCipher(cfg.Deployment.CredentialKey, cfg.Deployment.KeyVersion)
 	if err != nil {
 		return fmt.Errorf("construct credential sealer: %w", err)
 	}
-	allowLoopback := envBool("ACTFB_AD_ALLOW_INSECURE_LOOPBACK", false)
-	allowlist := envList("ACTFB_AD_RUNNER_IMAGES")
+	allowLoopback := cfg.AttackDefense.AllowInsecureLoopback
+	allowlist := cfg.AttackDefense.RunnerImages
 	if len(allowlist) == 0 {
-		return errors.New("ACTFB_AD_RUNNER_IMAGES must list at least one pinned sha256 image digest")
+		return errors.New("attack_defense.runner_images (legacy ACTFB_AD_RUNNER_IMAGES) must list at least one pinned sha256 image digest")
 	}
-	concurrency := envInt("ACTFB_AD_WORKER_CONCURRENCY", 1)
+	concurrency := cfg.AttackDefense.WorkerConcurrency
 	if concurrency < 1 {
 		concurrency = 1
 	}
@@ -105,20 +104,20 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 
 	checker, err := attackdefense.NewDockerChecker(attackdefense.CheckerConfig{
-		DockerBinary:   envString("ACTFB_AD_DOCKER_BIN", "docker"),
+		DockerBinary:   cfg.AttackDefense.DockerBinary,
 		ImageAllowlist: allowlist,
-		CPUs:           envString("ACTFB_AD_CHECKER_CPUS", "1"),
-		Memory:         envString("ACTFB_AD_CHECKER_MEMORY", "512m"),
-		PIDs:           envInt("ACTFB_AD_CHECKER_PIDS", 128),
-		TmpfsSize:      envString("ACTFB_AD_CHECKER_TMPFS", "64m"),
+		CPUs:           cfg.AttackDefense.CheckerCPUs,
+		Memory:         cfg.AttackDefense.CheckerMemory,
+		PIDs:           cfg.AttackDefense.CheckerPIDs,
+		TmpfsSize:      cfg.AttackDefense.CheckerTmpfs,
 	})
 	if err != nil {
 		return err
 	}
 	fetcher := attackdefense.NewGitFetcher(attackdefense.GitFetcherConfig{
-		GitBinary:             envString("ACTFB_AD_GIT_BIN", "git"),
+		GitBinary:             cfg.AttackDefense.GitBinary,
 		AllowInsecureLoopback: allowLoopback,
-		Timeout:               envDuration("ACTFB_AD_GIT_TIMEOUT", 2*time.Minute),
+		Timeout:               cfg.AttackDefense.GitTimeout,
 	})
 	service, err := attackdefense.NewService(db, nil, sealer,
 		attackdefense.WithGitProviderFactory(&attackdefense.GitProviderFactory{AllowInsecureLoopback: allowLoopback}),
@@ -179,7 +178,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer consumer.Stop()
 
-	interval := envDuration("ACTFB_AD_RECONCILE_INTERVAL", 30*time.Second)
+	interval := cfg.AttackDefense.ReconcileInterval
 	reconcile := func() {
 		reconcileCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancel()
@@ -198,63 +197,4 @@ func run(ctx context.Context, logger *slog.Logger) error {
 			reconcile()
 		}
 	}
-}
-
-func envString(key, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-		return value
-	}
-	return fallback
-}
-
-func envInt(key string, fallback int) int {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return fallback
-	}
-	value, err := strconv.Atoi(raw)
-	if err != nil {
-		return fallback
-	}
-	return value
-}
-
-func envBool(key string, fallback bool) bool {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return fallback
-	}
-	value, err := strconv.ParseBool(raw)
-	if err != nil {
-		return fallback
-	}
-	return value
-}
-
-func envList(key string) []string {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return nil
-	}
-	parts := strings.Split(raw, ",")
-	values := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			values = append(values, part)
-		}
-	}
-	return values
-}
-
-func envDuration(key string, fallback time.Duration) time.Duration {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return fallback
-	}
-	value, err := time.ParseDuration(raw)
-	if err != nil {
-		return fallback
-	}
-	return value
 }
