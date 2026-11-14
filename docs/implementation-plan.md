@@ -663,7 +663,9 @@ earlier RustFS full-stack evidence.
 
 ## Packaging and GHCR slice (2026-11-14)
 
-Status: **implemented and locally verified; remote publication pending**.
+Status: **implemented, locally verified, and published to public GHCR packages from commit `3ef4d5b`**.
+Actions run `43579292257` passed all four jobs; backend and frontend `latest` plus immutable `sha-*` tags
+resolve to the same digests and pull anonymously.
 Scope: root README, production Dockerfiles/runtime contracts, production Compose, four-job Actions pipeline, and
 GHCR publication. No product-domain behavior was changed.
 
