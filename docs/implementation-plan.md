@@ -660,3 +660,18 @@ See `docs/p0-runbook.md` for concise migration/dev sequences, `docs/p0-auth-hard
 expanded evidence, `docs/p0-auth-hardening-plan.md` for contracts/status,
 `docs/p0-review.md` for the prior P0 acceptance disposition, and `docs/rustfs-fullstack-verification.md` for the
 earlier RustFS full-stack evidence.
+
+## Packaging and GHCR slice (2026-11-14)
+
+Status: **implemented and locally verified; remote publication pending**.
+Scope: root README, production Dockerfiles/runtime contracts, production Compose, four-job Actions pipeline, and
+GHCR publication. No product-domain behavior was changed.
+
+- `README.md` is the public entry point; `docs/production.md` owns the prebuilt-image runtime contract and
+  rollback/TLS/email/plugin limitations.
+- `Dockerfile` builds the shared backend/worker image; `frontend/Dockerfile` and `frontend/nginx.conf` build and
+  serve the SPA with `/healthz` and `/api/` proxy.
+- `config.prod.yml` is secret-free; `.env.prod.example` and `docker-compose.prod.yaml` select prebuilt GHCR images.
+- `.github/workflows/go.yml` has the approved four jobs: `backend` and `frontend` quality, serial `integration`
+  with the existing critical coverage plus container smoke, and main/manual-main-only `publish`.
+- `docs/ghcr-verification.md` holds measured image digests, sizes, and public-pull evidence after publication.
