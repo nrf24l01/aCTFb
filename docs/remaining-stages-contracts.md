@@ -9,8 +9,8 @@ OPEN/CLOSED/TASKS/FLAG/TEXT/AUTOMATIC, 16 accepted answers. `docs/swagger.yaml` 
 implemented operations, and the operations listed below as remaining at freeze are implemented in the current
 tree (`docs/implementation-plan.md`).
 
-Authority: `aCTFb_CODEX_TASK_v4.md`, `aCTFb_DEPLOYMENT_TZ_v3.md`, `aCTFb_PLUGIN_SYSTEM_TZ.md`, the current
-repository and Swagger. Existing names (`Board`, `Module`, `Task`, `Submission`, `Instance`, `Audience`,
+Authority: `aCTFb_CODEX_TASK_v4.md`, `docs/deployment-templates.md`, `docs/runtime-instances.md`,
+`docs/plugin-system.md`, `docs/plugin-developer-guide.md`, the current repository and Swagger. Existing names (`Board`, `Module`, `Task`, `Submission`, `Instance`, `Audience`,
 `AccessGroup`, `Team`, `Integration`) are preserved; no `/api/v3`, no parallel envelope, no hand-edited generated
 model. Main approved the architecture choices below; they are not open questions.
 

@@ -4,12 +4,23 @@ You are working in the **aCTFb** repository, not Proxier.
 
 ## Mandatory specifications
 
-Read these three files before editing the project:
-1. `aCTFb_CODEX_TASK_v4.md` — main specification and development priorities.
-2. `aCTFb_DEPLOYMENT_TZ_v3.md` — deployment template and VM/container runtime contracts.
-3. `aCTFb_PLUGIN_SYSTEM_TZ.md` — installable, CTFd-style addon system.
+Read these current sources before editing the project:
+1. `aCTFb_CODEX_TASK_v4.md` — product scope, priorities, and delivery gates.
+2. `docs/swagger.yaml` — canonical `/api/v2` HTTP contract; `docs/p1-core-contracts.md` and
+   `docs/access-authorization.md` — current Board/Module/Task domain and scoped RBAC.
+3. `docs/architecture.puml` — infrastructure and trust-boundary diagram.
+4. `docs/deployment-templates.md` and `docs/runtime-instances.md` — DeploymentTemplate, VM/CONTAINER
+   `kind` vs driver, immutable versions, preview/plan, runtime lifecycle, driver capabilities, and RBAC.
+5. `docs/plugin-system.md` and `docs/plugin-developer-guide.md` — installable CTFd-style addons, Plugin API
+   v1, process isolation, permissions/grants, and frontend iframe contract.
+6. `docs/production.md` and `deploy/README.md` — GHCR-only operator bundle, config mount, TLS, profiles,
+   admin bootstrap, and rollback.
 
-They complement one another. For deployment, use the deployment specification; for addons, the plugin specification; for general behavior, the main one. If documents conflict or diverge from the working code, identify this explicitly and propose a compatible migration; don't silently override working APIs.
+These documents complement one another and preserve the invariants of the removed historical root TZ snapshots
+(`aCTFb_DEPLOYMENT_TZ_v3.md`, `aCTFb_PLUGIN_SYSTEM_TZ.md`): kind ≠ driver, immutable template versions, no
+fake provider success, process-isolated addons without core rebuilds, explicit permissions, and no unsafe
+provider options. If documents conflict or diverge from the working code, identify this explicitly and propose
+a compatible migration; don't silently override working APIs.
 
 ## Source of truth
 

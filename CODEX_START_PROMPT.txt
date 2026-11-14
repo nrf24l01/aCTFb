@@ -1,4 +1,4 @@
-Прочитай AGENTS.md, aCTFb_CODEX_TASK_v4.md, aCTFb_DEPLOYMENT_TZ_v3.md и aCTFb_PLUGIN_SYSTEM_TZ.md.
+Прочитай AGENTS.md, aCTFb_CODEX_TASK_v4.md, docs/deployment-templates.md, docs/runtime-instances.md, docs/plugin-system.md и docs/plugin-developer-guide.md.
 
 Ты — главный агент-разработчик проекта aCTFb. Это существующий Go-проект: не создавай новый проект и не переписывай уже работающие компоненты без необходимости.
 

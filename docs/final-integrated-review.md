@@ -301,7 +301,8 @@ unrelated group leader, asserting no signal is delivered.
 - `internal/plugins/manifest.go:162-174`, `internal/plugins/manager_install.go:193-207` (accept +
   persist approval)
 - `frontend/src/features/plugins/components/PluginFrame.vue:45-56` (only iframe is rendered)
-- `aCTFb_PLUGIN_SYSTEM_TZ.md` §6 requires a `trusted-js` ESM mode mounted into a Vue slot with
+- The removed historical plugin TZ §6 (retained in `docs/plugin-system.md` §9) requires a `trusted-js` ESM
+  mode mounted into a Vue slot with
   pinned assets and explicit approval.
 
 **Exploit / consequence**

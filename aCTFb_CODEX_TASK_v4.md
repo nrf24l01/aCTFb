@@ -33,7 +33,7 @@
 - Наиболее полезные экранные референсы для композиции: `RP-Dashboard-ok`, `RP-Sign-in`, `RP-Servers`, `RP-Server-overview`, `RP-Job`, `RP-Activity`, `RP-Phone-server` — читать как примеры *внешнего вида*, не логики.
 - Дополнительная ссылка автора: `https://raw.githubusercontent.com/nrf24l01/proxier/refs/heads/feat/server-addresses/docs/ui/design/README.md`. Если файлов из архива и этой ветки отличаются, записать расхождение, не смешивать бездумно.
 
-**Никакой предметной бизнес-функциональности Proxier переносить нельзя:** proxy, VPN, subscriptions, роутеры, серверные стеки, скрипты, адреса, Cloudflare, Telegram и их API не относятся к aCTFb. Исключение: отдельно заимствовать паттерн **manifest + files / draft / validate / preview / publish / plan / deploy**, см. обязательное дополнение `aCTFb_DEPLOYMENT_TZ_v3.md`. Не переносить SSH bootstrap и Docker Compose как универсальный runtime. Не переносить архитектуру Proxier: aCTFb остаётся на Go/Echo/Postgres/NATS/Redis/S3. Внешний вид переосмыслить под учащихся и администраторов aCTFb.
+**Никакой предметной бизнес-функциональности Proxier переносить нельзя:** proxy, VPN, subscriptions, роутеры, серверные стеки, скрипты, адреса, Cloudflare, Telegram и их API не относятся к aCTFb. Исключение: отдельно заимствовать паттерн **manifest + files / draft / validate / preview / publish / plan / deploy**, см. обязательное дополнение `docs/deployment-templates.md` и `docs/runtime-instances.md`. Не переносить SSH bootstrap и Docker Compose как универсальный runtime. Не переносить архитектуру Proxier: aCTFb остаётся на Go/Echo/Postgres/NATS/Redis/S3. Внешний вид переосмыслить под учащихся и администраторов aCTFb.
 
 ## 2. Проверенное состояние архива aCTFb и технический долг P0
 
@@ -96,7 +96,7 @@
 
 ### 3.3. PENTEST: лаборатория по запросу
 
-По **исходному** Swagger `PentestConfig` связан с `proxmoxIntegrationUuid`, `nodes` типа **VM**, политикой reset, лимитом resets и `submission`. **Требование изменено:** расширить контракт согласно `aCTFb_DEPLOYMENT_TZ_v3.md`: логический VM не зависит от Proxmox и может исполняться через KubeVirt; CONTAINER может исполняться через Docker/Podman/Kubernetes. В дальнейшем Pentest может содержать VM и CONTAINER, если их безопасная совместная сеть реализована. Независимый TTL Pentest не добавлять: срок стенда задаётся эффективным окончанием модуля/Board.
+По **исходному** Swagger `PentestConfig` связан с `proxmoxIntegrationUuid`, `nodes` типа **VM**, политикой reset, лимитом resets и `submission`. **Требование изменено:** расширить контракт согласно `docs/deployment-templates.md` и `docs/runtime-instances.md`: логический VM не зависит от Proxmox и может исполняться через KubeVirt; CONTAINER может исполняться через Docker/Podman/Kubernetes. В дальнейшем Pentest может содержать VM и CONTAINER, если их безопасная совместная сеть реализована. Независимый TTL Pentest не добавлять: срок стенда задаётся эффективным окончанием модуля/Board.
 
 - Учащийся на странице модуля нажимает **Запустить лабораторию** → backend проверяет доступ → асинхронный worker создаёт изолированные ВМ → UI показывает состояние, доступные endpoint'ы, ошибки и прогресс.
 - Реализовать reset/destroy/cleanup только для разрешённых действий и в соответствии с **обновлённым** OpenAPI. Сбой Proxmox не должен оставлять бесхозные ВМ; статус и ресурсы согласуются идемпотентно.
@@ -110,7 +110,7 @@
 - Redis: кеш, ускорение рейтинга, rate limits по мере необходимости; не заменять им учёт начислений.
 - NATS JetStream + protobuf: длительные задачи (письма, создание среды, запуск проверки), retry, durable consumers, Ack/Nak/Term, предсказуемая обработка повторов. Сохранять текущий EMAIL_TASKS worker.
 - S3-compatible: приватные объекты, presigned upload/download **только в контексте авторизованного ресурса**. Не создавать generic upload API и не проксировать файлы через backend — это явно зафиксировано в Swagger.
-- Integrations: Git и универсальные VM/CONTAINER targets (`driver=proxmox|kubevirt|docker|podman|kubernetes`); Swagger необходимо явно расширить. Секреты не в логах и не в клиентских ответах. Использовать `aCTFb_DEPLOYMENT_TZ_v3.md` как источник требований к развёртыванию.
+- Integrations: Git и универсальные VM/CONTAINER targets (`driver=proxmox|kubevirt|docker|podman|kubernetes`); Swagger необходимо явно расширить. Секреты не в логах и не в клиентских ответах. Использовать `docs/deployment-templates.md` и `docs/runtime-instances.md` как источник требований к развёртыванию.
 - Инстансы TASKS и Pentest: логические виды ресурса `CONTAINER` / `VM`, взаимозаменяемые драйверы. Общий декларативный шаблон `manifest.yaml + files`, immutable versions, preview/diff и idempotent worker. В качестве первого рабочего среза реализовать Docker/CONTAINER и Proxmox/VM; текущие Proxmox-specific ограничения в Swagger — предмет явной миграции, а не вечные требования.
 - Workers: отдельные процессы/entrypoints внутри этого же монорепозитория; **не дробить всё на микросервисы без необходимости**. HTTP-backend не выполняет недоверенный код и не управляет Docker socket от имени ученика.
 - UI: отдельный frontend внутри репозитория, **Vue 3 + TypeScript + Vite** (рекомендуемый стек для отсутствующего frontend); допустим Tailwind, если не мешает точному воспроизведению дизайн-токенов. Не переводить backend на другой язык ради дизайна.
@@ -134,7 +134,7 @@ Go Echo backend ───────────► PostgreSQL
 
 ## 4A. Обязательная подсистема развёртывания
 
-**Прочитай отдельный документ [`aCTFb_DEPLOYMENT_TZ_v3.md`](aCTFb_DEPLOYMENT_TZ_v3.md).** Он является нормативным продолжением этого ТЗ для DeploymentTemplate, VM/CONTAINER, драйверов Proxmox/KubeVirt/Docker/Podman/Kubernetes, расширения Swagger, манифеста, интеграций, версионирования, preview/plan, rollout и idempotent worker. Когда прежние формулировки о Proxmox-only Pentest, `templateVmid` или Docker-only runtimes противоречат этому дополнению, приоритет у дополнения.
+**Прочитай [`docs/deployment-templates.md`](docs/deployment-templates.md) и [`docs/runtime-instances.md`](docs/runtime-instances.md).** Это текущие нормативные документы для DeploymentTemplate, VM/CONTAINER, драйверов Proxmox/KubeVirt/Docker/Podman/Kubernetes, расширения Swagger, манифеста, интеграций, версионирования, preview/plan, rollout и idempotent worker. Они сохраняют инварианты удалённого TZ-снимка: kind ≠ driver, immutable versions, dry-run без инфраструктуры, capability errors вместо silent fallback и запрет небезопасных provider options. При конфликте старых формулировок о Proxmox-only Pentest, `templateVmid` или Docker-only runtimes с этими документами приоритет у документов.
 
 ## 4B. Разграничение прав: RBAC со scope + контекстные политики (обязательное расширение API)
 
@@ -214,7 +214,7 @@ team.manage_own
 
 ## 4C. Настоящая система плагинов — CTFd-style addons (обязательное требование)
 
-> **Исправление предыдущей трактовки:** речь идёт об устанавливаемых **сторонних аддонах**, как в CTFd, а не о compile-time Go-модулях. Полный и нормативный контракт: **`aCTFb_PLUGIN_SYSTEM_TZ.md`**. Следующие пункты — обязательное краткое изложение; при конфликте требований по плагинам руководствоваться отдельным документом.
+> **Исправление предыдущей трактовки:** речь идёт об устанавливаемых **сторонних аддонах**, как в CTFd, а не о compile-time Go-модулях. Полный и нормативный контракт: **`docs/plugin-system.md` и `docs/plugin-developer-guide.md`**. Следующие пункты — обязательное краткое изложение; при конфликте требований по плагинам руководствоваться отдельным документом.
 
 1. **Addon != Board Module.** Board Module — сущность для TASKS/PENTEST/ATTACK_DEFENSE. Addon — пакет кода, который устанавливают отдельно от aCTFb; он может добавить свою страницу, backend API, настройки, события, checker, runtime driver или новый тип Board Module. Возможен addon, никак не связанный с Board (например, достижения, сертификаты, вебхуки).
 2. **Без пересборки ядра и frontend.** Установка уже собранного плагина через `plugins/<id>/manifest.yaml` плюс OCI image/исполняемый процесс и, при необходимости, готовые frontend assets. Плагин не обязан находиться в основном Go-монорепозитории. Для MVP допустим restart/reload plugin manager после установки. Запрещено считать выполнением требования добавление Go source packages, import в `main.go` и новую сборку бинарника.
@@ -227,7 +227,7 @@ team.manage_own
 
 **Не путать с разделом 4B:** RBAC — часть ядра; плагины могут лишь объявлять собственные namespaced permissions и пользоваться серверной авторизацией. Не путать с Deployment RuntimeDriverRegistry: драйвер — capability, которое может предоставлять установленный addon, но не целая система плагинов.
 
-**Обязательные артефакты:** `aCTFb_PLUGIN_SYSTEM_TZ.md`, plugin developer guide, стабильный `Plugin API v1`, admin UI «Plugins», два внешних examples, интеграционный тест установки после сборки.
+**Обязательные артефакты:** `docs/plugin-system.md`, `docs/plugin-developer-guide.md`, стабильный `Plugin API v1`, admin UI «Plugins», два внешних examples, интеграционный тест установки после сборки.
 
 ## 5. Frontend: адаптация **реального** дизайна Proxier
 
@@ -298,7 +298,7 @@ team.manage_own
 ### P2 — S3, универсальные deployment templates и контейнерный MVP
 
 - Scoped presigned file endpoints из Swagger, ownership и срок действия ссылок, без общего `/upload`.
-- Сначала дополнение `aCTFb_DEPLOYMENT_TZ_v3.md`: модели DeploymentTemplate/TemplateVersion/Binding, проверка и версия manifest + files, capability validation, dry-run/preview, runtime registry. Затем асинхронный instance worker с Docker/CONTAINER (Docker API только в доверенном worker на выделенном узле), лимиты и network isolation.
+- Сначала дополнение `docs/deployment-templates.md` и `docs/runtime-instances.md`: модели DeploymentTemplate/TemplateVersion/Binding, проверка и версия manifest + files, capability validation, dry-run/preview, runtime registry. Затем асинхронный instance worker с Docker/CONTAINER (Docker API только в доверенном worker на выделенном узле), лимиты и network isolation.
 - Статусы lifecycle по **реальному enum `InstanceStatus`** (`PROVISIONING`, `RUNNING`, `RESETTING`, `DESTROYING`, `ERROR`, `EXPIRED`), контроль TTL, идемпотентность, cleanup и reconciliation после рестартов.
 - Рабочий UI статусов/адресов, кнопок start/reset/stop только по допустимым операциям.
 
@@ -392,4 +392,4 @@ developer_instructions = """
 
 ### Стартовая команда координатору
 
-> Прочитай `aCTFb_CODEX_TASK_REVIEWED.md`, текущий репозиторий aCTFb и локальные файлы design-референса Proxier (если они доступны рядом; если нет — используй предоставленный архив или ссылку и явно укажи доступность). Сначала проверь P0 и сверь OpenAPI. Создай минимальный план, затем сразу реализуй P0. Параллельно делегируй независимый read-only аудит и изучение дизайн-системы субагентам `ali/deepseek-v4.1-flash`. После P0 реализуй первый end-to-end сценарий Board → TASKS → FLAG → Submission → Score и подключи соответствующий фронтенд. Используй Proxier **только** для визуальной системы, не копируй его логику или стек. В каждом отчёте разделяй реализованное, проверенное и незавершённое.
+> Прочитай `aCTFb_CODEX_TASK_v4.md`, текущий репозиторий aCTFb и локальные файлы design-референса Proxier (если они доступны рядом; если нет — используй предоставленный архив или ссылку и явно укажи доступность). Сначала проверь P0 и сверь OpenAPI. Создай минимальный план, затем сразу реализуй P0. Параллельно делегируй независимый read-only аудит и изучение дизайн-системы субагентам `ali/deepseek-v4.1-flash`. После P0 реализуй первый end-to-end сценарий Board → TASKS → FLAG → Submission → Score и подключи соответствующий фронтенд. Используй Proxier **только** для визуальной системы, не копируй его логику или стек. В каждом отчёте разделяй реализованное, проверенное и незавершённое.

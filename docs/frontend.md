@@ -16,7 +16,8 @@ Sources of truth used:
 
 - `docs/p1-core-contracts.md` (approved first-slice policy, routes, permissions, JSON shape);
 - `docs/swagger.yaml` (current generated-contract source; another worker owns it);
-- `aCTFb_CODEX_TASK_v4.md`, `aCTFb_DEPLOYMENT_TZ_v3.md`, `aCTFb_PLUGIN_SYSTEM_TZ.md`;
+- `aCTFb_CODEX_TASK_v4.md`, `docs/deployment-templates.md`, `docs/runtime-instances.md`,
+  `docs/plugin-system.md`, and `docs/plugin-developer-guide.md`;
 - `proxier/docs/ui/design/README.md` and `tokens.css` for visual language only (Rosé Pine dark, flat blocks,
   IBM Plex Mono, state = colour + shape + word). No Proxier domain model or UI code is imported.
 
