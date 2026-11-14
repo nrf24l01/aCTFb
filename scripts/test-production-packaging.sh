@@ -62,7 +62,17 @@ for image in notification retention events-dispatcher file-scanner storage-init 
   require_pattern docs/production.md "actfb-${image}" "production docs name the ${image} image"
 done
 require_pattern docs/production.md 'profiles' 'production docs explain worker profiles'
+require_pattern docs/production.md 'single-role baseline' 'production docs warn the baseline is single-role'
+require_pattern docs/production.md 'RETENTION_POSTGRES_USER' 'production docs expose retention role overrides'
+require_pattern docs/production.md 'events_outbox' 'production docs scope the events dispatcher role'
+require_pattern docs/production.md 'docs/files-scanning\.md' 'production docs link the scanner grant set'
+require_pattern docs/production.md 'do not grant all tables' 'production docs reject blanket grants'
+require_pattern docs/production.md 'Profile flags alone do not enable backend features' 'production docs distinguish profiles from feature enablement'
+require_pattern docs/production.md 'ACTFB_FILE_SCAN_KEY' 'production docs list the files profile key'
+require_pattern docs/production.md 'ACTFB_AD_RUNNER_IMAGES' 'production docs list pinned AD runner images'
+require_pattern docs/production.md 'ACTFB_PLUGIN_RUNNER_URL=http://127\.0\.0\.2:8092' 'production docs list the actual plugin runner URL'
 require_pattern README.md 'APP_ALLOWED_ORIGINS' 'README requires the exact public origin'
+forbid_pattern README.md 'shared image includes `git`' 'README no longer claims a shared worker image'
 
 require_pattern Dockerfile '^# syntax=docker/dockerfile:1' 'backend Dockerfile uses BuildKit syntax'
 require_pattern Dockerfile 'FROM golang:1\.27\.1-alpine@sha256:' 'backend builder pins Go 1.27.1 Alpine digest'
@@ -92,11 +102,36 @@ require_pattern Dockerfile 'HEALTHCHECK' 'backend image declares a healthcheck'
 require_pattern Dockerfile '/ready' 'backend healthcheck uses readiness'
 require_pattern Dockerfile 'CMD \["/app/backend"\]' 'backend default command is the backend binary'
 
-final_backend_stage="$(awk 'BEGIN{IGNORECASE=1} /^FROM /{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' Dockerfile)"
-if grep -Eqi 'COPY \. \.|go build|golang:|node_modules|bun|/src' <<<"$final_backend_stage"; then
-  fail 'backend final stage contains source/build tooling'
+backend_stage="$(awk '
+  BEGIN { IGNORECASE=1; in_stage=0 }
+  /^FROM / {
+    if (in_stage) exit
+    if ($0 ~ /AS[[:space:]]+backend$/) in_stage=1
+  }
+  in_stage { print }
+' Dockerfile)"
+if [[ -z "$backend_stage" ]]; then
+  fail 'backend target stage was not found'
+elif grep -Eqi 'COPY \. \.|go build|golang:|node_modules|bun|/src' <<<"$backend_stage"; then
+  fail 'backend target stage contains source/build tooling'
+elif ! grep -q '/app/backend' <<<"$backend_stage"; then
+  fail 'backend target stage does not copy the backend binary'
+elif grep -Eq '/app/(notification|retention|events-dispatcher|file-scanner|storage-init|plugin-runner|ad-worker|instance-worker)' <<<"$backend_stage"; then
+  fail 'backend target stage copies another worker binary'
 else
-  pass 'backend final stage is source/toolchain free'
+  pass 'backend target stage is source/toolchain free and contains only the backend binary'
+fi
+if grep -Eq '/app/(notification|retention|events-dispatcher|file-scanner|storage-init|plugin-runner|ad-worker|instance-worker)' <<< $'FROM runtime AS backend\nCOPY --from=build /out/notification /app/notification'; then
+  pass 'packaging regression rejects a worker binary in the backend target'
+else
+  fail 'packaging regression failed to detect a worker binary in the backend target'
+fi
+
+target_count="$(grep -c '^FROM runtime AS ' Dockerfile)"
+if [[ "$target_count" == "9" ]]; then
+  pass 'Dockerfile exposes exactly nine runtime targets'
+else
+  fail "Dockerfile runtime target count is $target_count, want 9"
 fi
 
 for target in backend notification retention events-dispatcher file-scanner storage-init plugin-runner ad-worker instance-worker; do
@@ -189,6 +224,13 @@ require_pattern .env.prod.example '^APP_SECURE_COOKIES=true$' 'prod env example 
 require_pattern .env.prod.example '^APP_ALLOWED_ORIGINS=https://[^[:space:]]+:[0-9]+$' 'prod env example requires an exact HTTPS origin including port'
 require_pattern .env.prod.example '^ACTFB_PROXY_SUBNET=10\.213\.77\.0/28$' 'prod env example documents the single proxy subnet value'
 forbid_pattern .env.prod.example '^APP_TRUSTED_PROXIES=' 'prod env example does not expose a second trust value'
+require_pattern .env.prod.example '^ACTFB_FILES_ENABLED=false$' 'prod env example includes the files backend flag'
+require_pattern .env.prod.example '^ACTFB_FILE_SCAN_KEY=$' 'prod env example includes the file scan key'
+require_pattern .env.prod.example '^ACTFB_CREDENTIAL_ENCRYPTION_KEY=$' 'prod env example includes the credential key'
+require_pattern .env.prod.example '^ACTFB_AD_RUNNER_IMAGES=$' 'prod env example includes pinned AD runner images'
+require_pattern .env.prod.example '^ACTFB_PLUGIN_RUNNER_URL=http://127\.0\.0\.2:8092$' 'prod env example documents the actual plugin runner URL'
+require_pattern .env.prod.example 'openssl rand -base64 32' 'prod env example documents key generation'
+require_pattern .env.prod.example 'RETENTION_POSTGRES_USER' 'prod env example documents per-worker role overrides'
 
 require_pattern .dockerignore 'frontend/node_modules' '.dockerignore excludes frontend node_modules'
 require_pattern .dockerignore 'frontend/dist' '.dockerignore excludes built frontend'
@@ -271,6 +313,19 @@ if command -v docker >/dev/null 2>&1; then
     'JWT_REFRESH_SECRET=contract-refresh-secret-0123456789abcdef' \
     'APP_ALLOWED_ORIGINS=https://ctf.example:8443' >"$tmp_env"
   compose_json="$(env -u ACTFB_PROXY_SUBNET docker compose --env-file "$tmp_env" --profile email --profile files --profile plugins --profile ad --profile runtime -f docker-compose.prod.yaml config --format json)"
+  env_template="$(mktemp "${TMPDIR:-/tmp}/actfb-env-template.XXXXXX")"
+  chmod 600 "$env_template"
+  sed \
+    -e 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=contract-only/' \
+    -e 's/^JWT_ACCESS_SECRET=$/JWT_ACCESS_SECRET=contract-access-secret-0123456789abcdef/' \
+    -e 's/^JWT_REFRESH_SECRET=$/JWT_REFRESH_SECRET=contract-refresh-secret-0123456789abcdef/' \
+    .env.prod.example >"$env_template"
+  if docker compose --env-file "$env_template" --profile email --profile files --profile plugins --profile ad --profile runtime -f docker-compose.prod.yaml config --quiet >/dev/null 2>&1; then
+    pass 'the shipped production env template is valid after required secret substitution'
+  else
+    fail 'the shipped production env template is not valid after secret substitution'
+  fi
+  rm -f "$env_template"
   if jq -e '.networks["actfb-proxy"].ipam.config[0].subnet == "10.213.77.0/28"
     and .services.backend.environment.APP_TRUSTED_PROXIES == "10.213.77.0/28"
     and (.services.backend.networks | keys | sort) == ["actfb-net","actfb-proxy"]
@@ -318,7 +373,23 @@ if command -v docker >/dev/null 2>&1; then
   else
     pass 'Compose requires APP_ALLOWED_ORIGINS'
   fi
-  rm -f "$tmp_env" "$tmp_env_missing"
+  tmp_env_roles="$(mktemp "${TMPDIR:-/tmp}/actfb-compose-env-roles.XXXXXX")"
+  chmod 600 "$tmp_env_roles"
+  cp "$tmp_env" "$tmp_env_roles"
+  printf '%s
+'     'RETENTION_POSTGRES_USER=retention_role'     'EVENTS_POSTGRES_USER=events_role'     'SCANNER_POSTGRES_USER=scanner_role'     'AD_POSTGRES_USER=ad_role'     'RUNTIME_POSTGRES_USER=runtime_role' >>"$tmp_env_roles"
+  roles_json="$(docker compose --env-file "$tmp_env_roles" --profile email --profile files --profile plugins --profile ad --profile runtime -f docker-compose.prod.yaml config --format json)"
+  if jq -e '.services["retention"].environment.POSTGRES_USER == "retention_role"
+    and .services["events-dispatcher"].environment.POSTGRES_USER == "events_role"
+    and .services["file-scanner"].environment.POSTGRES_USER == "scanner_role"
+    and .services["ad-worker"].environment.POSTGRES_USER == "ad_role"
+    and .services["instance-worker"].environment.POSTGRES_USER == "runtime_role"
+    and .services.backend.environment.POSTGRES_USER == "actfb"' >/dev/null <<<"$roles_json"; then
+    pass 'Compose supports per-worker PostgreSQL role overrides'
+  else
+    fail 'Compose per-worker PostgreSQL role overrides do not apply'
+  fi
+  rm -f "$tmp_env" "$tmp_env_missing" "$tmp_env_roles"
 else
   fail 'Docker Compose is required for the production contract check'
 fi
