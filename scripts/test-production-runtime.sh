@@ -80,11 +80,16 @@ docker run -d --name "$PG" --network "$NETWORK" \
   -v "$VOLUME:/var/lib/postgresql" \
   postgres:18-alpine >/dev/null
 
-for _ in $(seq 1 60); do
-  if docker exec "$PG" pg_isready -U actfb_smoke -d actfb_smoke >/dev/null 2>&1; then break; fi
+for _ in $(seq 1 120); do
+  if docker exec "$PG" psql -U actfb_smoke -d actfb_smoke -tAc 'select 1' >/dev/null 2>&1; then
+    # PostgreSQL 18 initializes, restarts, then creates the database. Require a
+    # stable query after that restart before starting the backend.
+    sleep 2
+    if docker exec "$PG" psql -U actfb_smoke -d actfb_smoke -tAc 'select 1' >/dev/null 2>&1; then break; fi
+  fi
   sleep 1
 done
-docker exec "$PG" pg_isready -U actfb_smoke -d actfb_smoke >/dev/null
+docker exec "$PG" psql -U actfb_smoke -d actfb_smoke -tAc 'select 1' >/dev/null
 
 docker run -d --name "$BACKEND" --network "$NETWORK" --network-alias backend \
   -p "127.0.0.1:${BACKEND_PORT}:8080" \
