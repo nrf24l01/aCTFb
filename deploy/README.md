@@ -136,11 +136,11 @@ admin API/UI. This is an explicit operator action, not a login credential genera
 all images, for example:
 
 ```bash
-sed -i 's/^ACTFB_IMAGE_TAG=.*/ACTFB_IMAGE_TAG=sha-21912820d814d87abde92c4f47333c7a1534a5e5/' .env
+sed -i 's/^ACTFB_IMAGE_TAG=.*/ACTFB_IMAGE_TAG=sha-07c55451c3d930897c26dbd5baa8c43afa87fe89/' .env
 ```
 
-The documented ten-image publication at `2191282` is compatible with this bundle; the Compose contract itself
-did not change after that publication. `latest` is simpler but moves.
+The documented ten-image publication at `07c5545` matches this bundle; the Compose contract itself did not
+change after that publication. `latest` is simpler but moves.
 
 ```bash
 docker compose --env-file .env ps

@@ -1,12 +1,19 @@
 # GHCR publication verification
 
-Status: **published and verified from `main` at commit `2191282`**. Ten separate images are publicly pullable
-without registry credentials. This file records measured results only.
+Status: **published and verified from `main` at commit `07c5545`** (the `deploy/` operator-bundle change).
+Ten separate images are publicly pullable without registry credentials. The measured size/digest table below is
+the previous full `2191282` measurement; the `07c5545` publish re-ran all ten images and was verified through
+anonymous manifest checks plus a cleanroom `pull`/`up -d --wait`/health/readiness/config-bind smoke.
+
+Current publication: run https://github.com/nrf24l01/aCTFb/actions/runs/43613130199, image source commit
+`07c55451c3d930897c26dbd5baa8c43afa87fe89`, immutable tag
+`sha-07c55451c3d930897c26dbd5baa8c43afa87fe89`. The binaries are unchanged; the backend image now copies
+`deploy/config.yml` instead of the removed root `config.prod.yml`.
 
 Historical note: the earlier `3ef4d5b` and `fea429a` publications used a shared backend/worker image.
 `f133e3b` was the first one-process-per-container publication. `d7694b2` enforced the docs/config/tests contract.
-`2191282` is the current final publication; it keeps the same image contents/sizes but updates docs, tests, and
-the bake-file newline, producing new labels/digests.
+`2191282` kept the same image contents/sizes as its predecessor while updating docs, tests, and the bake-file
+newline, producing new labels/digests.
 
 ## Publication
 

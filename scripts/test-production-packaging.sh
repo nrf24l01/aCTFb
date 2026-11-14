@@ -228,7 +228,7 @@ forbid_pattern deploy/compose.yaml '\.env\.prod|docker-compose\.prod|config\.pro
 forbid_pattern deploy/compose.yaml 'APP_PORT' 'prod compose uses HOST_PORT only for the host port'
 require_pattern deploy/.env.example '^HOST_PORT=8080$' 'prod env example uses HOST_PORT for the loopback publish'
 require_pattern deploy/.env.example '^ACTFB_IMAGE_TAG=latest$' 'prod env example defaults to the simple moving tag'
-require_pattern deploy/.env.example 'sha-21912820d814d87abde92c4f47333c7a1534a5e5' 'prod env example documents the verified immutable pin'
+require_pattern deploy/.env.example 'sha-07c55451c3d930897c26dbd5baa8c43afa87fe89' 'prod env example documents the verified immutable pin'
 require_pattern deploy/README.md 'docker compose --env-file \.env up -d --wait' 'deploy README has the wait-based start command'
 require_pattern deploy/README.md 'docker compose --env-file \.env exec -T backend curl -fsS http://127\.0\.0\.1:8080/ready' 'deploy README checks readiness through the backend container'
 forbid_pattern deploy/realip.conf '^[[:space:]]*set_real_ip_from[[:space:]]' 'deploy real-IP trust is empty by default'

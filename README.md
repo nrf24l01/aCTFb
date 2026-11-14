@@ -65,7 +65,7 @@ automatic admin seed or bootstrap-admin environment variable.
 
 The default baseline starts `backend`, `frontend`, `postgres`, `redis`, `nats`, `retention`, and
 `events-dispatcher`. Optional profiles select the notification/file/plugin/AD/runtime worker images. For a
-reproducible deployment or rollback, pin `ACTFB_IMAGE_TAG=sha-21912820d814d87abde92c4f47333c7a1534a5e5` (or
+reproducible deployment or rollback, pin `ACTFB_IMAGE_TAG=sha-07c55451c3d930897c26dbd5baa8c43afa87fe89` (or
 another documented full SHA) in `deploy/.env` instead of `latest`.
 
 The default baseline does not start SMTP delivery. Email verification and password-reset email remain

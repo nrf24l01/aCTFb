@@ -1,6 +1,6 @@
 # Production deployment and GHCR images
 
-Status: packaging contract implemented and published to GHCR from `main` at `2191282` on 2026-11-14.
+Status: packaging contract implemented and published to GHCR from `main` at `07c5545` on 2026-11-14.
 The canonical operator bundle is `deploy/` (see `deploy/README.md`). This document covers the prebuilt-image path
 only. For development use `docker-compose.dev.yaml`; for feature acceptance status use
 `docs/implementation-plan.md`.
