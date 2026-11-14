@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Example Hello</title>
+  <style>
+    :root { color-scheme: light dark; --line: #d4d4d8; --muted: #71717a; --accent: #2563eb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font: 14px/1.5 system-ui, sans-serif; background: transparent; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    h2 { font-size: 15px; margin: 20px 0 8px; }
+    .muted { color: var(--muted); }
+    .panel { border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin: 12px 0; }
+    textarea, input { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; background: transparent; }
+    button { margin-top: 8px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--accent); color: #fff; font: inherit; cursor: pointer; }
+    ul { padding-left: 18px; }
+    .error { color: #b91c1c; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Example Hello</h1>
+  <p class="muted" id="contextLine">Waiting for the aCTFb host context…</p>
+
+  <section id="participant" class="panel" hidden>
+    <h2>Board messages</h2>
+    <ul id="messages"></ul>
+    <textarea id="messageBody" rows="3" maxlength="2000" placeholder="Write a board-local message"></textarea>
+    <button id="sendMessage" type="button">Send</button>
+    <p id="messageStatus" class="muted"></p>
+  </section>
+
+  <section id="admin" class="panel" hidden>
+    <h2>Plugin settings (private schema)</h2>
+    <input id="settingKey" maxlength="64" placeholder="key">
+    <input id="settingValue" maxlength="2000" placeholder="value" style="margin-top:6px">
+    <button id="saveSetting" type="button">Save setting</button>
+    <pre id="settings" class="muted"></pre>
+  </section>
+
+  <p id="error" class="error"></p>
+
+  <script>
+    (() => {
+      "use strict";
+      const params = new URLSearchParams(location.hash.slice(1));
+      const channelNonce = params.get("actfbChannel") || "";
+      const pluginId = params.get("pluginId") || "example.hello";
+      const pending = new Map();
+      let context = { boardUuid: "", moduleUuid: null, taskUuid: null, pagePath: "" };
+
+      const newRequestId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2));
+
+      const post = (type, payload, requestId) => {
+        if (!channelNonce) return;
+        window.parent.postMessage({
+          protocol: "1",
+          pluginId,
+          channelNonce,
+          requestId: requestId || newRequestId(),
+          type,
+          payload: payload || {}
+        }, "*");
+      };
+
+      const api = (method, path, body) => new Promise((resolve, reject) => {
+        const requestId = newRequestId();
+        pending.set(requestId, { resolve, reject });
+        post("actfb.plugin.api", { method, path, body: body === undefined ? null : body }, requestId);
+        setTimeout(() => {
+          if (pending.has(requestId)) {
+            pending.delete(requestId);
+            reject(new Error("host request timed out"));
+          }
+        }, 8000);
+      });
+
+      const setError = (message) => {
+        document.getElementById("error").textContent = message || "";
+      };
+
+      const render = () => {
+        const board = context.boardUuid;
+        document.getElementById("contextLine").textContent = board
+          ? "Board " + board + (context.moduleUuid ? " · module " + context.moduleUuid : "")
+          : "No board context";
+        const admin = (context.pagePath || "").includes("/admin");
+        document.getElementById("participant").hidden = admin || !board;
+        document.getElementById("admin").hidden = !admin || !board;
+        if (board && !admin) loadMessages();
+        if (board && admin) loadSettings();
+      };
+
+      const loadMessages = async () => {
+        try {
+          const result = await api("GET", "/boards/" + context.boardUuid + "/hello");
+          const list = document.getElementById("messages");
+          list.textContent = "";
+          const messages = (result && result.messages) || [];
+          if (!messages.length) {
+            const item = document.createElement("li");
+            item.className = "muted";
+            item.textContent = "No messages yet.";
+            list.appendChild(item);
+            return;
+          }
+          for (const message of messages) {
+            const item = document.createElement("li");
+            item.textContent = message.body + " — " + (message.authorUuid || "unknown");
+            list.appendChild(item);
+          }
+        } catch (error) { setError(error.message); }
+      };
+
+      const loadSettings = async () => {
+        try {
+          const result = await api("GET", "/boards/" + context.boardUuid + "/hello/admin");
+          document.getElementById("settings").textContent = JSON.stringify((result && result.settings) || {}, null, 2);
+        } catch (error) { setError(error.message); }
+      };
+
+      let parentOrigin = null;
+      window.addEventListener("message", (event) => {
+        if (event.source !== window.parent) return;
+        const data = event.data;
+        if (!data || data.protocol !== "1" || data.pluginId !== pluginId || data.channelNonce !== channelNonce) return;
+        if (typeof data.requestId !== "string" || data.requestId.length > 128) return;
+        // The platform origin is explicit after the authenticated context
+        // message. Never accept the opaque "null" origin for parent traffic.
+        if (parentOrigin === null) {
+          if (data.type !== "actfb.plugin.context") return;
+          if (typeof event.origin !== "string" || !/^https?:\/\//.test(event.origin)) return;
+          parentOrigin = event.origin;
+        }
+        if (event.origin !== parentOrigin) return;
+        if (data.type === "actfb.plugin.context") {
+          context = Object.assign(context, data.payload || {});
+          render();
+          return;
+        }
+        if (data.type === "actfb.plugin.result") {
+          const waiter = pending.get(data.requestId);
+          if (!waiter) return;
+          pending.delete(data.requestId);
+          if (data.payload && data.payload.errorCode) {
+            waiter.reject(new Error(data.payload.errorCode));
+          } else {
+            waiter.resolve(data.payload ? data.payload.body : null);
+          }
+        }
+      });
+
+      document.getElementById("sendMessage").addEventListener("click", async () => {
+        const body = document.getElementById("messageBody").value.trim();
+        if (!body) return;
+        try {
+          await api("POST", "/boards/" + context.boardUuid + "/hello/messages", { body });
+          document.getElementById("messageBody").value = "";
+          document.getElementById("messageStatus").textContent = "Saved.";
+          loadMessages();
+        } catch (error) { setError(error.message); }
+      });
+
+      document.getElementById("saveSetting").addEventListener("click", async () => {
+        const key = document.getElementById("settingKey").value.trim();
+        const value = document.getElementById("settingValue").value;
+        if (!key) return;
+        try {
+          await api("POST", "/boards/" + context.boardUuid + "/hello/admin/settings", { key, value });
+          loadSettings();
+        } catch (error) { setError(error.message); }
+      });
+
+      post("actfb.plugin.ready", { page: location.pathname });
+    })();
+  </script>
+</body>
+</html>

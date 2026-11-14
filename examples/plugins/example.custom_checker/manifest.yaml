@@ -1,0 +1,30 @@
+id: example.custom_checker
+name: Example Custom Checker
+version: 1.0.0
+apiVersion: "1"
+description: Separately built text-only plugin checker for EXTENSION tasks. It never executes student code.
+author: aCTFb examples
+backend:
+  mode: exec
+  entrypoint: bin/plugin
+  protocol: http-v1
+  healthPath: /v1/health
+  timeoutSeconds: 5
+permissions:
+  - id: plugin.example.custom_checker.check
+    scope: board
+capabilities:
+  - core.boards.read
+routes:
+  - method: POST
+    path: /boards/:boardUuid/check
+    permission: plugin.example.custom_checker.check
+    scope: board
+checkers:
+  - key: plugin.example.custom_checker.text
+    extensionKey: plugin.example.custom_checker.extension
+    route: /boards/:boardUuid/check
+    permission: plugin.example.custom_checker.check
+    scope: board
+    timeoutSeconds: 1
+    maxTextBytes: 1000000

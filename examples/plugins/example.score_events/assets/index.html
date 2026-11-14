@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Score Events</title>
+  <style>
+    :root { color-scheme: light dark; --line: #d4d4d8; --muted: #71717a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font: 14px/1.5 system-ui, sans-serif; background: transparent; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    h2 { font-size: 15px; margin: 20px 0 8px; }
+    .muted { color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; border: 1px solid var(--line); border-radius: 8px; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); }
+    th { font-weight: 600; }
+    .panel { border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin: 12px 0; }
+    .error { color: #b91c1c; }
+  </style>
+</head>
+<body>
+  <h1>Score Events</h1>
+  <p class="muted" id="contextLine">Waiting for the aCTFb host context…</p>
+  <section class="panel">
+    <h2 id="title">Plugin-owned statistics</h2>
+    <p class="muted">Derived from submission.judged. This plugin cannot mutate core verdicts or scores.</p>
+    <table>
+      <thead><tr><th>Subject</th><th>Judged</th><th>Accepted</th><th>Score</th><th>Last event</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <pre id="admin" class="muted"></pre>
+    <p id="error" class="error"></p>
+  </section>
+  <script>
+    (() => {
+      "use strict";
+      const params = new URLSearchParams(location.hash.slice(1));
+      const channelNonce = params.get("actfbChannel") || "";
+      const pluginId = params.get("pluginId") || "example.score_events";
+      const pending = new Map();
+      let context = { boardUuid: "", moduleUuid: null, pagePath: "" };
+
+      const newRequestId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2));
+      const post = (type, payload, requestId) => {
+        if (!channelNonce) return;
+        window.parent.postMessage({ protocol: "1", pluginId, channelNonce, requestId: requestId || newRequestId(), type, payload: payload || {} }, "*");
+      };
+      const api = (method, path) => new Promise((resolve, reject) => {
+        const requestId = newRequestId();
+        pending.set(requestId, { resolve, reject });
+        post("actfb.plugin.api", { method, path, body: null }, requestId);
+        setTimeout(() => {
+          if (pending.has(requestId)) { pending.delete(requestId); reject(new Error("host request timed out")); }
+        }, 8000);
+      });
+
+      const render = async () => {
+        const admin = (context.pagePath || "").includes("/admin");
+        document.getElementById("title").textContent = admin ? "Event delivery audit" : "Plugin-owned statistics";
+        document.getElementById("contextLine").textContent = context.boardUuid ? "Board " + context.boardUuid : "No board context";
+        if (!context.boardUuid) return;
+        try {
+          const suffix = admin ? "/score-events/admin" : "/score-events";
+          const result = await api("GET", "/boards/" + context.boardUuid + suffix);
+          if (admin) {
+            document.getElementById("admin").textContent = JSON.stringify(result, null, 2);
+            document.getElementById("rows").textContent = "";
+            return;
+          }
+          const rows = document.getElementById("rows");
+          rows.textContent = "";
+          for (const item of (result && result.items) || []) {
+            const tr = document.createElement("tr");
+            for (const value of [item.subjectType + " " + item.subjectUuid, item.judgedCount, item.acceptedCount, item.totalScore, item.lastEventAt]) {
+              const td = document.createElement("td");
+              td.textContent = String(value);
+              tr.appendChild(td);
+            }
+            rows.appendChild(tr);
+          }
+        } catch (error) {
+          document.getElementById("error").textContent = error.message;
+        }
+      };
+
+      let parentOrigin = null;
+      window.addEventListener("message", (event) => {
+        if (event.source !== window.parent) return;
+        const data = event.data;
+        if (!data || data.protocol !== "1" || data.pluginId !== pluginId || data.channelNonce !== channelNonce) return;
+        if (typeof data.requestId !== "string" || data.requestId.length > 128) return;
+        if (parentOrigin === null) {
+          if (data.type !== "actfb.plugin.context") return;
+          if (typeof event.origin !== "string" || !/^https?:\/\//.test(event.origin)) return;
+          parentOrigin = event.origin;
+        }
+        if (event.origin !== parentOrigin) return;
+        if (data.type === "actfb.plugin.context") { context = Object.assign(context, data.payload || {}); render(); return; }
+        if (data.type === "actfb.plugin.result") {
+          const waiter = pending.get(data.requestId);
+          if (!waiter) return;
+          pending.delete(data.requestId);
+          if (data.payload && data.payload.errorCode) waiter.reject(new Error(data.payload.errorCode));
+          else waiter.resolve(data.payload ? data.payload.body : null);
+        }
+      });
+
+      post("actfb.plugin.ready", { page: location.pathname });
+    })();
+  </script>
+</body>
+</html>

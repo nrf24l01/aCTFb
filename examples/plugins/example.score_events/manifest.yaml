@@ -1,0 +1,38 @@
+id: example.score_events
+name: Example Score Events
+version: 1.0.0
+apiVersion: "1"
+description: Consumes submission.judged, dedupes by event UUID and shows plugin-owned statistics.
+author: aCTFb examples
+backend:
+  mode: exec
+  entrypoint: bin/plugin
+  protocol: http-v1
+  healthPath: /v1/health
+  timeoutSeconds: 5
+frontend:
+  mode: iframe
+  entry: index.html
+permissions:
+  - id: plugin.example.score_events.view
+    scope: board
+  - id: plugin.example.score_events.manage
+    scope: board
+capabilities:
+  - core.boards.read
+  - core.events.subscribe
+events:
+  - submission.judged
+routes:
+  - method: GET
+    path: /boards/:boardUuid/score-events
+    permission: plugin.example.score_events.view
+    scope: board
+    ui: true
+  - method: GET
+    path: /boards/:boardUuid/score-events/admin
+    permission: plugin.example.score_events.manage
+    scope: board
+    ui: true
+assets: assets
+migrations: migrations
