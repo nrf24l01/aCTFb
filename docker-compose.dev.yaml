@@ -1,10 +1,213 @@
+x-backend-environment: &backend-environment
+  CONFIG_FILE: /app/config.dev.yml
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: ${POSTGRES_USER:-postgres}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev-password}
+  POSTGRES_DBNAME: ${POSTGRES_DB:-actfb}
+  POSTGRES_SSLMODE: disable
+  POSTGRES_TIMEZONE: UTC
+  POSTGRES_MIGRATIONS_PATH: /app/migrations
+  NATS_HOST: nats
+  NATS_PORT: "4222"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  S3_ENDPOINT: http://rustfs:9000
+  S3_PRESIGN_ENDPOINT: http://localhost:${S3_PORT:-9000}
+  S3_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY:-actfb-dev-access-key}
+  S3_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:-actfb-dev-secret-key}
+  S3_BUCKET: ${S3_BUCKET:-actfb}
+  S3_REGION: us-east-1
+  S3_ADDRESSING_STYLE: path
+  # Signing keys must come from the operator environment; never hardcode them.
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-}
+  # Dev is plain HTTP; production deployments must set this to true.
+  APP_SECURE_COOKIES: ${APP_SECURE_COOKIES:-false}
+  APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:5173}
+  SMTP_ENABLED: "true"
+  SMTP_HOST: mailpit
+  SMTP_PORT: "1025"
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-no-reply@actfb.local}
+  SMTP_TEMPLATES_DIR: /app/email_templates
+  EMAIL_VERIFY_ENABLED: ${EMAIL_VERIFY_ENABLED:-true}
+  EMAIL_VERIFY_PERIOD: ${EMAIL_VERIFY_PERIOD:-15m}
+  # Worker features default off. Enable only with explicit operator keys.
+  ACTFB_CREDENTIAL_ENCRYPTION_KEY: ${ACTFB_CREDENTIAL_ENCRYPTION_KEY:-}
+  ACTFB_CREDENTIAL_KEY_VERSION: ${ACTFB_CREDENTIAL_KEY_VERSION:-1}
+  ACTFB_RUNTIME_ENABLED: ${ACTFB_RUNTIME_ENABLED:-false}
+  ACTFB_FILES_ENABLED: ${ACTFB_FILES_ENABLED:-false}
+  ACTFB_FILE_SCAN_KEY: ${ACTFB_FILE_SCAN_KEY:-}
+  CLAMAV_ADDRESS: ${CLAMAV_ADDRESS:-clamav:3310}
+  CLAMAV_REQUIRED: ${CLAMAV_REQUIRED:-true}
+  # Integrations, plugins and A+D are off unless the operator opts in.
+  ACTFB_INTEGRATIONS_ENABLED: ${ACTFB_INTEGRATIONS_ENABLED:-false}
+  ACTFB_PLUGINS_ENABLED: ${ACTFB_PLUGINS_ENABLED:-false}
+  ACTFB_PLUGINS_DIR: ${ACTFB_PLUGINS_DIR:-/app/plugins}
+  ACTFB_PLUGIN_SERVICE_KEY: ${ACTFB_PLUGIN_SERVICE_KEY:-}
+  ACTFB_PLUGIN_IFRAME_ORIGIN: ${ACTFB_PLUGIN_IFRAME_ORIGIN:-http://127.0.0.2:8091}
+  ACTFB_PLUGIN_ASSET_ADDR: ${ACTFB_PLUGIN_ASSET_ADDR:-127.0.0.2:8091}
+  ACTFB_PLUGIN_ALLOW_EXEC: ${ACTFB_PLUGIN_ALLOW_EXEC:-false}
+  ACTFB_PLUGIN_RUNNER_URL: ${ACTFB_PLUGIN_RUNNER_URL:-}
+  ACTFB_PLUGIN_RUNNER_TOKEN: ${ACTFB_PLUGIN_RUNNER_TOKEN:-}
+  ACTFB_PLUGIN_CORE_SDK_URL: ${ACTFB_PLUGIN_CORE_SDK_URL:-}
+  ACTFB_AD_ENABLED: ${ACTFB_AD_ENABLED:-false}
+  ACTFB_AD_RUNNER_IMAGES: ${ACTFB_AD_RUNNER_IMAGES:-}
+  ACTFB_AD_WEBHOOK_BASE_URL: ${ACTFB_AD_WEBHOOK_BASE_URL:-}
+  ACTFB_AD_ALLOW_INSECURE_LOOPBACK: ${ACTFB_AD_ALLOW_INSECURE_LOOPBACK:-false}
+
+# The notification worker must not receive database, S3, Redis, or JWT signing
+# credentials. It only consumes NATS email tasks and talks to SMTP.
+x-notification-environment: &notification-environment
+  CONFIG_FILE: /app/config.dev.yml
+  NATS_HOST: nats
+  NATS_PORT: "4222"
+  SMTP_ENABLED: "true"
+  SMTP_HOST: mailpit
+  SMTP_PORT: "1025"
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-no-reply@actfb.local}
+  SMTP_TEMPLATES_DIR: /app/email_templates
+
 services:
   backend:
     build:
       context: .
       dockerfile: Dockerfile.dev
     working_dir: /app
-    command: ["air", "-c", ".air.toml"]
+    # Normal dev uses air hot reload. Isolated E2E sets ACTFB_BACKEND_COMMAND to
+    # a stable build so a frontend node_modules write cannot restart the backend
+    # and invalidate the browser session mid-test.
+    command: ["/bin/sh", "-c", "${ACTFB_BACKEND_COMMAND:-exec air -c .air.toml}"]
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    environment:
+      <<: *backend-environment
+      AUTH_RATE_LIMIT_BACKEND: ${AUTH_RATE_LIMIT_BACKEND:-redis}
+      APP_TRUSTED_PROXIES: ${APP_TRUSTED_PROXIES:-}
+      PASSWORD_RESET_PERIOD: ${PASSWORD_RESET_PERIOD:-15m}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    # NOTE: the plugin asset listener binds 127.0.0.2:8091 inside the backend
+    # process. Docker port publishing cannot target a container loopback alias,
+    # so a containerised deployment needs a dedicated asset process/container
+    # (or host networking). See docs/remaining-runbook.md.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
+    healthcheck:
+      # Verified in the existing dev image: BusyBox wget is present; curl is
+      # not installed by the scoped Dockerfile. The backend listens on 8080
+      # inside the container; APP_PORT only changes the host map.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    networks:
+      - actfb-net
+
+  notification:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    working_dir: /app
+    # Build first, then exec so the worker (not a shell or `go run`) is PID 1
+    # and receives SIGTERM for graceful shutdown.
+    command:
+      - /bin/sh
+      - -c
+      - |
+        go build -o /tmp/actfb-notification ./cmd/notification
+        exec /tmp/actfb-notification
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+      - mailpit-public-certs:/certs:ro
+    environment:
+      <<: *notification-environment
+      # Trust the development Mailpit certificate mounted by cert-init.
+      # Only the public certificate is mounted; the private key stays in Mailpit.
+      SSL_CERT_FILE: /certs/mailpit.crt
+    depends_on:
+      nats:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+      cert-init:
+        condition: service_completed_successfully
+    networks:
+      - actfb-net
+
+  retention:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    working_dir: /app
+    # Build first, then exec so the retention worker is PID 1 and receives
+    # SIGTERM directly. The default is daemon mode; --once remains available.
+    command:
+      - /bin/sh
+      - -c
+      - |
+        go build -o /tmp/actfb-retention ./cmd/retention
+        exec /tmp/actfb-retention \
+          --interval="${AUTH_RETENTION_INTERVAL:-1h}" \
+          --batch-size="${AUTH_RETENTION_BATCH_SIZE:-500}" \
+          --max-batches="${AUTH_RETENTION_MAX_BATCHES:-100}" \
+          --run-timeout="${AUTH_RETENTION_RUN_TIMEOUT:-5m}"
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    environment:
+      # PostgreSQL only. No JWT, Redis, S3, SMTP, or notification credentials.
+      CONFIG_FILE: /app/config.dev.yml
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${RETENTION_POSTGRES_USER:-${POSTGRES_USER:-postgres}}
+      POSTGRES_PASSWORD: ${RETENTION_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD:-dev-password}}
+      POSTGRES_DBNAME: ${POSTGRES_DB:-actfb}
+      POSTGRES_SSLMODE: disable
+      POSTGRES_TIMEZONE: UTC
+      AUTH_RETENTION_DAYS: ${AUTH_RETENTION_DAYS:-7}
+    cpus: 1.0
+    mem_limit: 1g
+    pids_limit: 256
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - actfb-net
+
+  events-dispatcher:
+    profiles: ["events"]
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /app
+    command:
+      - /bin/sh
+      - -c
+      - |
+        go build -o /tmp/actfb-events-dispatcher ./cmd/events-dispatcher
+        exec /tmp/actfb-events-dispatcher
     volumes:
       - .:/app
       - go-mod-cache:/go/pkg/mod
@@ -20,26 +223,217 @@ services:
       POSTGRES_TIMEZONE: UTC
       NATS_HOST: nats
       NATS_PORT: "4222"
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      S3_ENDPOINT: http://minio:9000
-      S3_PRESIGN_ENDPOINT: http://localhost:${S3_PORT:-9000}
-      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
-      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      S3_BUCKET: ${S3_BUCKET:-actfb}
-      S3_REGION: us-east-1
-      S3_ADDRESSING_STYLE: path
-    ports:
-      - "127.0.0.1:${APP_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      nats:
+        condition: service_healthy
+    networks:
+      - actfb-net
+
+  file-scanner:
+    profiles: ["files"]
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /app
+    command:
+      - /bin/sh
+      - -c
+      - |
+        go build -o /tmp/actfb-file-scanner ./cmd/file-scanner
+        exec /tmp/actfb-file-scanner
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    environment:
+      # Scanner worker: PostgreSQL/NATS/S3/files only. No JWT or SMTP secrets.
+      CONFIG_FILE: /app/config.dev.yml
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev-password}
+      POSTGRES_DBNAME: ${POSTGRES_DB:-actfb}
+      POSTGRES_SSLMODE: disable
+      POSTGRES_TIMEZONE: UTC
+      NATS_HOST: nats
+      NATS_PORT: "4222"
+      S3_ENDPOINT: http://rustfs:9000
+      S3_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY:-actfb-dev-access-key}
+      S3_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:-actfb-dev-secret-key}
+      S3_BUCKET: ${S3_BUCKET:-actfb}
+      S3_REGION: us-east-1
+      S3_ADDRESSING_STYLE: path
+      ACTFB_FILES_ENABLED: "true"
+      ACTFB_FILE_SCAN_KEY: ${ACTFB_FILE_SCAN_KEY:-}
+      CLAMAV_ADDRESS: ${CLAMAV_ADDRESS:-clamav:3310}
+      CLAMAV_REQUIRED: ${CLAMAV_REQUIRED:-true}
+    depends_on:
+      postgres:
         condition: service_healthy
       nats:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
+      rustfs:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+    networks:
+      - actfb-net
+
+  clamav:
+    profiles: ["files"]
+    image: clamav/clamav:1.5.4@sha256:45fe5149fbee5a46509c9848ef20d0c354b7b2323c9369f285939a37cf33422a
+    environment:
+      # Official image entrypoint applies CLAMD_CONF_* to clamd.conf.
+      CLAMD_CONF_StreamMaxLength: 1G
+      CLAMD_CONF_MaxFileSize: 1G
+      CLAMD_CONF_MaxScanSize: 2G
+    volumes:
+      - clamav-db:/var/lib/clamav
+    networks:
+      - actfb-net
+
+  plugin-runner:
+    # Trusted supervisor for OCI plugin containers. The Docker runner publishes
+    # plugin ports as 127.0.0.1:<host-port> on the Docker host, so this process
+    # must share the host loopback. Run it on the host or together with a
+    # host-networked backend; a bridge-networked backend cannot reach this
+    # loopback control URL. It never receives JWT, PostgreSQL, Redis or S3
+    # credentials.
+    profiles: ["plugins"]
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /app
+    network_mode: host
+    command:
+      - /bin/sh
+      - -c
+      - |
+        go build -o /tmp/actfb-plugin-runner ./cmd/plugin-runner
+        exec /tmp/actfb-plugin-runner
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+      # Explicit, trusted-operator opt-in. Never mount this into the backend.
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      ACTFB_PLUGIN_RUNNER_TOKEN: ${ACTFB_PLUGIN_RUNNER_TOKEN:-}
+      ACTFB_PLUGIN_RUNNER_ADDR: 127.0.0.2:8092
+      ACTFB_DOCKER_SOCKET: /var/run/docker.sock
+      # Default Compose project name for this repository is "actfb".
+      ACTFB_PLUGIN_RUNNER_NETWORK: ${ACTFB_PLUGIN_RUNNER_NETWORK:-actfb_actfb-net}
+      ACTFB_PLUGIN_RUNNER_ID: ${ACTFB_PLUGIN_RUNNER_ID:-actfb-plugin-runner}
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  ad-worker:
+    # A+D runs execute in a separate process with git, the Docker CLI and the
+    # host socket. The backend never gets these capabilities.
+    profiles: ["ad"]
+    image: golang:1.27-alpine
+    working_dir: /app
+    command:
+      - /bin/sh
+      - -c
+      - |
+        apk add --no-cache git docker-cli >/dev/null
+        go build -o /tmp/actfb-ad-worker ./cmd/ad-worker
+        exec /tmp/actfb-ad-worker
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      CONFIG_FILE: /app/config.dev.yml
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev-password}
+      POSTGRES_DBNAME: ${POSTGRES_DB:-actfb}
+      POSTGRES_SSLMODE: disable
+      POSTGRES_TIMEZONE: UTC
+      NATS_HOST: nats
+      NATS_PORT: "4222"
+      ACTFB_CREDENTIAL_ENCRYPTION_KEY: ${ACTFB_CREDENTIAL_ENCRYPTION_KEY:-}
+      ACTFB_CREDENTIAL_KEY_VERSION: ${ACTFB_CREDENTIAL_KEY_VERSION:-1}
+      ACTFB_AD_RUNNER_IMAGES: ${ACTFB_AD_RUNNER_IMAGES:-}
+      ACTFB_AD_ALLOW_INSECURE_LOOPBACK: ${ACTFB_AD_ALLOW_INSECURE_LOOPBACK:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - actfb-net
+
+  instance-worker:
+    # Trusted runtime worker. It owns the container daemon sockets, decrypts
+    # provider credentials and reconciles provider-confirmed inventory. The
+    # backend never receives these sockets. Host-port forwarding for published
+    # instance endpoints needs a dedicated worker node or host networking; see
+    # docs/remaining-runbook.md.
+    profiles: ["runtime"]
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /app
+    command:
+      - /bin/sh
+      - -c
+      - |
+        go build -o /tmp/actfb-instance-worker ./cmd/instance-worker
+        exec /tmp/actfb-instance-worker
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+      # Explicit, trusted-operator opt-in. Never mount into the backend.
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      CONFIG_FILE: /app/config.dev.yml
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev-password}
+      POSTGRES_DBNAME: ${POSTGRES_DB:-actfb}
+      POSTGRES_SSLMODE: disable
+      POSTGRES_TIMEZONE: UTC
+      NATS_HOST: nats
+      NATS_PORT: "4222"
+      ACTFB_CREDENTIAL_ENCRYPTION_KEY: ${ACTFB_CREDENTIAL_ENCRYPTION_KEY:-}
+      ACTFB_CREDENTIAL_KEY_VERSION: ${ACTFB_CREDENTIAL_KEY_VERSION:-1}
+      ACTFB_INSTANCE_WORKER_DOCKER_SOCKET: /var/run/docker.sock
+      ACTFB_INSTANCE_WORKER_PODMAN_SOCKET: ${ACTFB_INSTANCE_WORKER_PODMAN_SOCKET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - actfb-net
+
+  frontend:
+    profiles: ["frontend"]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    working_dir: /app
+    environment:
+      VITE_DEV_PROXY_TARGET: http://backend:8080
+      VITE_API_BASE_URL: /api
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
     networks:
       - actfb-net
 
@@ -91,39 +485,140 @@ services:
     networks:
       - actfb-net
 
-  minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
-    command: ["server", "/data", "--console-address", ":9001"]
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    ports:
-      - "127.0.0.1:${S3_PORT:-9000}:9000"
-      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+  rustfs-perms:
+    # RustFS runs as UID/GID 10001. Named volumes are created root-owned, so
+    # grant only the RustFS data/log directories to that non-root user.
+    image: alpine:3.22
+    user: root
+    command: ["chown", "-R", "10001:10001", "/data", "/logs"]
     volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      - rustfs-data:/data
+      - rustfs-logs:/logs
     networks:
       - actfb-net
 
-  minio-init:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - >-
-        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
-        mc mb --ignore-existing "local/$${S3_BUCKET}"
+  rustfs:
+    # Official RustFS image, pinned to the stable 1.0.5 release manifest.
+    # Docs: https://docs.rustfs.com/en/installation/container/docker
+    image: rustfs/rustfs:1.0.5@sha256:b81d16a90ee25bd9511280127ca1471788c6e874cf0f0da759645f46b2dc1d74
+    command: ["/data"]
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      S3_BUCKET: ${S3_BUCKET:-actfb}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-actfb-dev-access-key}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-actfb-dev-secret-key}
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_REGION: us-east-1
+      RUSTFS_OBS_LOGGER_LEVEL: error
+      RUSTFS_OBS_LOG_DIRECTORY: /var/log/rustfs
+      RUSTFS_OBS_LOG_STDOUT_ENABLED: "true"
+      RUSTFS_CHECK_UPDATE: "false"
+    ports:
+      - "127.0.0.1:${S3_PORT:-9000}:9000"
+      - "127.0.0.1:${RUSTFS_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      # New RustFS volumes. Existing MinIO volumes are intentionally untouched.
+      - rustfs-data:/data
+      - rustfs-logs:/var/log/rustfs
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
     depends_on:
-      minio:
+      rustfs-perms:
+        condition: service_completed_successfully
+    networks:
+      - actfb-net
+
+  storage-init:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /app
+    command:
+      - /bin/sh
+      - -c
+      - |
+        go build -o /tmp/actfb-storage-init ./cmd/storage-init
+        exec /tmp/actfb-storage-init
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    environment:
+      # Least privilege: storage-init has no JWT, PostgreSQL, Redis, or
+      # notification credentials.
+      S3_ENDPOINT: http://rustfs:9000
+      S3_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY:-actfb-dev-access-key}
+      S3_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:-actfb-dev-secret-key}
+      S3_BUCKET: ${S3_BUCKET:-actfb}
+      S3_REGION: us-east-1
+      S3_ADDRESSING_STYLE: path
+    depends_on:
+      rustfs:
         condition: service_healthy
+    networks:
+      - actfb-net
+
+  cert-init:
+    image: alpine:3.22
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        if [ -s /certs/mailpit.crt ] && [ -s /certs/mailpit.key ]; then
+          echo "Mailpit development certificate already exists"
+          mkdir -p /public-certs
+          cp /certs/mailpit.crt /public-certs/mailpit.crt
+          chmod 644 /public-certs/mailpit.crt
+          exit 0
+        fi
+        apk add --no-cache openssl >/dev/null
+        mkdir -p /certs
+        openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+          -keyout /certs/mailpit.key \
+          -out /certs/mailpit.crt \
+          -subj "/CN=mailpit" \
+          -addext "subjectAltName=DNS:mailpit,DNS:localhost,IP:127.0.0.1" \
+          -addext "basicConstraints=critical,CA:TRUE" \
+          -addext "keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign" \
+          -addext "extendedKeyUsage=serverAuth"
+        chmod 644 /certs/mailpit.crt /certs/mailpit.key
+        mkdir -p /public-certs
+        cp /certs/mailpit.crt /public-certs/mailpit.crt
+        chmod 644 /public-certs/mailpit.crt
+        echo "Generated Mailpit development certificate"
+    volumes:
+      - mailpit-certs:/certs
+      - mailpit-public-certs:/public-certs
+    networks:
+      - actfb-net
+
+  mailpit:
+    image: axllent/mailpit:v1.27.8
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_SMTP_TLS_CERT: /certs/mailpit.crt
+      MP_SMTP_TLS_KEY: /certs/mailpit.key
+      MP_MAX_MESSAGES: "500"
+    ports:
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+    volumes:
+      - mailpit-certs:/certs:ro
+      - mailpit-data:/data
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
     networks:
       - actfb-net
 
@@ -131,9 +626,15 @@ volumes:
   postgres-data:
   redis-data:
   nats-data:
-  minio-data:
+  rustfs-data:
+  rustfs-logs:
+  mailpit-data:
+  mailpit-certs:
+  mailpit-public-certs:
   go-mod-cache:
   go-build-cache:
+  frontend-node-modules:
+  clamav-db:
 
 networks:
   actfb-net:

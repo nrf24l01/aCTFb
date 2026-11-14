@@ -1,5 +1,12 @@
+# syntax=docker/dockerfile:1
+
 FROM golang:1.27-alpine
 
-RUN go install github.com/air-verse/air@latest
+ARG AIR_VERSION=v1.67.4
+
+RUN apk add --no-cache ca-certificates tzdata \
+    && go install github.com/air-verse/air@${AIR_VERSION}
+
+ENV GOTOOLCHAIN=local
 
 WORKDIR /app

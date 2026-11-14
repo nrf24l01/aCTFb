@@ -1,0 +1,355 @@
+name: Go CI
+
+# Required: Go 1.27.1 from go.mod, Docker/Compose for the opt-in P0 smoke.
+# Trigger: pushes to main, pull requests, and manual runs for the Go backend,
+# migrations, dev Compose stack, and email templates. This workflow does not
+# publish container images.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "migrations/**"
+      - "email_templates/**"
+      - "api/proto/**"
+      - "Dockerfile.dev"
+      - "docker-compose.dev.yaml"
+      - "Makefile"
+      - "config.dev.yml"
+      - ".air.toml"
+      - "frontend/**"
+      - "e2e/**"
+      - ".github/workflows/go.yml"
+  pull_request:
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "migrations/**"
+      - "email_templates/**"
+      - "api/proto/**"
+      - "Dockerfile.dev"
+      - "docker-compose.dev.yaml"
+      - "Makefile"
+      - "config.dev.yml"
+      - ".air.toml"
+      - "frontend/**"
+      - "e2e/**"
+      - ".github/workflows/go.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test, vet, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Test
+        run: go test ./... -count=1
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+  race:
+    name: Race detector
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Run tests with race detector
+        run: go test -race ./... -count=1
+
+  postgres:
+    name: Real PostgreSQL, Redis, auth, and retention
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: actfb_ci
+          POSTGRES_PASSWORD: actfb_ci_ephemeral
+          POSTGRES_DB: actfb_ci
+        ports:
+          - "55432:5432"
+        options: >-
+          --health-cmd "pg_isready -U actfb_ci -d actfb_ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - "56379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      ACTFB_TEST_POSTGRES_DSN: postgres://actfb_ci:actfb_ci_ephemeral@127.0.0.1:55432/actfb_ci?sslmode=disable
+      ACTFB_TEST_DATABASE_URL: postgres://actfb_ci:actfb_ci_ephemeral@127.0.0.1:55432/actfb_ci?sslmode=disable
+      ACTFB_TEST_REDIS_ADDR: 127.0.0.1:56379
+      ACTFB_TEST_REDIS_DB: "0"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Apply migrations to a clean schema
+        run: go test ./internal/platform/postgres -run TestMigrationsCleanSchema -count=1 -v
+
+      - name: Run all real PostgreSQL auth integration tests
+        run: go test ./internal/users/... -run 'TestPostgres' -count=1 -v
+
+      - name: Run real PostgreSQL retention integration tests
+        run: go test ./internal/authretention -run 'TestRun' -count=1 -v
+
+      - name: Run real Redis limiter and client tests
+        run: go test ./internal/platform/ratelimit ./internal/platform/redis -count=1 -v
+
+      - name: Run feature registry real PostgreSQL tests
+        run: >-
+          go test
+          ./internal/access/...
+          ./internal/authorization/...
+          ./internal/integrations/...
+          ./internal/plugins/...
+          ./internal/attackdefense/...
+          ./internal/deployment/...
+          ./internal/files/...
+          ./internal/instances/...
+          -count=1 -timeout 20m
+
+  p0-integration:
+    name: P0 Docker integration smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      ACTFB_P0_INTEGRATION: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Run isolated P0 integration smoke
+        run: go test ./internal/integration -run TestP0AuthEmailIntegration -count=1 -v -timeout 10m
+
+  rustfs-integration:
+    name: RustFS full-stack integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    env:
+      ACTFB_RUSTFS_INTEGRATION: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      # This test starts the isolated dev Compose project with --build and
+      # verifies RustFS/S3, password reset/auth-version revocation, retention,
+      # Redis fail-closed/shared limiting, and the backend/email/Mailpit path.
+      - name: Run isolated RustFS full-stack integration
+        run: go test ./internal/integration -run TestRustFSFullStackIntegration -count=1 -v -timeout 30m
+
+  workers:
+    name: Worker binaries build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Build every existing worker target
+        run: make workers
+
+      - name: Build every command package
+        run: go build ./cmd/...
+
+  p1r:
+    name: P1R real PostgreSQL teams/manual/files
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: actfb_ci
+          POSTGRES_PASSWORD: actfb_ci_ephemeral
+          POSTGRES_DB: actfb_ci
+        ports:
+          - "55432:5432"
+        options: >-
+          --health-cmd "pg_isready -U actfb_ci -d actfb_ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      ACTFB_TEST_POSTGRES_DSN: postgres://actfb_ci:actfb_ci_ephemeral@127.0.0.1:55432/actfb_ci?sslmode=disable
+      ACTFB_TEST_DATABASE_URL: postgres://actfb_ci:actfb_ci_ephemeral@127.0.0.1:55432/actfb_ci?sslmode=disable
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Apply migrations to a clean schema
+        run: go test ./internal/platform/postgres -run TestMigrationsCleanSchema -count=1 -v
+
+      - name: Run P1R real PostgreSQL acceptance
+        run: go test ./internal/boards -run 'TestP1R' -count=1 -v -timeout 20m
+
+      - name: Run P1R real HTTP handler acceptance
+        run: go test ./internal/boards/http -run 'TestP1RHTTPRoutes' -count=1 -v -timeout 20m
+
+  frontend:
+    name: Vue build, typecheck, tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: frontend
+        run: bun run typecheck
+
+      - name: Unit tests
+        working-directory: frontend
+        run: bun run test
+
+      - name: Build
+        working-directory: frontend
+        run: bun run build
+
+  p1-integration:
+    name: P1 real HTTP integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    env:
+      ACTFB_P1_INTEGRATION: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Run isolated P1 HTTP integration
+        run: go test ./internal/integration -run TestP1CoreIntegration -count=1 -v -timeout 35m
+
+  browser:
+    name: Vue Playwright browser E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install Playwright dependencies
+        working-directory: e2e
+        run: bun install --frozen-lockfile
+
+      - name: Install Chromium
+        working-directory: e2e
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run real-browser acceptance
+        run: ./e2e/run-e2e.sh

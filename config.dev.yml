@@ -1,6 +1,53 @@
-# Local development defaults; datasource settings come from Compose environment variables.
+# Local development defaults; datasource hosts/credentials come from Compose environment variables.
+# JWT signing keys are deliberately absent: set JWT_ACCESS_SECRET and JWT_REFRESH_SECRET in
+# the environment (see docs/backend-bootstrap.md). Never commit signing keys.
 web_app:
   app_host: 0.0.0.0
   port: 8080
+  # Default is true. Explicit false is ONLY for direct-HTTP local development.
+  # Production MUST set secure_cookies: true (or omit it).
+  secure_cookies: false
   allowed_origins:
     - http://localhost:8080
+    - http://localhost:5173
+
+datasources:
+  postgres:
+    port: 5432
+    sslmode: disable
+    timezone: UTC
+    migrations_path: migrations
+
+# Verification becomes active only when SMTP_ENABLED=true as well.
+# Compose sets SMTP_ENABLED=true and points SMTP at Mailpit. For a local run
+# without mail, override with EMAIL_VERIFY_ENABLED=false or leave SMTP_ENABLED unset.
+security:
+  email_verify: true
+  email_verify_period: 15m
+  # Memory is the legacy/single-process default; Compose backend overrides this
+  # to redis for a shared quota across instances.
+  auth_rate_limit_backend: memory
+  password_reset_period: 15m
+
+logging:
+  level: debug
+
+# Shared foundation feature flags. Secrets are environment-only and deliberately
+# absent here. Runtime/plugins/files remain disabled for the existing P0/P1 boot.
+deployment:
+  enabled: false
+  key_version: 1
+
+plugins:
+  enabled: false
+  root: ./plugins
+  iframe_origin: http://127.0.0.2:8091
+  assets_listen_address: 127.0.0.2:8091
+  http_timeout: 5s
+  max_body_bytes: 1048576
+  allow_exec: false
+  allow_trusted_js: false
+
+files:
+  enabled: false
+  require_clamav: true
