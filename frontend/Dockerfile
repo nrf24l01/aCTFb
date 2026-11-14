@@ -30,6 +30,7 @@ LABEL org.opencontainers.image.title="aCTFb frontend" \
       org.opencontainers.image.licenses="MIT"
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY realip.conf /etc/nginx/realip.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
 USER 101:101

@@ -31,6 +31,8 @@ cp .env.prod.example .env.prod
 # Fill POSTGRES_PASSWORD, JWT_ACCESS_SECRET, and JWT_REFRESH_SECRET.
 # Use two different random values of at least 32 characters, for example:
 #   openssl rand -base64 48
+# Also set APP_ALLOWED_ORIGINS to the exact public browser origin, including a
+# non-default port, for example https://ctf.example:8443.
 docker compose --env-file .env.prod -f docker-compose.prod.yaml up -d
 curl -fsS http://127.0.0.1:8080/healthz
 ```
@@ -80,7 +82,8 @@ container runtime; the project does not document or test Podman.
 | --- | --- |
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | Distinct signing keys, at least 32 characters each |
 | `POSTGRES_*` | PostgreSQL connection; migrations run from `/app/migrations` at backend startup |
-| `APP_SECURE_COOKIES`, `APP_ALLOWED_ORIGINS`, `APP_TRUSTED_PROXIES` | Cookie, CORS, and reverse-proxy contract |
+| `APP_SECURE_COOKIES`, `APP_ALLOWED_ORIGINS` | Secure-cookie policy and the exact public browser origin (including port) |
+| `ACTFB_PROXY_SUBNET` | Single Docker proxy-network subnet and backend trusted-proxy CIDR; override only on collision |
 | `AUTH_RATE_LIMIT_BACKEND` | `redis` for shared production quotas; `memory` only for single-process smoke tests |
 | `SMTP_*`, `EMAIL_VERIFY_ENABLED` | Optional email verification and password-reset delivery |
 | `ACTFB_*` feature keys | Files, plugins, runtime instances, and A+D; all default off |
@@ -110,7 +113,8 @@ Links: [architecture](docs/architecture.puml), [backend bootstrap](docs/backend-
 
 ## Security notes
 
-- Use distinct JWT keys, TLS, secure cookies, exact allowed origins, and an explicit trusted-proxy allowlist.
+- Use distinct JWT keys, TLS, secure cookies, and an exact public `APP_ALLOWED_ORIGINS` including any non-default port.
+- The backend trusts only the dedicated `actfb-proxy` subnet; DB and worker peers cannot forge a client IP.
 - Runtime images are Alpine, linux/amd64 only, non-root, and contain no Go, Bun, Node, source tree, or caches.
 - Migrations run before readiness. `/health` is liveness; `/ready` checks the configured hard dependencies.
 - Plugins are default-off. Their asset listener is a separate origin; the current container listener binds

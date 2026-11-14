@@ -14,8 +14,8 @@ x-backend-environment: &backend-environment
   JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env.prod}
   APP_HOST: 0.0.0.0
   APP_SECURE_COOKIES: ${APP_SECURE_COOKIES:-true}
-  APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-}
-  APP_TRUSTED_PROXIES: ${APP_TRUSTED_PROXIES:-}
+  APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:?set APP_ALLOWED_ORIGINS to the exact public origin, e.g. https://ctf.example:8443}
+  APP_TRUSTED_PROXIES: ${ACTFB_PROXY_SUBNET:-10.213.77.0/28}
   AUTH_RATE_LIMIT_BACKEND: redis
   REDIS_HOST: redis
   REDIS_PORT: "6379"
@@ -54,8 +54,11 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    volumes:
+      - plugins-data:/app/plugins
     networks:
       - actfb-net
+      - actfb-proxy
 
   frontend:
     image: ghcr.io/nrf24l01/actfb-frontend:${ACTFB_IMAGE_TAG:-latest}
@@ -76,7 +79,7 @@ services:
     cap_drop:
       - ALL
     networks:
-      - actfb-net
+      - actfb-proxy
 
   # Default production baseline: auth, boards, and shared Redis rate limiting.
   # Start this worker as a long-running daemon with PostgreSQL access only.
@@ -101,6 +104,8 @@ services:
       AUTH_RETENTION_DAYS: ${AUTH_RETENTION_DAYS:-7}
     depends_on:
       postgres:
+        condition: service_healthy
+      backend:
         condition: service_healthy
     healthcheck:
       disable: true
@@ -142,7 +147,7 @@ services:
       - actfb-net
 
   postgres:
-    image: postgres:18-alpine
+    image: postgres:18-alpine@sha256:1018733457011bf88d81db98cf43aac6d5150afc18787dbe204771fedf80ff95
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-actfb}
@@ -160,7 +165,7 @@ services:
       - actfb-net
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
@@ -174,7 +179,7 @@ services:
       - actfb-net
 
   nats:
-    image: nats:2-alpine
+    image: nats:2-alpine@sha256:558394a23dd3c36f2d3a64b51865fd09908010e80a542cea5e75c2af543ed62a
     restart: unless-stopped
     command: ["-js", "-sd", "/data", "-m", "8222"]
     volumes:
@@ -191,7 +196,16 @@ volumes:
   postgres-data:
   redis-data:
   nats-data:
+  plugins-data:
 
 networks:
+  # Database/worker traffic. No frontend and no trusted-proxy source here.
   actfb-net:
     driver: bridge
+  # Only nginx and the backend share this network. The explicit subnet is the
+  # backend's trusted-proxy value, so DB/worker peers cannot forge a client IP.
+  actfb-proxy:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${ACTFB_PROXY_SUBNET:-10.213.77.0/28}

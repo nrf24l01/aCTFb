@@ -132,7 +132,7 @@ grep -q 'X-Content-Type-Options: nosniff' <<<"$(curl -fsSI "http://127.0.0.1:${F
 asset="$(grep -oE '/assets/[^" ]+\.js' <<<"$index" | head -n1)"
 [[ -n "$asset" ]]
 asset_headers="$(curl -fsSI "http://127.0.0.1:${FRONTEND_PORT}${asset}")"
-grep -qi 'Cache-Control: public, immutable' <<<"$asset_headers"
+grep -qi 'Cache-Control: public, max-age=31536000, immutable' <<<"$asset_headers"
 grep -qi 'X-Content-Type-Options: nosniff' <<<"$asset_headers"
 
 docker run --rm "$BACKEND_IMAGE" /app/retention --help >/dev/null 2>&1

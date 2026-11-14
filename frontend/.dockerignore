@@ -8,3 +8,16 @@ coverage
 *.log
 .git
 .gitignore
+.env
+.env.*
+.npmrc
+.yarnrc
+*.pem
+*.key
+*.p12
+*.crt
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+.DS_Store

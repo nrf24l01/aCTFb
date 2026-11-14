@@ -46,6 +46,9 @@ RUN apk add --no-cache \
       docker-cli \
     && addgroup -S -g 10001 actfb \
     && adduser -S -D -H -u 10001 -G actfb actfb \
+    && mkdir -p /app/plugins/incoming \
+    && chown -R 10001:10001 /app/plugins \
+    && chmod 750 /app/plugins /app/plugins/incoming \
     && ln -snf /usr/share/zoneinfo/UTC /etc/localtime
 
 ARG GIT_SHA=unknown
@@ -67,6 +70,7 @@ COPY --chown=10001:10001 config.prod.yml /app/config.yml
 
 ENV CONFIG_FILE=/app/config.yml \
     POSTGRES_MIGRATIONS_PATH=/app/migrations \
+    ACTFB_PLUGINS_DIR=/app/plugins \
     TZ=UTC
 
 USER 10001:10001
