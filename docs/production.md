@@ -81,6 +81,20 @@ The plugin asset listener is loopback-bound and is not production-ready behind o
 networking. Do not claim plugin-enabled production readiness until that topology is implemented and verified. See
 [plugin-system.md](plugin-system.md).
 
+## First admin
+
+The backend image contains the operator-only admin CLI; no separate bootstrap image, SQL snippet, or admin secret
+is used. After the backend has applied migrations:
+
+```bash
+docker compose exec backend /app/backend admin create \
+  --username admin --email admin@example.com
+```
+
+Use `docker compose exec -T ... --password-stdin` for automation; never put the password in argv or env. The
+account is created enabled and email-verified without needing SMTP. See [admin-cli.md](admin-cli.md) for list,
+promote, demote, reset-password, last-admin, and exit-code details.
+
 ## Runtime contract
 
 - `CONFIG_FILE=/app/config.yaml` is a technical container path. The image bakes a placeholder template; Compose

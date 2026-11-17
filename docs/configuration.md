@@ -15,6 +15,10 @@ the loader for development compatibility; they are intentionally not advertised 
 `Empty` means the shipped value is blank and the operator must supply it when the related feature is enabled.
 Secrets have no usable shipped default. `—` means not applicable.
 
+The built-in `backend admin` commands read `CONFIG_FILE`, the PostgreSQL datasource rows, and Argon2id settings
+only. They do not require JWT, SMTP, Redis, NATS, S3, origin, or feature settings and introduce no bootstrap
+admin environment variable. See [admin-cli.md](admin-cli.md).
+
 ## Docker and Compose
 
 | ENV | YAML | Short description | Default |

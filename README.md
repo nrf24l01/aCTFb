@@ -99,34 +99,45 @@ to read it. `chmod 0600 .env` is optional because the private directory already 
 
 ### First admin
 
-There is no automatic admin seed. Registration is open and email verification is disabled by default, so no SMTP
-is needed for the first account. Register normally, then promote that exact user with an operator SQL command.
+The backend binary includes operator-only admin commands; there is no automatic admin seed and no separate
+bootstrap image. Create the first admin directly after the stack is healthy:
 
 ```bash
-docker compose exec -T postgres \
-  psql -U actfb -d actfb -c \
-  "SELECT id, username, email, roles FROM users ORDER BY created_at;"
+docker compose exec backend /app/backend admin create \
+  --username admin --email admin@example.com
 ```
 
-Copy the user's UUID, then promote it with a validated UUID passed as a psql variable, not interpolated SQL:
+The password is read with hidden terminal input and confirmation. Passwords are never accepted in argv or an
+environment variable. The account is created enabled and email-verified, so it can sign in even when email
+verification is enabled and SMTP is not configured.
+
+For non-interactive automation, pass exactly one password line on stdin:
 
 ```bash
-(
-  set -euo pipefail
-  ADMIN_UUID='<paste-users-id-uuid>'
-  printf '%s\n' "$ADMIN_UUID" | grep -Eq \
-    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' \
-    || { echo "invalid UUID" >&2; exit 1; }
-  docker compose exec -T postgres \
-    psql -U actfb -d actfb -v admin_uuid="$ADMIN_UUID" <<'SQL'
-UPDATE users
-SET roles = ARRAY['user','admin']
-WHERE id = :'admin_uuid'::uuid;
-SQL
-)
+read -rsp 'Admin password: ' ADMIN_PASSWORD; echo
+printf '%s\n' "$ADMIN_PASSWORD" | \
+  docker compose exec -T backend /app/backend admin create \
+    --username admin --email admin@example.com --password-stdin
+unset ADMIN_PASSWORD
 ```
 
-The roles column is read live; sign in again or refresh `/me` after promotion.
+Other admin commands:
+
+```bash
+docker compose exec backend /app/backend admin list
+docker compose exec backend /app/backend admin promote --username <name>
+docker compose exec backend /app/backend admin demote --username <name>
+docker compose exec backend /app/backend admin reset-password --username <name>
+```
+
+`--id <uuid>` is available as an exact identifier alternative to `--username`. `demote` keeps the user account
+and refuses to remove the last enabled admin. Role changes and password resets bump `auth_version` and revoke all
+active refresh sessions. Full examples are in [docs/admin-cli.md](docs/admin-cli.md).
+
+The CLI uses the same `config.yaml` and PostgreSQL datasource settings as the backend. It does not read JWT/SMTP
+secrets, start HTTP, or initialize Redis/NATS/S3/plugins, so it works offline with only PostgreSQL and
+`config.yaml`. It never applies migrations automatically; start the backend once so migrations `001`–`017` are
+applied before running admin commands.
 
 ## Configuration
 

@@ -1,6 +1,6 @@
 # Remaining stages — schema handoff
 
-Date: 2026-11-14. This file is the quick worker handoff for additive migrations `007`–`016`. The source of truth is
+Date: 2026-11-14 (017 added 2026-11-17). This file is the quick worker handoff for additive migrations `007`–`017`. The source of truth is
 the migration SQL; this document mirrors it. `006` is applied and never edited. All migrations are Goose
 `Up`/`Down`, additive, and preserve P0/P1 rows.
 
@@ -18,9 +18,20 @@ the migration SQL; this document mirrors it. `006` is applied and never edited. 
 | `014_plugin_trusted_js.sql` | explicit per-install trusted-js risk approval flag | `010` |
 | `015_plugin_private_identities.sql` | reserved collision-resistant plugin schema/role/volume identity | `010` |
 | `016_instance_text.sql` | INSTANCE submissions share durable MANUAL text guard | `013` |
+| `017_admin_cli_audit.sql` | nullable `audit_events.actor_user_id` for external-operator CLI audit | `006` |
 
-Apply in order with Goose. The current additive set ends at `16`; isolated test schemas also apply `16`.
+Apply in order with Goose. The current additive set ends at `17`; isolated test schemas also apply `17`.
 Never edit an applied migration.
+
+## 017 — backend admin CLI audit
+
+- `audit_events.actor_user_id` drops `NOT NULL`; authenticated writers still store real user IDs.
+- Operator CLI rows use `NULL` plus JSONB details `source=cli`, `operator=admin-cli`. No fake/system user row is
+  created and no console/plaintext audit fallback is used.
+- Down refuses if any NULL-actor CLI audit row exists instead of deleting operator audit history.
+- Existing board/score audit queries inner-join users and therefore do not surface NULL-actor CLI rows through
+  board-scoped views. The authenticated global audit API also keeps its user-joined contract and does not
+  fabricate an actor for CLI rows; operator CLI audit remains stored for direct operator inspection.
 
 ## 007 — identity, teams, access, audiences, subjects
 

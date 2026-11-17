@@ -189,7 +189,8 @@ Verifier session: `ses_e30a3e0deffen3bhuIVyN6o7M4`; runtime-reported model:
 | F4 CORS / F6 secure cookies | unit + HTTP smoke | **PASS**; exact-origin preflight and forged-XFP cookie tests |
 | F8 refresh 500 handling | auth handler test | **PASS**; internal error preserves cookie, invalid token clears |
 | Token/limiter hardening | hashed single-use verification/reset tokens + Redis limiter/trusted proxy | **implemented and verified**; memory backend is legacy/single-process only |
-| Global roles | normal user promoted by operator SQL | admin immediately visible via `/me`; registration/profile cannot grant admin |
+| Global roles | normal user promoted by the operator CLI | admin immediately visible via `/me`; registration/profile cannot grant admin |
+| Backend admin CLI (`017`) | **implemented, real-PG tested** | built-in `backend admin create/list/promote/demote/reset-password`; hidden TTY or bounded `--password-stdin`; email-verified first admin without SMTP/NATS; last-enabled-admin advisory lock shared with HTTP; transactional audit/session revocation; `017` makes CLI audit actor NULL |
 | Shutdown/hygiene | SIGTERM both processes; scan logs | graceful shutdown markers present; no secret/token/hash leakage found |
 | Expanded RustFS full Compose | `ACTFB_RUSTFS_INTEGRATION=1 ... TestRustFSFullStackIntegration` | **PASS**, final acceptance rerun 72.04 s (verifier 70.42 s); includes reset, disabled-reset, SMTP-without-verification, auth-version revocation, retention daemon/one-shot, Redis outage/shared quota, Mailpit, secret scan |
 | Independent security review | prior review + new hardening review | prior F2/F3/F4/F6/F7/F8/F9/F10/F12 fixed; new `docs/p0-auth-hardening-review.md` **H1/H2/M1/M2 fixed and verified**, no blocking actual bug remains |
@@ -410,6 +411,14 @@ present. The worker/runtime packages are implemented (`cmd/events-dispatcher`, `
 `cmd/instance-worker`, `cmd/ad-worker`, `cmd/plugin-runner`, `cmd/retention`, `cmd/storage-init`); the remaining
 limits are external provider credentials and production-only controls, not missing worker code. Details:
 `docs/remaining-schema.md`.
+
+**Backend admin CLI (2026-11-17):** `017_admin_cli_audit.sql` is the only schema addition: it allows
+`audit_events.actor_user_id` to be NULL for external-operator CLI audit rows. The existing backend binary now
+implements `admin create/list/promote/demote/reset-password` before HTTP/worker bootstrap. Real-PostgreSQL tests
+cover email-verified create plus HTTP login, duplicate handling, role retention/idempotency, last-enabled-admin
+races between CLI and the HTTP access service, password-reset session/JWT invalidation, transactional audit
+rollback, and secret-free audit details. Design/checklist: `docs/superpowers/specs/2026-11-17-admin-cli-design.md`.
+Operator guide: `docs/admin-cli.md`.
 
 **P0 context:** locally accepted, remote CI unverified; P1 does not inherit an “all project complete” claim.
 

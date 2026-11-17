@@ -174,17 +174,15 @@ Open the frontend at `http://localhost:5173` (this origin matches the default de
 do not advertise `http://127.0.0.1:5173` unless it is explicitly added to `APP_ALLOWED_ORIGINS`). Backend:
 `http://localhost:8080`; Mailpit: `http://127.0.0.1:8025`.
 
-Register a normal user first, then promote that exact registered UUID with an operator SQL command. Pass the UUID
-as a validated UUID literal (the `::uuid` cast makes a malformed value fail instead of matching loosely); it is
-operator input, never derived from request data, and there is no automatic admin or insecure default:
+Create the first admin with the built-in backend CLI. There is no automatic admin or insecure default:
 
 ```bash
-ADMIN_UUID='<registered-user-uuid>'
-test "${#ADMIN_UUID}" -eq 36 || { echo "expected a 36-char UUID"; exit 1; }
-docker compose -f docker-compose.dev.yaml exec -T postgres \
-  psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-actfb}" \
-  -c "UPDATE users SET roles = ARRAY['user','admin'] WHERE id = '${ADMIN_UUID}'::uuid;"
+docker compose -f docker-compose.dev.yaml exec backend /app/backend admin create \
+  --username admin --email admin@example.com
 ```
+
+For automation, use `exec -T ... --password-stdin` and pass one bounded password line on stdin; never put the
+password in argv. See [admin-cli.md](admin-cli.md).
 
 Then exercise the accepted first slice: sign in as the global admin, create a **PRIVATE + INDIVIDUAL** board, add a
 **TASKS** module, create a **FLAG + TEXT + AUTOMATIC** task with at most **16** accepted answers, publish, then have

@@ -29,6 +29,7 @@ forbid_pattern() {
 
 require_file README.md
 require_file docs/production.md
+require_file docs/admin-cli.md
 require_file docs/ghcr-verification.md
 require_file Dockerfile
 require_file frontend/Dockerfile
@@ -55,6 +56,9 @@ for image in notification retention events-dispatcher file-scanner storage-init 
 done
 require_pattern README.md 'sha-' 'README documents immutable sha tag'
 require_pattern README.md 'docker compose' 'README has prebuilt-image quickstart'
+require_pattern README.md 'backend admin create' 'README creates the first admin through the backend CLI'
+require_pattern README.md 'password-stdin' 'README documents non-interactive admin password stdin'
+forbid_pattern README.md 'psql -U actfb' 'README no longer uses operator SQL for the first admin'
 require_pattern README.md 'MIT' 'README states MIT license'
 forbid_pattern README.md '\bis production[- ]ready' 'README does not claim production-ready'
 require_pattern docs/production.md 'TLS' 'production docs explain TLS'
@@ -470,6 +474,7 @@ if [[ "${ACTFB_TEST_IMAGES:-0}" == "1" ]]; then
         backend)
           test -r /app/migrations/001_init.sql
           test -r /app/migrations/016_instance_text.sql
+          test -r /app/migrations/017_admin_cli_audit.sql
           test -r /app/email_templates/verification/subject.tmpl
           test -d /app/plugins
           test "$(stat -c %a /app/plugins)" != 777

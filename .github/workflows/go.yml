@@ -185,6 +185,9 @@ jobs:
       - name: Run real PostgreSQL auth integration tests
         run: go test ./internal/users/... -run 'TestPostgres' -count=1 -v
 
+      - name: Run real PostgreSQL backend admin CLI tests
+        run: go test ./internal/admincli -run 'TestPostgres' -count=1 -v -timeout 10m
+
       - name: Run real PostgreSQL retention integration tests
         run: go test ./internal/authretention -run 'TestRun' -count=1 -v
 

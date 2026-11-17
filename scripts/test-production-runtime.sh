@@ -23,6 +23,14 @@ for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE" "$RETENTION_IMAGE"; do
   fi
 done
 
+# Help paths must work in the final image without config, PostgreSQL, or any
+# application secret. This also proves the CLI is inside the existing backend
+# binary rather than a separate bootstrap image.
+cli_help="$(docker run --rm --network none --entrypoint /app/backend "$BACKEND_IMAGE" admin --help)"
+grep -q 'backend admin' <<<"$cli_help"
+create_help="$(docker run --rm --network none --entrypoint /app/backend "$BACKEND_IMAGE" admin create --help)"
+grep -q -- '--password-stdin' <<<"$create_help"
+
 RUN_ID="$(openssl rand -hex 5)"
 PROJECT="actfb-prod-smoke-${RUN_ID}"
 NETWORK="${PROJECT}-net"
@@ -196,11 +204,12 @@ grep -qi 'X-Content-Type-Options: nosniff' <<<"$asset_headers"
 uid="$(docker exec "$BACKEND" id -u)"
 [[ "$uid" == "10001" ]]
 migration_version="$(docker exec "$PG" psql -U actfb_smoke -d actfb_smoke -tAc 'select max(version_id) from goose_db_version')"
-[[ "$migration_version" == "16" ]]
+[[ "$migration_version" == "17" ]]
 
 backend_size="$(docker image inspect --format '{{.Size}}' "$BACKEND_IMAGE")"
 frontend_size="$(docker image inspect --format '{{.Size}}' "$FRONTEND_IMAGE")"
 printf 'PASS backend /ready and /health with real PostgreSQL migrations=%s\n' "$migration_version"
+printf 'PASS backend image contains offline admin CLI help (no config or PostgreSQL required)\n'
 printf 'PASS retention image completed a real --once pass against PostgreSQL\n'
 printf 'PASS frontend /healthz, SPA deep link, and /api proxy\n'
 printf 'PASS backend runtime uid=%s\n' "$uid"

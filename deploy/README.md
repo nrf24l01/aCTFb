@@ -38,6 +38,15 @@ docker compose exec -T backend curl -fsS http://127.0.0.1:8080/ready
 - Do not overwrite a configured `.env` or `config.yaml` with the downloaded template during updates.
 - Never run `docker compose down -v` unless you intend to delete PostgreSQL/Redis/NATS/plugin volumes.
 
-First admin promotion is operator SQL, not an automatic seed. See the root
-[first-admin section](https://github.com/nrf24l01/aCTFb#first-admin). Optional external-edge real-IP trust is
-covered in the root guide and `docs/production.md`.
+First admin creation is built into the backend binary; there is no automatic seed and no SQL bootstrap. After
+the stack is healthy, run the interactive one-command form from the root
+[first-admin section](https://github.com/nrf24l01/aCTFb#first-admin):
+
+```bash
+docker compose exec backend /app/backend admin create \
+  --username admin --email admin@example.com
+```
+
+For automation use the same command with `docker compose exec -T ... --password-stdin` and a secret on stdin;
+never put the password in argv or an environment variable. Optional external-edge real-IP trust is covered in
+the root guide and `docs/production.md`.
