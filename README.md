@@ -22,77 +22,80 @@ See [docs/implementation-plan.md](docs/implementation-plan.md) for implemented/p
 
 ## Deployment
 
-The supported production path is the prebuilt GHCR bundle in [`deploy/`](deploy/README.md). It does not require a
-Git clone, Go, Bun, a source build, or a Compose `build:` section.
+Run this in a new private directory. Requirements: Docker Engine with Compose v2, `linux/amd64`, `wget`, and
+`openssl`.
 
-Requirements: Docker Engine with Compose v2, `linux/amd64`, `wget`, and `openssl`. Download the three required
-files into a new directory. `realip.conf` is optional and only needed behind an external nginx edge.
+### 1. Download files
 
 ```bash
-mkdir -p actfb && cd actfb
-if [ -e .env ] || [ -e config.yaml ]; then
-  echo "Existing .env/config.yaml found; refusing to overwrite." >&2
-else
-  BASE=https://raw.githubusercontent.com/nrf24l01/aCTFb/main/deploy
-  wget -qO compose.yaml "$BASE/compose.yaml"
-  wget -qO config.yaml "$BASE/config.yaml"
-  wget -qO .env.example "$BASE/.env.example"
+mkdir -m 700 actfb && cd actfb
+wget -O compose.yaml https://raw.githubusercontent.com/nrf24l01/aCTFb/main/deploy/compose.yaml
+wget -O config.yaml https://raw.githubusercontent.com/nrf24l01/aCTFb/main/deploy/config.yaml
+wget -O .env https://raw.githubusercontent.com/nrf24l01/aCTFb/main/deploy/.env.example
+```
 
-  chmod 0644 compose.yaml
-  (umask 077; cp .env.example .env); chmod 600 .env
-  sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 32)/" .env
+### 2. Generate secrets
 
-  chmod 0600 config.yaml
-  sed -i \
-    -e "s/CHANGE_ME_ACCESS_SECRET/$(openssl rand -hex 48)/" \
-    -e "s/CHANGE_ME_REFRESH_SECRET/$(openssl rand -hex 48)/" \
-    -e 's|CHANGE_ME_PUBLIC_ORIGIN|http://localhost:8080|' \
-    -e 's/^  secure_cookies: true$/  secure_cookies: false/' \
-    config.yaml
-  IMAGE_TAG="$(sed -n 's/^ACTFB_IMAGE_TAG=//p' .env)"; IMAGE_TAG="${IMAGE_TAG:-latest}"
-  docker run --rm --user 0:0 -v "$PWD/config.yaml:/config.yaml" --entrypoint /bin/sh \
-    "ghcr.io/nrf24l01/actfb-backend:${IMAGE_TAG}" \
-    -c 'chgrp 10001 /config.yaml && chmod 640 /config.yaml'
-fi
+Run this three times and keep the three values separate:
 
-docker compose --env-file .env pull
-docker compose --env-file .env up -d --wait
-docker compose --env-file .env ps
+```bash
+openssl rand -hex 48
+```
+
+Use one value for `.env` `POSTGRES_PASSWORD`, one for `config.yaml` `jwt.access.secret`, and one different value
+for `config.yaml` `jwt.refresh.secret`.
+
+### 3. Edit configuration
+
+Edit `.env` and `config.yaml` in your editor.
+
+`.env`:
+
+```dotenv
+POSTGRES_PASSWORD=<paste generated value>
+```
+
+`config.yaml`:
+
+```yaml
+jwt:
+  access:
+    secret: <paste generated value>
+  refresh:
+    secret: <paste different value>
+web_app:
+  secure_cookies: false
+  allowed_origins:
+    - http://localhost:8080
+```
+
+This is the local HTTP demo. For public HTTPS, set `web_app.secure_cookies: true` and the exact
+`https://...` origin; see [TLS and cookies](docs/production.md#tls-and-cookies).
+
+### 4. Start
+
+```bash
+docker compose up -d
+```
+
+Compose reads `.env` automatically and pulls the GHCR images on first start. Open http://localhost:8080.
+
+### 5. Status
+
+```bash
+docker compose ps
+docker compose logs -f backend
+```
+
+Optional health check:
+
+```bash
 curl -fsS http://127.0.0.1:8080/healthz
-docker compose --env-file .env exec -T backend curl -fsS http://127.0.0.1:8080/ready
 ```
 
-Open `http://localhost:8080`. The block above is a local HTTP demo: `web_app.secure_cookies` is `false` and the
-origin is the loopback URL. Do not expose that mode outside the machine.
-
-`config.yaml` contains application secrets and must be `0640` with group `10001`; the one-shot Docker helper in
-the block changes only that file. `.env` is `0600` and contains datasource/Docker values only.
-
-### Public HTTPS
-
-For a fresh production directory, use the same download and `.env` block, then replace the three YAML
-placeholders with the production origin and keep secure cookies on:
-
-```bash
-PUBLIC_ORIGIN='https://ctf.example:8443'   # exact browser URL, no trailing slash
-chmod 0600 config.yaml
-sed -i \
-  -e "s/CHANGE_ME_ACCESS_SECRET/$(openssl rand -hex 48)/" \
-  -e "s/CHANGE_ME_REFRESH_SECRET/$(openssl rand -hex 48)/" \
-  -e "s|CHANGE_ME_PUBLIC_ORIGIN|${PUBLIC_ORIGIN}|" \
-  config.yaml
-IMAGE_TAG="$(sed -n 's/^ACTFB_IMAGE_TAG=//p' .env)"; IMAGE_TAG="${IMAGE_TAG:-latest}"
-docker run --rm --user 0:0 -v "$PWD/config.yaml:/config.yaml" --entrypoint /bin/sh \
-  "ghcr.io/nrf24l01/actfb-backend:${IMAGE_TAG}" \
-  -c 'chgrp 10001 /config.yaml && chmod 640 /config.yaml'
-docker compose --env-file .env pull
-docker compose --env-file .env up -d --wait
-```
-
-Terminate TLS in a host-level reverse proxy that proxies to `http://127.0.0.1:${HOST_PORT}`. `HOST_PORT` is a
-loopback host port, not the public TLS port. Keep `web_app.allowed_origins` exactly equal to the browser URL,
-including any non-default port. If you change `ACTFB_PROXY_SUBNET`, update `web_app.trusted_proxies` to the same
-CIDR.
+The `actfb/` directory is mode `700`, so `config.yaml` with normal `0644` permissions is not exposed to other
+host users. If your umask creates it as `0600`, run `chmod 0644 config.yaml`; container UID `10001` must be able
+to read it. `chmod 0600 .env` is optional because the private directory already blocks other host users.
 
 ### First admin
 
@@ -100,7 +103,7 @@ There is no automatic admin seed. Registration is open and email verification is
 is needed for the first account. Register normally, then promote that exact user with an operator SQL command.
 
 ```bash
-docker compose --env-file .env exec -T postgres \
+docker compose exec -T postgres \
   psql -U actfb -d actfb -c \
   "SELECT id, username, email, roles FROM users ORDER BY created_at;"
 ```
@@ -114,7 +117,7 @@ Copy the user's UUID, then promote it with a validated UUID passed as a psql var
   printf '%s\n' "$ADMIN_UUID" | grep -Eq \
     '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' \
     || { echo "invalid UUID" >&2; exit 1; }
-  docker compose --env-file .env exec -T postgres \
+  docker compose exec -T postgres \
     psql -U actfb -d actfb -v admin_uuid="$ADMIN_UUID" <<'SQL'
 UPDATE users
 SET roles = ARRAY['user','admin']
@@ -171,10 +174,10 @@ Secrets have no usable shipped default. The full grouped reference is in
 ## Operations
 
 ```bash
-docker compose --env-file .env ps
+docker compose ps
 curl -fsS http://127.0.0.1:8080/healthz
-docker compose --env-file .env exec -T backend curl -fsS http://127.0.0.1:8080/ready
-docker compose --env-file .env logs -f backend
+docker compose exec -T backend curl -fsS http://127.0.0.1:8080/ready
+docker compose logs -f backend
 ```
 
 `/ready` is internal to the backend and is not proxied by nginx; check it through `exec`.
@@ -182,16 +185,16 @@ docker compose --env-file .env logs -f backend
 `config.yaml` is read at process start and is not hot-reloaded. After YAML changes restart the readers:
 
 ```bash
-docker compose --env-file .env restart backend retention events-dispatcher
+docker compose restart backend retention events-dispatcher
 # Add the matching profile for an enabled optional worker, for example:
-docker compose --env-file .env --profile email restart notification
+docker compose --profile email restart notification
 ```
 
 Update images without touching secrets or database volumes:
 
 ```bash
-docker compose --env-file .env pull
-docker compose --env-file .env up -d --wait
+docker compose pull
+docker compose up -d
 ```
 
 Do not overwrite `.env` or `config.yaml` with templates during an update. Never run `docker compose down -v`
@@ -199,16 +202,23 @@ unless you intend to delete the PostgreSQL/Redis/NATS/plugin volumes.
 
 Rollback by pinning the same immutable image tag in `.env`, then pulling and recreating:
 
+Set one immutable tag for every image in `.env`:
+
+```dotenv
+ACTFB_IMAGE_TAG=sha-29227d785a78cc0047d2cf434b3c9dea14397e5b
+```
+
+Then:
+
 ```bash
-sed -i 's/^ACTFB_IMAGE_TAG=.*/ACTFB_IMAGE_TAG=sha-29227d785a78cc0047d2cf434b3c9dea14397e5b/' .env
-docker compose --env-file .env pull
-docker compose --env-file .env up -d --wait
+docker compose pull
+docker compose up -d
 ```
 
 Stop without deleting data:
 
 ```bash
-docker compose --env-file .env down
+docker compose down
 ```
 
 ### Optional profiles
@@ -217,11 +227,11 @@ Profiles start containers; they do not enable application features by themselves
 fields and datasource values first.
 
 ```bash
-docker compose --env-file .env --profile email up -d
-docker compose --env-file .env --profile files up -d
-docker compose --env-file .env --profile plugins up -d
-docker compose --env-file .env --profile ad up -d
-docker compose --env-file .env --profile runtime up -d
+docker compose --profile email up -d
+docker compose --profile files up -d
+docker compose --profile plugins up -d
+docker compose --profile ad up -d
+docker compose --profile runtime up -d
 ```
 
 Requirements: email needs SMTP; files need S3 + ClamAV + `files.scan_key`; plugins need

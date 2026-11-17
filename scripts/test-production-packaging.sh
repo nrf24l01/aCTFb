@@ -78,6 +78,12 @@ require_pattern docs/production.md 'files.scan_key' 'production docs list the fi
 require_pattern docs/production.md 'attack_defense.runner_images' 'production docs list pinned AD runner images'
 require_pattern docs/production.md 'plugins.runner_url' 'production docs list the actual plugin runner URL'
 require_pattern README.md 'allowed_origins' 'README requires the exact public origin'
+require_pattern README.md 'wget -O compose.yaml https://raw\.githubusercontent\.com/nrf24l01/aCTFb/main/deploy/compose\.yaml' 'README downloads compose.yaml directly'
+require_pattern README.md 'wget -O config.yaml https://raw\.githubusercontent\.com/nrf24l01/aCTFb/main/deploy/config\.yaml' 'README downloads config.yaml directly'
+require_pattern README.md 'wget -O .env https://raw\.githubusercontent\.com/nrf24l01/aCTFb/main/deploy/\.env\.example' 'README downloads .env directly'
+require_pattern README.md 'docker compose up -d' 'README uses plain Compose start'
+forbid_pattern README.md 'docker compose --env-file' 'README does not require --env-file'
+forbid_pattern deploy/README.md 'docker compose --env-file' 'deploy README does not require --env-file'
 forbid_pattern README.md 'shared image includes `git`' 'README no longer claims a shared worker image'
 
 require_pattern Dockerfile '^# syntax=docker/dockerfile:1' 'backend Dockerfile uses BuildKit syntax'
@@ -238,8 +244,8 @@ forbid_pattern deploy/compose.yaml 'ACTFB_(AD_ENABLED|AD_RUNNER_IMAGES|AD_WEBHOO
 require_pattern deploy/.env.example '^HOST_PORT=8080$' 'prod env example uses HOST_PORT for the loopback publish'
 require_pattern deploy/.env.example '^ACTFB_IMAGE_TAG=latest$' 'prod env example defaults to the simple moving tag'
 require_pattern deploy/.env.example 'sha-<full-git-sha>' 'prod env example documents the immutable pin format'
-require_pattern deploy/README.md 'docker compose --env-file \.env up -d --wait' 'deploy README has the wait-based start command'
-require_pattern deploy/README.md 'docker compose --env-file \.env exec -T backend curl -fsS http://127\.0\.0\.1:8080/ready' 'deploy README checks readiness through the backend container'
+require_pattern deploy/README.md 'docker compose up -d' 'deploy README uses plain Compose start'
+require_pattern deploy/README.md 'docker compose exec -T backend curl -fsS http://127\.0\.0\.1:8080/ready' 'deploy README checks readiness through the backend container'
 forbid_pattern deploy/realip.conf '^[[:space:]]*set_real_ip_from[[:space:]]' 'deploy real-IP trust is empty by default'
 
 require_pattern deploy/.env.example '^POSTGRES_PASSWORD=$' 'prod env example leaves DB password empty'

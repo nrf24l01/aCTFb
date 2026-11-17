@@ -3,7 +3,8 @@
 Status: prebuilt-image packaging and YAML configuration were published from `main` at `29227d7`. This page owns
 the advanced production guidance. The download/configure/start guide is the root
 [README deployment section](../README.md#deployment); the full `ENV | YAML | description | default` reference is
-[configuration.md](configuration.md). The operator file index is [deploy/README.md](../deploy/README.md).
+[configuration.md](configuration.md). The operator file index is [deploy/README.md](../deploy/README.md). Run the
+commands below from that deployment directory so `docker compose` auto-loads `compose.yaml` and `.env`.
 
 ## Images
 
@@ -65,11 +66,11 @@ enable the matching YAML feature and datasource settings first.
 | `runtime` | instance-worker | `deployment.enabled`, `deployment.credential_key`, trusted driver setup |
 
 ```bash
-docker compose --env-file .env --profile email up -d
-docker compose --env-file .env --profile files up -d
-docker compose --env-file .env --profile plugins up -d
-docker compose --env-file .env --profile ad up -d
-docker compose --env-file .env --profile runtime up -d
+docker compose --profile email up -d
+docker compose --profile files up -d
+docker compose --profile plugins up -d
+docker compose --profile ad up -d
+docker compose --profile runtime up -d
 ```
 
 `files` runs `storage-init` as a one-shot bucket initializer before the scanner. `SMTP_*`, `S3_*`,
@@ -83,7 +84,8 @@ networking. Do not claim plugin-enabled production readiness until that topology
 ## Runtime contract
 
 - `CONFIG_FILE=/app/config.yaml` is a technical container path. The image bakes a placeholder template; Compose
-  mounts the operator `config.yaml` read-only with host mode `0640` group `10001`.
+  mounts the operator `config.yaml` read-only. The default guide uses a private `0700` directory with a `0644`
+  file; optional hardening is `0640` group `10001` when the host group is manageable.
 - PostgreSQL migrations run from `/app/migrations` before the HTTP listener starts.
 - Backend `/health` is liveness; `/ready` checks configured hard dependencies. The frontend exposes `/healthz`.
   `/ready` is not proxied by nginx; use `docker compose exec backend curl ...`.
@@ -93,9 +95,9 @@ networking. Do not claim plugin-enabled production readiness until that topology
 `config.yaml` is read at process start and is not hot-reloaded. After YAML changes restart the readers:
 
 ```bash
-docker compose --env-file .env restart backend retention events-dispatcher
+docker compose restart backend retention events-dispatcher
 # restart enabled optional workers with their profile, for example:
-docker compose --env-file .env --profile email restart notification
+docker compose --profile email restart notification
 ```
 
 ## PostgreSQL roles and worker isolation
@@ -131,7 +133,7 @@ PostgreSQL is the authoritative database. Take logical backups and test restores
 `POSTGRES_USER`/`POSTGRES_DB` were changed):
 
 ```bash
-docker compose --env-file .env exec -T postgres \
+docker compose exec -T postgres \
   pg_dump -U actfb -d actfb --format=custom > "actfb-$(date +%F).dump"
 ```
 
@@ -141,39 +143,47 @@ truth for accounts, scores, submissions, or audit rows.
 Update images without overwriting secrets or deleting volumes:
 
 ```bash
-docker compose --env-file .env pull
-docker compose --env-file .env up -d --wait
+docker compose pull
+docker compose up -d
 ```
 
 Never download the template over a configured `.env` or `config.yaml`, and never run `docker compose down -v`
 unless deleting PostgreSQL/Redis/NATS/plugin data is intended. Stop without deleting data:
 
 ```bash
-docker compose --env-file .env down
+docker compose down
 ```
 
 Rollback by pinning one immutable tag for all images in `.env`:
 
+Set one immutable tag for every image in `.env`:
+
+```dotenv
+ACTFB_IMAGE_TAG=sha-29227d785a78cc0047d2cf434b3c9dea14397e5b
+```
+
+Then:
+
 ```bash
-sed -i 's/^ACTFB_IMAGE_TAG=.*/ACTFB_IMAGE_TAG=sha-29227d785a78cc0047d2cf434b3c9dea14397e5b/' .env
-docker compose --env-file .env pull
-docker compose --env-file .env up -d --wait
+docker compose pull
+docker compose up -d
 ```
 
 ## Health, logs, and troubleshooting
 
 ```bash
-docker compose --env-file .env ps
-docker compose --env-file .env logs -f backend
+docker compose ps
+docker compose logs -f backend
 curl -fsS "http://127.0.0.1:${HOST_PORT:-8080}/healthz"
-docker compose --env-file .env exec -T backend curl -fsS http://127.0.0.1:8080/ready
+docker compose exec -T backend curl -fsS http://127.0.0.1:8080/ready
 ```
 
 - `POSTGRES_PASSWORD` missing: the datasource `.env` is incomplete; Compose fails before start.
 - Invalid backend config: check `web_app.allowed_origins`, JWT key lengths, feature keys, and the trusted-proxy
   CIDR match.
-- Permission denied on `/app/config.yaml`: rerun the documented `chgrp 10001` / `chmod 640` helper; do not make
-  the secret file world-readable.
+- Permission denied on `/app/config.yaml`: the container UID `10001` must read it. If your umask created `0600`,
+  run `chmod 0644 config.yaml` inside the private `0700` directory; advanced operators may use `0640` group
+  `10001`. Do not publish the file in a shared/world-accessible directory.
 - Login/cookie problems: TLS is missing or `web_app.secure_cookies` was set false with a non-loopback origin.
 - Email never arrives: `email.enabled`, SMTP datasource, and the `email` profile must all be configured.
 - Plugin iframe blocked: current asset-origin topology is not production-ready; see the caveat above.
