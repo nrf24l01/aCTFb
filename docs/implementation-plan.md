@@ -664,15 +664,17 @@ earlier RustFS full-stack evidence.
 ## Packaging and GHCR slice (2026-11-14)
 
 Status: **implemented, locally verified, and published to public GHCR packages from commit `29227d7`**.
-Actions run `43593223721` passed all four jobs; ten separate backend/frontend/worker images publish `latest`
+Actions run `43638812660` passed all four jobs; ten separate backend/frontend/worker images publish `latest`
 plus immutable `sha-*` tags that resolve to the same digests and pull anonymously. The review fixes cover
 trusted-proxy scoping, exact public origin handling, the non-root plugin root, per-profile env documentation,
 and per-worker PostgreSQL role overrides. Production now runs one process per worker image.
 Scope: root README, production Dockerfiles/runtime contracts, production Compose, four-job Actions pipeline, and
 GHCR publication. No product-domain behavior was changed.
 
-- `README.md` is the public entry point; `docs/production.md` owns the prebuilt-image runtime contract and
-  rollback/TLS/email/plugin limitations.
+- `README.md` is the deployment landing page and carries the download/configure/start/update flow;
+  `docs/configuration.md` is the full grouped `ENV | YAML | Short description | Default` reference;
+  `docs/production.md` owns advanced TLS/profiles/roles/backup/rollback/isolation guidance; `deploy/README.md`
+  is the short operator file index.
 - `Dockerfile` builds independent backend/worker targets; each worker image copies only its own binary and
   required files. `frontend/Dockerfile` and `frontend/nginx.conf` build and serve the SPA with `/healthz` and
   `/api/` proxy. `docker-bake.hcl` publishes all ten images from one bake step.
