@@ -15,6 +15,8 @@ func TestReadPasswordStdinBoundedSingleRecord(t *testing.T) {
 	}{
 		{name: "newline", input: "correct horse battery\n", want: "correct horse battery"},
 		{name: "crlf", input: "correct horse battery\r\n", want: "correct horse battery"},
+		{name: "max length crlf", input: strings.Repeat("x", 128) + "\r\n", want: strings.Repeat("x", 128)},
+		{name: "max length lf", input: strings.Repeat("x", 128) + "\n", want: strings.Repeat("x", 128)},
 		{name: "no trailing newline", input: "correct horse battery", want: "correct horse battery"},
 		{name: "valid spaces are not trimmed", input: "  pass phrase  \n", want: "  pass phrase  "},
 		{name: "all spaces remain a password", input: "        \n", want: "        "},

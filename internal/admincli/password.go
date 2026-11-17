@@ -22,7 +22,7 @@ func readPasswordStdin(r io.Reader) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read password from stdin: %w", err)
 	}
-	if len(data) > maxPasswordLength+1 {
+	if len(data) > maxPasswordLength+2 {
 		return "", ErrPasswordTooLong
 	}
 	if len(data) > 0 && data[len(data)-1] == '\n' {
