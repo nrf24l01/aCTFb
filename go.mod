@@ -9,6 +9,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.0
 	github.com/aws/smithy-go v1.28.2
 	github.com/go-openapi/errors v0.22.9
+	github.com/go-openapi/loads v0.25.2
+	github.com/go-openapi/spec v1.0.0
 	github.com/go-openapi/strfmt v0.27.2
 	github.com/go-openapi/swag/jsonutils v0.29.2
 	github.com/go-openapi/swag/typeutils v0.29.2
@@ -24,6 +26,7 @@ require (
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/wneessen/go-mail v0.8.1
 	golang.org/x/crypto v0.57.0
+	golang.org/x/term v0.48.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -48,8 +51,6 @@ require (
 	github.com/go-openapi/analysis v1.0.0 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect
 	github.com/go-openapi/jsonreference v1.0.1 // indirect
-	github.com/go-openapi/loads v0.25.2 // indirect
-	github.com/go-openapi/spec v1.0.0 // indirect
 	github.com/go-openapi/swag/conv v0.29.2 // indirect
 	github.com/go-openapi/swag/fileutils v0.29.1 // indirect
 	github.com/go-openapi/swag/loading v0.29.1 // indirect
@@ -75,7 +76,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	olympos.io/encoding/edn v0.0.0-20201019073823-d3554ca0b0a3 // indirect
 )

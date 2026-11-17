@@ -18,6 +18,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/nrf24l01/actfb/internal/access"
+	"github.com/nrf24l01/actfb/internal/admincli"
 	"github.com/nrf24l01/actfb/internal/attackdefense"
 	"github.com/nrf24l01/actfb/internal/authorization"
 	"github.com/nrf24l01/actfb/internal/boards"
@@ -60,6 +61,16 @@ type mailDeps struct {
 }
 
 func main() {
+	// Operator CLI commands dispatch before config validation, HTTP bootstrap,
+	// migrations, SMTP/NATS/Redis/S3, or plugin initialization. A bare
+	// /app/backend invocation is unchanged and still starts the server.
+	if len(os.Args) > 1 {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		code := admincli.NewRunner().Run(ctx, os.Args[1:])
+		stop()
+		os.Exit(code)
+	}
+
 	logger := newLogger("info")
 	slog.SetDefault(logger)
 

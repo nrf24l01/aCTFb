@@ -56,7 +56,10 @@ func (h *adminAuditHandler) List(c *echo.Context) error {
 	}
 
 	var total int64
-	countQuery := `SELECT count(*) FROM audit_events e WHERE ` + auditFilterSQL
+	// Keep the count consistent with the user-joined item query below. Operator
+	// CLI rows have a NULL actor and are not presented as a fabricated user in
+	// the authenticated audit API.
+	countQuery := `SELECT count(*) FROM audit_events e WHERE e.actor_user_id IS NOT NULL AND ` + auditFilterSQL
 	if err := h.db.Pool.QueryRow(c.Request().Context(), countQuery, filter...).Scan(&total); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Audit log unavailable")
 	}

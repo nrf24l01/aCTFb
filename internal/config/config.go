@@ -613,6 +613,41 @@ func (c *Config) ApplyDefaults() {
 	}
 }
 
+// ValidateAdmin validates only the settings needed by the backend admin CLI.
+// It intentionally ignores JWT, HTTP/origin, SMTP, Redis, NATS, S3, plugin,
+// deployment, and worker settings so an offline operator can create the first
+// admin with PostgreSQL and config.yaml alone.
+func (c *Config) ValidateAdmin() error {
+	var problems []string
+
+	pg := c.Datasources.Postgres
+	if strings.TrimSpace(pg.Host) == "" {
+		problems = append(problems, "datasources.postgres.host is required")
+	}
+	if !validPort(pg.Port) {
+		problems = append(problems, "datasources.postgres.port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(pg.User) == "" {
+		problems = append(problems, "datasources.postgres.user is required")
+	}
+	if strings.TrimSpace(pg.DBName) == "" {
+		problems = append(problems, "datasources.postgres.dbname is required")
+	}
+	if strings.TrimSpace(pg.SSLMode) == "" {
+		problems = append(problems, "datasources.postgres.sslmode is required")
+	}
+	if strings.TrimSpace(pg.Timezone) == "" {
+		problems = append(problems, "datasources.postgres.timezone is required")
+	}
+
+	problems = append(problems, validateArgon2id(c.Argon2id)...)
+
+	if len(problems) > 0 {
+		return fmt.Errorf("invalid admin CLI config: %s", strings.Join(problems, "; "))
+	}
+	return nil
+}
+
 // ValidateBackend performs the additional validation required by cmd/backend.
 // The notification worker deliberately uses LoadConfig without this method so
 // that it does not need HTTP/JWT-only settings.

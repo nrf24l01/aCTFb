@@ -10,6 +10,30 @@ import (
 	"github.com/ilyakaznacheev/cleanenv"
 )
 
+// LoadForAdmin loads only the configuration the operator CLI needs: the YAML
+// file (CONFIG_FILE, default config.yaml), PostgreSQL datasource environment
+// overrides, defaults, and Argon2id settings. It deliberately does not require
+// JWT, SMTP, origin, Redis, NATS, S3, plugin, or worker settings. Help paths
+// must not call this function at all.
+func LoadForAdmin() (*Config, error) {
+	var cfg Config
+
+	configFile := os.Getenv("CONFIG_FILE")
+	if configFile == "" {
+		configFile = "config.yaml"
+	}
+
+	if err := cleanenv.ReadConfig(configFile, &cfg); err != nil {
+		return nil, fmt.Errorf("load config %q: %w", configFile, err)
+	}
+
+	cfg.ApplyDefaults()
+	if err := cfg.ValidateAdmin(); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
 // LoadConfig loads the shared configuration used by every aCTFb process.
 //
 // It intentionally performs no backend-specific validation: the notification

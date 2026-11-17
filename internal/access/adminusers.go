@@ -364,7 +364,28 @@ func validUsername(username string) bool {
 }
 
 func validPassword(password string) bool {
-	return len(password) >= 8 && len(password) <= 128
+	return len(password) >= 8 && len(password) <= 128 && strings.IndexByte(password, 0) < 0
+}
+
+// ValidateAdminPassword exposes the shared admin password policy to the
+// operator CLI. Spaces are intentional password material and are not trimmed.
+func ValidateAdminPassword(password string) bool {
+	return validPassword(password)
+}
+
+// ValidateAdminUsername exposes the shared admin username policy to the CLI.
+func ValidateAdminUsername(username string) bool {
+	return validUsername(username)
+}
+
+// ValidateAdminEmail exposes the shared admin email policy to the CLI.
+func ValidateAdminEmail(email string) bool {
+	return validEmail(email)
+}
+
+// NormalizeAdminRoles exposes the shared global-role policy to the CLI.
+func NormalizeAdminRoles(roles []string) ([]string, error) {
+	return normalizeAdminRoles(roles)
 }
 
 func validEmail(email string) bool {

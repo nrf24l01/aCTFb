@@ -915,8 +915,8 @@ func TestMigrationsCleanSchema(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read version after 006 up: %v", err)
 		}
-		if version != 16 {
-			t.Fatalf("goose version after 006 up = %d, want 16", version)
+		if version != 17 {
+			t.Fatalf("goose version after 006 up = %d, want 17", version)
 		}
 		for _, table := range []string{"boards", "modules", "tasks", "task_flags", "board_participants", "submissions", "board_role_bindings", "audit_events"} {
 			var reg sql.NullString
@@ -992,8 +992,8 @@ func TestMigrationsCleanSchema(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read version after 005 up: %v", err)
 		}
-		if version != 16 {
-			t.Fatalf("goose version after 005 up = %d, want 16", version)
+		if version != 17 {
+			t.Fatalf("goose version after 005 up = %d, want 17", version)
 		}
 		var nonZero int
 		if err := db.QueryRowContext(ctx, `
@@ -1089,8 +1089,8 @@ func TestMigrationsCleanSchema(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read version after 004 up: %v", err)
 		}
-		if version != 16 {
-			t.Fatalf("goose version after 004 up = %d, want 16", version)
+		if version != 17 {
+			t.Fatalf("goose version after 004 up = %d, want 17", version)
 		}
 
 		var totalSessions, familyMatches, revokedSessions, legacyReasons int
@@ -1165,8 +1165,8 @@ func TestMigrationsCleanSchema(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read version after 003 up: %v", err)
 		}
-		if version != 16 {
-			t.Fatalf("goose version after 003 up = %d, want 16", version)
+		if version != 17 {
+			t.Fatalf("goose version after 003 up = %d, want 17", version)
 		}
 		if err := db.QueryRowContext(ctx, "SELECT to_regclass($1)::text", "auth_email_verifications").Scan(&verificationReg); err != nil {
 			t.Fatalf("check auth_email_verifications after 003 up: %v", err)
@@ -1436,8 +1436,8 @@ func TestMigrationsRemainingStages(t *testing.T) {
 	if err := goose.UpContext(ctx, db, migrationDir); err != nil {
 		t.Fatalf("apply remaining migrations 007-011: %v", err)
 	}
-	if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 16 {
-		t.Fatalf("version after remaining migrations = %d (%v), want 16", v, err)
+	if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 17 {
+		t.Fatalf("version after remaining migrations = %d (%v), want 17", v, err)
 	}
 
 	columnExists := func(table, column string) bool {
@@ -1860,7 +1860,7 @@ func TestMigrationsRemainingStages(t *testing.T) {
 		if err := goose.UpContext(ctx, db, migrationDir); err != nil {
 			t.Fatalf("re-up from %d: %v", target, err)
 		}
-		if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 16 {
+		if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 17 {
 			t.Fatalf("version after re-up from %d = %d (%v)", target, v, err)
 		}
 		for _, table := range present {
@@ -1893,7 +1893,7 @@ func TestMigrationsRemainingStages(t *testing.T) {
 		if err := goose.UpContext(ctx, db, migrationDir); err != nil {
 			t.Fatalf("re-up from 12: %v", err)
 		}
-		if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 16 {
+		if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 17 {
 			t.Fatalf("version after latest re-up = %d (%v)", v, err)
 		}
 		assertSeededRows(t)
@@ -1911,7 +1911,7 @@ func TestMigrationsRemainingStages(t *testing.T) {
 		if !columnExists("plugins", "trusted_js_approved") {
 			t.Fatal("plugins.trusted_js_approved missing after 014 re-up")
 		}
-		if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 16 {
+		if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 17 {
 			t.Fatalf("version after 014 re-up = %d (%v)", v, err)
 		}
 		assertSeededRows(t)
@@ -1929,7 +1929,7 @@ func TestMigrationsRemainingStages(t *testing.T) {
 		if !tableExists("plugin_private_identities") {
 			t.Fatal("plugin_private_identities missing after 015 re-up")
 		}
-		if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 16 {
+		if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 17 {
 			t.Fatalf("version after 015 re-up = %d (%v)", v, err)
 		}
 		assertSeededRows(t)
@@ -1941,7 +1941,7 @@ func TestMigrationsRemainingStages(t *testing.T) {
 		if err := goose.UpContext(ctx, db, migrationDir); err != nil {
 			t.Fatalf("re-up from 15: %v", err)
 		}
-		if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 16 {
+		if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 17 {
 			t.Fatalf("version after 016 re-up = %d (%v)", v, err)
 		}
 		var constraintCount int
@@ -1952,6 +1952,31 @@ func TestMigrationsRemainingStages(t *testing.T) {
 			WHERE n.nspname=current_schema() AND t.relname='submissions' AND c.conname='submissions_manual_text_check'
 		`).Scan(&constraintCount); err != nil || constraintCount != 1 {
 			t.Fatalf("submissions_manual_text_check count=%d err=%v", constraintCount, err)
+		}
+		assertSeededRows(t)
+	})
+	t.Run("017 down/up restores CLI audit nullability", func(t *testing.T) {
+		var nullable string
+		if err := db.QueryRowContext(ctx, `
+			SELECT is_nullable FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name='audit_events' AND column_name='actor_user_id'
+		`).Scan(&nullable); err != nil || nullable != "YES" {
+			t.Fatalf("audit_events.actor_user_id nullable=%q err=%v, want YES", nullable, err)
+		}
+		if err := goose.DownToContext(ctx, db, migrationDir, 16); err != nil {
+			t.Fatalf("down to 16: %v", err)
+		}
+		if err := db.QueryRowContext(ctx, `
+			SELECT is_nullable FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name='audit_events' AND column_name='actor_user_id'
+		`).Scan(&nullable); err != nil || nullable != "NO" {
+			t.Fatalf("audit_events.actor_user_id nullable=%q err=%v after 017 down, want NO", nullable, err)
+		}
+		if err := goose.UpContext(ctx, db, migrationDir); err != nil {
+			t.Fatalf("re-up from 16: %v", err)
+		}
+		if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 17 {
+			t.Fatalf("version after 017 re-up = %d (%v), want 17", v, err)
 		}
 		assertSeededRows(t)
 	})
@@ -1997,7 +2022,7 @@ func TestMigrationsRemainingStages(t *testing.T) {
 		if err := goose.UpContext(ctx, db, migrationDir); err != nil {
 			t.Fatalf("re-up from 6: %v", err)
 		}
-		if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 16 {
+		if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != 17 {
 			t.Fatalf("version after re-up from 6 = %d (%v)", v, err)
 		}
 		assertSeededRows(t)
@@ -2012,7 +2037,7 @@ func TestMigrationsRemainingStages(t *testing.T) {
 			t.Fatalf("rerun migrations: %v", err)
 		}
 		after, err := goose.GetDBVersionContext(ctx, db)
-		if err != nil || before != after || after != 16 {
+		if err != nil || before != after || after != 17 {
 			t.Fatalf("rerun version %d -> %d (%v)", before, after, err)
 		}
 		assertSeededRows(t)
