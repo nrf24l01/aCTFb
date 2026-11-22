@@ -118,6 +118,15 @@ func TestBoardUserSearchRequiresLiveParticipantsManage(t *testing.T) {
 		t.Fatal("board user search was not audited")
 	}
 
+	// An empty board-scoped query must not dump the directory.
+	empty, err := svc.SearchBoardUsers(ctx, owner, f.BoardPrivate, ListQuery{})
+	if err != nil {
+		t.Fatalf("empty board search: %v", err)
+	}
+	if len(empty.Items) != 0 {
+		t.Fatalf("empty board search returned %d users", len(empty.Items))
+	}
+
 	// An outsider participant cannot enumerate users.
 	if _, err := svc.SearchBoardUsers(ctx, authorization.Principal{UserID: f.User3}, f.BoardPrivate, ListQuery{Query: "user"}); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("outsider board search err = %v, want forbidden", err)

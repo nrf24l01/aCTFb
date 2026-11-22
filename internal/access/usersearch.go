@@ -90,6 +90,10 @@ func (s *AccessService) SearchBoardUsers(ctx context.Context, principal authoriz
 	if !allowed {
 		return UserDirectoryPage{}, ErrForbidden
 	}
+	if strings.TrimSpace(q.Query) == "" {
+		// Never allow an empty board-scoped query to dump the global directory.
+		return UserDirectoryPage{Items: []UserDirectoryEntry{}}, nil
+	}
 	page, err := s.searchUsers(ctx, s.db.Pool, q)
 	if err != nil {
 		return UserDirectoryPage{}, err
