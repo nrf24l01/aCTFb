@@ -23,6 +23,9 @@ type AdminBoard struct {
 	// Unique: true
 	AccessGroupUuids []UUID `json:"accessGroupUuids"`
 
+	// Additive canonical mode. When provided it normalizes visibility/registration/accessGroupUuids; conflicting legacy fields are rejected.
+	AccessMode AccessMode `json:"accessMode,omitempty"`
+
 	// description
 	// Required: true
 	// Max Length: 50000
@@ -94,6 +97,10 @@ func (m *AdminBoard) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateAccessGroupUuids(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateAccessMode(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -187,6 +194,27 @@ func (m *AdminBoard) validateAccessGroupUuids(formats strfmt.Registry) error {
 			return err
 		}
 
+	}
+
+	return nil
+}
+
+func (m *AdminBoard) validateAccessMode(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.AccessMode) { // not required
+		return nil
+	}
+
+	if err := m.AccessMode.Validate(formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("accessMode")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("accessMode")
+		}
+
+		return err
 	}
 
 	return nil
@@ -497,6 +525,10 @@ func (m *AdminBoard) ContextValidate(ctx context.Context, formats strfmt.Registr
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateAccessMode(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateModuleTypes(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -560,6 +592,28 @@ func (m *AdminBoard) contextValidateAccessGroupUuids(ctx context.Context, format
 			return err
 		}
 
+	}
+
+	return nil
+}
+
+func (m *AdminBoard) contextValidateAccessMode(ctx context.Context, formats strfmt.Registry) error {
+
+	if typeutils.IsZero(m.AccessMode) { // not required
+		return nil
+	}
+
+	if err := m.AccessMode.ContextValidate(ctx, formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("accessMode")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("accessMode")
+		}
+
+		return err
 	}
 
 	return nil

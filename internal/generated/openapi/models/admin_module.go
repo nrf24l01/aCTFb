@@ -53,6 +53,9 @@ type AdminModule struct {
 	// Min Length: 1
 	ExtensionKey *string `json:"extensionKey,omitempty"`
 
+	// True for an existing TASKS module created before the single-format rule. It stays readable with its current task types and is shown read-only until an organizer explicitly resolves it.
+	LegacyMixed bool `json:"legacyMixed,omitempty"`
+
 	// name
 	// Required: true
 	// Max Length: 128

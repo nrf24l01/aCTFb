@@ -25,6 +25,9 @@ type AdminBoardPatchRequest struct {
 	// Unique: true
 	AccessGroupUuids []UUID `json:"accessGroupUuids"`
 
+	// Additive canonical mode. When provided it normalizes visibility/registration/accessGroupUuids; conflicting legacy fields are rejected.
+	AccessMode AccessMode `json:"accessMode,omitempty"`
+
 	// description
 	// Max Length: 50000
 	Description string `json:"description,omitempty"`
@@ -66,6 +69,10 @@ func (m *AdminBoardPatchRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateAccessGroupUuids(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateAccessMode(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -139,6 +146,27 @@ func (m *AdminBoardPatchRequest) validateAccessGroupUuids(formats strfmt.Registr
 			return err
 		}
 
+	}
+
+	return nil
+}
+
+func (m *AdminBoardPatchRequest) validateAccessMode(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.AccessMode) { // not required
+		return nil
+	}
+
+	if err := m.AccessMode.Validate(formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("accessMode")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("accessMode")
+		}
+
+		return err
 	}
 
 	return nil
@@ -334,6 +362,10 @@ func (m *AdminBoardPatchRequest) ContextValidate(ctx context.Context, formats st
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateAccessMode(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateParticipationMode(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -385,6 +417,28 @@ func (m *AdminBoardPatchRequest) contextValidateAccessGroupUuids(ctx context.Con
 			return err
 		}
 
+	}
+
+	return nil
+}
+
+func (m *AdminBoardPatchRequest) contextValidateAccessMode(ctx context.Context, formats strfmt.Registry) error {
+
+	if typeutils.IsZero(m.AccessMode) { // not required
+		return nil
+	}
+
+	if err := m.AccessMode.ContextValidate(ctx, formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("accessMode")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("accessMode")
+		}
+
+		return err
 	}
 
 	return nil

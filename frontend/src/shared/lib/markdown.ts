@@ -1,0 +1,91 @@
+import DOMPurify from 'dompurify'
+import { Marked } from 'marked'
+import type { Token, Tokens } from 'marked'
+
+/**
+ * Markdown rendering for organizer-authored content. The single entry point
+ * renders with `marked` and then sanitises with DOMPurify.
+ *
+ * Security contract:
+ * - raw HTML in the Markdown source is escaped, never executed;
+ * - link/image URLs are validated while tokenising (domain-level allowlist for
+ *   http, https and mailto, plus same-origin relative paths), so
+ *   `javascript:`, `data:`, `vbscript:` never reach the HTML;
+ * - only a small tag/attribute allowlist survives DOMPurify;
+ * - SVG/MathML/style/event-handler attributes are stripped.
+ */
+const ALLOWED_TAGS = [
+  'p', 'br', 'strong', 'em', 'del', 'code', 'pre', 'blockquote',
+  'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'a', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img',
+]
+
+const ALLOWED_ATTR = ['href', 'title', 'alt', 'src', 'colspan', 'rowspan']
+
+const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
+
+const escapeHtml = (value: string): string =>
+  value.replace(/[&<>"']/g, (character) => {
+    switch (character) {
+      case '&':
+        return '&amp;'
+      case '<':
+        return '&lt;'
+      case '>':
+        return '&gt;'
+      case '"':
+        return '&quot;'
+      default:
+        return '&#39;'
+    }
+  })
+
+/** Same-origin form-relative or absolute URLs are allowed; anything else must
+ * use an explicit safe protocol. `javascript:` and `data:` fail. */
+export function isSafeUrl(value: string): boolean {
+  const trimmed = value.trim()
+  if (trimmed === '') return false
+  if (/^(?:#|\?|\/|\.{1,2}\/)/.test(trimmed)) return true
+  try {
+    const parsed = new URL(trimmed, 'https://actfb.invalid/')
+    return SAFE_PROTOCOLS.has(parsed.protocol)
+  } catch {
+    return false
+  }
+}
+
+const marked = new Marked({ gfm: true, breaks: false })
+
+marked.use({
+  walkTokens(token: Token) {
+    if (token.type === 'html') {
+      // Raw HTML block/inline tokens are escaped rather than emitted.
+      const html = token as Tokens.HTML
+      html.text = escapeHtml(html.text)
+      return
+    }
+    if (token.type === 'tag') {
+      const tag = token as Tokens.Tag
+      tag.text = escapeHtml(tag.text)
+      return
+    }
+    if (token.type === 'link' || token.type === 'image') {
+      const candidate = token as Tokens.Link | Tokens.Image
+      if (!isSafeUrl(candidate.href)) {
+        candidate.href = ''
+      }
+    }
+  },
+})
+
+export function renderMarkdown(source: string | null | undefined): string {
+  const markdown = typeof source === 'string' ? source : ''
+  const raw = marked.parse(markdown) as string
+  return DOMPurify.sanitize(raw, {
+    ALLOWED_TAGS,
+    ALLOWED_ATTR,
+    ALLOW_DATA_ATTR: false,
+    FORBID_TAGS: ['svg', 'math', 'style', 'script', 'iframe', 'object', 'embed', 'form', 'input', 'button'],
+    FORBID_ATTR: ['style'],
+  })
+}

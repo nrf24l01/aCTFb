@@ -19,6 +19,9 @@ import (
 // swagger:model Board
 type Board struct {
 
+	// Additive canonical mode. When provided it normalizes visibility/registration/accessGroupUuids; conflicting legacy fields are rejected.
+	AccessMode AccessMode `json:"accessMode,omitempty"`
+
 	// description
 	// Required: true
 	// Max Length: 50000
@@ -86,6 +89,10 @@ type Board struct {
 func (m *Board) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateAccessMode(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateDescription(formats); err != nil {
 		res = append(res, err)
 	}
@@ -145,6 +152,27 @@ func (m *Board) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *Board) validateAccessMode(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.AccessMode) { // not required
+		return nil
+	}
+
+	if err := m.AccessMode.Validate(formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("accessMode")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("accessMode")
+		}
+
+		return err
+	}
+
 	return nil
 }
 
@@ -426,6 +454,10 @@ func (m *Board) validateVisibility(formats strfmt.Registry) error {
 func (m *Board) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.contextValidateAccessMode(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateModuleTypes(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -461,6 +493,28 @@ func (m *Board) ContextValidate(ctx context.Context, formats strfmt.Registry) er
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *Board) contextValidateAccessMode(ctx context.Context, formats strfmt.Registry) error {
+
+	if typeutils.IsZero(m.AccessMode) { // not required
+		return nil
+	}
+
+	if err := m.AccessMode.ContextValidate(ctx, formats); err != nil {
+		ve := new(errors.Validation)
+		if stderrors.As(err, &ve) {
+			return ve.ValidateName("accessMode")
+		}
+		ce := new(errors.CompositeError)
+		if stderrors.As(err, &ce) {
+			return ce.ValidateName("accessMode")
+		}
+
+		return err
+	}
+
 	return nil
 }
 

@@ -25,11 +25,20 @@ watch(
     }
   },
 )
-const nav = computed(() => [
-  { label: 'Boards', to: '/boards', matches: ['/boards'] },
-  ...(isAdmin.value ? [{ label: 'Admin', to: '/admin', matches: ['/admin'] }] : []),
-  { label: 'Profile', to: '/profile', matches: ['/profile'] },
-])
+const nav = computed(() => {
+  if (state.status !== 'authenticated') {
+    return [
+      { label: 'Home', to: '/', matches: ['/'] },
+      { label: 'Boards', to: '/boards', matches: ['/boards'] },
+      { label: 'Sign in', to: '/sign-in', matches: ['/sign-in', '/register'] },
+    ]
+  }
+  return [
+    { label: 'Boards', to: '/boards', matches: ['/boards'] },
+    ...(isAdmin.value ? [{ label: 'Admin', to: '/admin', matches: ['/admin'] }] : []),
+    { label: 'Profile', to: '/profile', matches: ['/profile'] },
+  ]
+})
 
 const pluginMenu = ref<Array<{ label: string; to: string }>>([])
 
@@ -55,6 +64,9 @@ watch(
 )
 
 function isActive(entry: { matches: string[] }): boolean {
+  if (entry.matches.includes('/')) {
+    return route.path === '/'
+  }
   return entry.matches.some((prefix) => route.path === prefix || route.path.startsWith(`${prefix}/`))
 }
 
@@ -118,16 +130,19 @@ async function handleSignOut() {
         </SheetContent>
       </Sheet>
 
-      <RouterLink to="/boards" class="flex w-[212px] shrink-0 items-center border-r border-border px-4 font-bold tracking-wider max-md:w-auto max-md:border-r-0">
+      <RouterLink to="/" class="flex w-[212px] shrink-0 items-center border-r border-border px-4 font-bold tracking-wider max-md:w-auto max-md:border-r-0">
         aCTFb
       </RouterLink>
 
       <div class="flex min-w-0 flex-1 items-center justify-end gap-2 px-3">
         <span class="hidden truncate text-xs text-muted-foreground sm:block">{{ state.user?.username }}</span>
-        <Button variant="ghost" class="h-10 rounded-none max-md:h-11" :disabled="state.status !== 'authenticated'" @click="handleSignOut">
+        <Button v-if="state.status === 'authenticated'" variant="ghost" class="h-10 rounded-none max-md:h-11" @click="handleSignOut">
           <LogOutIcon class="size-4" />
           <span class="hidden sm:inline">Sign out</span>
           <span class="sr-only sm:hidden">Sign out</span>
+        </Button>
+        <Button v-else as-child variant="outline" class="h-10 rounded-none max-md:h-11">
+          <RouterLink to="/sign-in">Sign in</RouterLink>
         </Button>
       </div>
     </header>
@@ -156,7 +171,7 @@ async function handleSignOut() {
             </RouterLink>
           </div>
         </nav>
-        <p class="mt-auto px-4 py-4 text-xs text-muted-foreground">Private boards only · first slice</p>
+        <p class="mt-auto px-4 py-4 text-xs text-muted-foreground">Challenge board</p>
       </aside>
 
       <main class="min-w-0 flex-1">

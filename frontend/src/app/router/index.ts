@@ -9,7 +9,7 @@ const router = createRouter({
       path: '/',
       component: AppShell,
       children: [
-        { path: '', redirect: '/boards' },
+        { path: '', name: 'landing', component: () => import('@/features/site/pages/LandingPage.vue'), meta: { public: true } },
         {
           path: 'sign-in',
           name: 'sign-in',
@@ -104,6 +104,11 @@ const router = createRouter({
           path: 'admin/access-groups',
           name: 'admin-access-groups',
           component: () => import('@/features/admin/pages/AdminAccessGroupsPage.vue'),
+        },
+        {
+          path: 'admin/site',
+          name: 'admin-site',
+          component: () => import('@/features/site/pages/AdminSitePage.vue'),
         },
         {
           path: 'admin/integrations',

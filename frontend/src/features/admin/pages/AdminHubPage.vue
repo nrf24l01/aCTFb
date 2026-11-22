@@ -9,6 +9,7 @@ const { state } = useSession()
 const isAdmin = computed(() => state.user?.roles.includes('admin') ?? false)
 
 const links = [
+  { to: '/admin/site', title: 'Site', text: 'Edit the public landing title and Markdown introduction with write/preview.' },
   { to: '/admin/boards', title: 'Boards', text: 'Create boards, modules, tasks, teams, audiences and review manual submissions.' },
   { to: '/admin/users', title: 'Users', text: 'Global roles, disabled/verified state and access-group membership.' },
   { to: '/admin/access-groups', title: 'Access groups', text: 'User sets that gate PRIVATE board joining.' },

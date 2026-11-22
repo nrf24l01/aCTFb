@@ -37,6 +37,7 @@ import (
 	"github.com/nrf24l01/actfb/internal/platform/secrets"
 	"github.com/nrf24l01/actfb/internal/plugins"
 	"github.com/nrf24l01/actfb/internal/runtime"
+	"github.com/nrf24l01/actfb/internal/site"
 	"github.com/nrf24l01/actfb/internal/users"
 	usersnats "github.com/nrf24l01/actfb/internal/users/nats"
 )
@@ -417,6 +418,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		pluginSDK:     pluginSDK,
 		attackDefense: attackDefenseService,
 		instances:     instancesService,
+		site:          site.NewService(db),
 	}, userService)
 	registerAdminAuditRoute(router, db, authorizer, userService)
 

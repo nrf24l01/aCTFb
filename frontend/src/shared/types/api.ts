@@ -10,6 +10,7 @@ export type ParticipationMode = 'INDIVIDUAL' | 'TEAM'
 export type RegistrationMode = 'OPEN' | 'INVITE_ONLY' | 'CLOSED'
 export type BoardStatus = 'DRAFT' | 'SCHEDULED' | 'ACTIVE' | 'FINISHED' | 'ARCHIVED'
 export type BoardVisibility = 'PUBLIC' | 'PRIVATE'
+export type BoardAccessMode = 'PUBLIC' | 'AUDIENCE' | 'INVITE' | 'LEGACY'
 export type RatingVisibility = 'PUBLIC' | 'HIDDEN'
 export type ModuleType = 'TASKS' | 'ATTACK_DEFENSE' | 'PENTEST' | 'EXTENSION'
 export type ModuleStatus = 'DISABLED' | 'UPCOMING' | 'ACTIVE' | 'FINISHED'
@@ -153,6 +154,7 @@ export interface BoardListItem {
   startsAt?: string | null
   endsAt?: string | null
   joined: boolean
+  accessMode?: BoardAccessMode
 }
 
 export interface Board extends BoardListItem {
@@ -298,6 +300,7 @@ export interface AdminBoardCreateRequest {
   participationMode: ParticipationMode
   registrationMode: RegistrationMode
   visibility: BoardVisibility
+  accessMode?: BoardAccessMode
   startsAt?: string | null
   endsAt?: string | null
   rating: RatingConfig
@@ -312,6 +315,7 @@ export interface AdminBoardPatchRequest {
   participationMode?: ParticipationMode
   registrationMode?: RegistrationMode
   visibility?: BoardVisibility
+  accessMode?: BoardAccessMode
   startsAt?: string | null
   endsAt?: string | null
   rating?: RatingConfig
@@ -353,6 +357,7 @@ export interface AdminModulePatchRequest {
 export interface AdminModule extends Module {
   enabled: boolean
   taskInstanceSettings?: TaskInstanceModuleSettings | null
+  legacyMixed?: boolean
 }
 
 export interface TaskInstanceConfig {
@@ -1207,4 +1212,34 @@ export interface ADVulnerabilityPatchRequest {
   patchPoints?: number
   exploitTestSelector?: string
   patchTestSelector?: string
+}
+
+export interface SitePublic {
+  title: string
+  introMarkdown: string
+  published: boolean
+  updatedAt: string
+}
+
+export interface AdminSite extends SitePublic {
+  updatedByUserUuid?: string | null
+}
+
+export interface AdminSitePatchRequest {
+  title?: string
+  introMarkdown?: string
+  published?: boolean
+}
+
+export interface UserDirectoryEntry {
+  uuid: string
+  username: string
+  email: string
+}
+
+export interface UserDirectoryResponse {
+  items: UserDirectoryEntry[]
+  limit: number
+  offset: number
+  total: number
 }

@@ -46,6 +46,8 @@ import (
 	runtimekubevirt "github.com/nrf24l01/actfb/internal/runtime/kubevirt"
 	runtimepodman "github.com/nrf24l01/actfb/internal/runtime/podman"
 	runtimeproxmox "github.com/nrf24l01/actfb/internal/runtime/proxmox"
+	"github.com/nrf24l01/actfb/internal/site"
+	sitehttp "github.com/nrf24l01/actfb/internal/site/http"
 	"github.com/nrf24l01/actfb/internal/users"
 )
 
@@ -61,6 +63,7 @@ type extendedServices struct {
 	pluginSDK     http.Handler
 	attackDefense *attackdefense.Service
 	instances     *instances.Service
+	site          *site.Service
 }
 
 // registerExtendedRoutes installs every ready /api/v2 HTTP adapter. It is
@@ -92,6 +95,9 @@ func registerExtendedRoutes(e *echo.Echo, services extendedServices, userService
 	}
 	if services.instances != nil {
 		instanceshttp.NewHandler(services.instances, userService).RegisterRoutes(e)
+	}
+	if services.site != nil {
+		sitehttp.NewHandler(services.site, userService).RegisterRoutes(e)
 	}
 }
 
