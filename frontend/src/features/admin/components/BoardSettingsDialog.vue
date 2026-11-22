@@ -26,6 +26,8 @@ import { useDiscardGuard } from '@/features/admin/useDiscardGuard'
 import type {
   AccessGroup,
   AdminBoard,
+  AdminBoardCreateRequest,
+  AdminBoardPatchRequest,
   BoardAccessMode,
   ParticipationMode,
   RatingVisibility,
@@ -64,6 +66,7 @@ const form = reactive({
   accessGroupUuids: [] as string[],
 })
 const accessGroups = ref<AccessGroup[]>([])
+const accessGroupQuery = ref('')
 const accessGroupsLoading = ref(false)
 const accessGroupsError = ref<unknown>(null)
 const problems = ref<Record<string, string | undefined>>({})
@@ -92,7 +95,21 @@ const {
   close: () => emit('update:open', false),
 })
 
+const initialAccessMode = ref<BoardAccessMode>('PUBLIC')
+const gateChangeConfirmOpen = ref(false)
+const pendingWindow = ref<{ startsAt: string | null; endsAt: string | null } | null>(null)
 const legacyMode = computed(() => form.accessMode === 'LEGACY')
+const accessModeChanged = computed(() => form.accessMode !== initialAccessMode.value)
+// A legacy board has no canonical mode to send. Saving its name/dates must
+// never send one, or the server would normalize (and replace) its gates.
+const sendsCanonicalMode = computed(() => form.accessMode !== 'LEGACY')
+// Replacing or clearing a live gate set is the one access change that needs an
+// explicit acknowledgement, so a mode click cannot silently drop a group gate.
+const gateChangeNeedsConfirm = computed(() => {
+  if (!props.board || !accessModeChanged.value) return false
+  if (initialAccessMode.value === 'LEGACY') return false
+  return props.board.accessGroupUuids.length > 0 && form.accessMode !== 'AUDIENCE'
+})
 const showAudience = computed(() => form.accessMode === 'AUDIENCE')
 const showInvite = computed(() => form.accessMode === 'INVITE')
 const preview = computed(() => renderMarkdown(form.description))
@@ -106,6 +123,7 @@ watch(
     form.description = board?.description ?? ''
     form.participationMode = board?.participationMode ?? 'INDIVIDUAL'
     form.accessMode = board?.accessMode ?? 'PUBLIC'
+    initialAccessMode.value = board?.accessMode ?? 'PUBLIC'
     form.rating = board?.rating.visibility ?? 'PUBLIC'
     form.startsAt = board?.startsAt ? formatDateTimeLocal(new Date(board.startsAt)) : ''
     form.endsAt = board?.endsAt ? formatDateTimeLocal(new Date(board.endsAt)) : ''
@@ -120,8 +138,10 @@ watch(
     inviteCode.value = ''
     inviteError.value = null
     inviteCopied.value = false
+    accessGroupQuery.value = ''
     if (props.canManageAccessGroups) void loadAccessGroups()
     if (board && board.accessMode === 'INVITE') void loadInvite()
+    gateChangeConfirmOpen.value = false
     resetGuard()
   },
   { immediate: true },
@@ -144,7 +164,7 @@ async function loadAccessGroups() {
   accessGroupsLoading.value = true
   accessGroupsError.value = null
   try {
-    accessGroups.value = (await accessApi.listGroups(100, 0)).items
+    accessGroups.value = (await accessApi.listGroups(100, 0, accessGroupQuery.value.trim())).items
   } catch (caught) {
     accessGroupsError.value = caught
   } finally {
@@ -172,9 +192,6 @@ function toggleAccessGroup(uuid: string) {
 }
 
 function validateSettings(): string | undefined {
-  if (legacyMode.value) {
-    return 'This board uses a legacy access combination. Choose Public, Selected audiences or Invite code to continue.'
-  }
   if (showAudience.value && form.accessGroupUuids.length === 0) {
     return 'Choose at least one access group.'
   }
@@ -206,6 +223,17 @@ async function submit() {
     return
   }
 
+  if (gateChangeNeedsConfirm.value) {
+    pendingWindow.value = window
+    gateChangeConfirmOpen.value = true
+    return
+  }
+  await save(window)
+}
+
+async function save(window: { startsAt: string | null; endsAt: string | null }) {
+  gateChangeConfirmOpen.value = false
+  pendingWindow.value = null
   pending.value = true
   try {
     const teamSettings = form.participationMode === 'TEAM'
@@ -216,28 +244,32 @@ async function submit() {
           allowLeaveAfterStart: form.teamAllowLeaveAfterStart,
         }
       : null
-    const access = {
-      PUBLIC: { visibility: 'PUBLIC' as const, registrationMode: 'OPEN' as const, accessGroupUuids: [] },
-      AUDIENCE: { visibility: 'PRIVATE' as const, registrationMode: 'OPEN' as const, accessGroupUuids: form.accessGroupUuids },
-      INVITE: { visibility: 'PRIVATE' as const, registrationMode: 'INVITE_ONLY' as const, accessGroupUuids: [] },
-    }[form.accessMode as 'PUBLIC' | 'AUDIENCE' | 'INVITE']
-    const body = {
+    // Common fields. Access fields are added only for an explicit mode, so a
+    // legacy board can still have its name/dates edited without touching gates.
+    const body: AdminBoardPatchRequest = {
       slug: form.slug.trim(),
       name: form.name.trim(),
       description: form.description,
       participationMode: form.participationMode,
-      registrationMode: access.registrationMode,
-      visibility: access.visibility,
-      accessMode: form.accessMode as Exclude<BoardAccessMode, 'LEGACY'>,
       rating: { visibility: form.rating },
       startsAt: window.startsAt,
       endsAt: window.endsAt,
-      accessGroupUuids: access.accessGroupUuids,
       teamSettings,
+    }
+    if (sendsCanonicalMode.value) {
+      const access = {
+        PUBLIC: { visibility: 'PUBLIC' as const, registrationMode: 'OPEN' as const, accessGroupUuids: [] as string[] },
+        AUDIENCE: { visibility: 'PRIVATE' as const, registrationMode: 'OPEN' as const, accessGroupUuids: form.accessGroupUuids },
+        INVITE: { visibility: 'PRIVATE' as const, registrationMode: 'INVITE_ONLY' as const, accessGroupUuids: [] as string[] },
+      }[form.accessMode as 'PUBLIC' | 'AUDIENCE' | 'INVITE']
+      body.registrationMode = access.registrationMode
+      body.visibility = access.visibility
+      body.accessMode = form.accessMode
+      body.accessGroupUuids = access.accessGroupUuids
     }
     const saved = props.board
       ? await boardsApi.updateBoard(props.board.uuid, body)
-      : await boardsApi.createBoard(body)
+      : await boardsApi.createBoard(body as AdminBoardCreateRequest)
     emit('saved', saved)
     emit('update:open', false)
   } catch (caught) {
@@ -319,8 +351,9 @@ async function rotateInvite() {
           <fieldset class="space-y-2 border border-border p-3">
             <legend class="px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Access</legend>
             <p v-if="legacyMode" class="border border-gold/60 px-3 py-2 text-xs text-gold">
-              This board uses a legacy access combination. Its current read and join behaviour is preserved. Choose an
-              explicit mode below to update it; nothing changes automatically.
+              This board uses a legacy access combination, so none of the three modes is selected. Its current read and
+              join behaviour is preserved when you save the name, dates or other details. Choosing a mode below is an
+              explicit change; it replaces the old access rules.
             </p>
             <label
               v-for="mode in modes"
@@ -348,6 +381,12 @@ async function rotateInvite() {
               </ErrorAlert>
               <p v-else-if="accessGroupsLoading" class="text-xs text-muted-foreground">Loading access groups…</p>
               <template v-else-if="canManageAccessGroups">
+                <Input
+                  v-model="accessGroupQuery"
+                  placeholder="Search groups"
+                  aria-label="Search access groups"
+                  @update:model-value="loadAccessGroups"
+                />
                 <label v-for="group in accessGroups" :key="group.uuid" class="flex min-h-10 items-center gap-2 text-sm">
                   <Checkbox
                     :model-value="form.accessGroupUuids.includes(group.uuid)"
@@ -444,6 +483,16 @@ async function rotateInvite() {
     </DialogContent>
   </Dialog>
 
+  <ConfirmDialog
+    :open="gateChangeConfirmOpen"
+    title="Change board access?"
+    description="This board currently uses access groups. Switching away from Selected audiences replaces that group gate: non-members with an invite code, or anyone for Public, would be able to join. This cannot be undone by cancelling later."
+    confirm-label="Change access"
+    destructive
+    :pending="pending"
+    @update:open="(value) => { if (!value) gateChangeConfirmOpen = false }"
+    @confirm="pendingWindow ? save(pendingWindow) : undefined"
+  />
   <ConfirmDialog
     :open="discardConfirmOpen"
     title="Discard board changes?"

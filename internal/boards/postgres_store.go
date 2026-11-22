@@ -55,7 +55,8 @@ const boardColumns = `b.id, b.slug, b.name, b.description, b.participation_mode,
 	b.team_min_members, b.team_max_members, b.team_allow_self_create,
 	b.team_allow_leave_after_start, b.invite_code_expires_at,
 	(SELECT count(*) FROM modules m WHERE m.board_id = b.id),
-	COALESCE((SELECT array_agg(DISTINCT m.type ORDER BY m.type) FROM modules m WHERE m.board_id = b.id), '{}')`
+	COALESCE((SELECT array_agg(DISTINCT m.type ORDER BY m.type) FROM modules m WHERE m.board_id = b.id), '{}'),
+	(SELECT count(*) FROM board_access_groups bag WHERE bag.board_id = b.id)`
 
 type boardScanner interface {
 	Scan(dest ...any) error
@@ -88,6 +89,7 @@ func scanBoard(row boardScanner) (*Board, error) {
 		&board.InviteExpiresAt,
 		&board.ModulesCount,
 		&moduleTypes,
+		&board.AccessGroupCount,
 	)
 	if err != nil {
 		return nil, err
@@ -232,6 +234,7 @@ func (s *PostgresStore) ListBoards(ctx context.Context, filter BoardFilter) ([]B
 			&board.InviteExpiresAt,
 			&board.ModulesCount,
 			&moduleTypes,
+			&board.AccessGroupCount,
 			&effective,
 			&board.Joined,
 		); err != nil {
@@ -294,7 +297,7 @@ func (s *PostgresStore) CreateBoard(ctx context.Context, in CreateBoardParams, a
 			visibility, status, rating_visibility, starts_at, ends_at, created_by,
 			created_at, updated_at, team_min_members, team_max_members,
 			team_allow_self_create, team_allow_leave_after_start, invite_code_expires_at,
-			0, '{}'::text[]`,
+			0, '{}'::text[], 0`,
 		in.ID, in.Slug, in.Name, in.Description, in.ParticipationMode, in.RegistrationMode,
 		in.Visibility, in.Status, in.RatingVisibility, in.StartsAt, in.EndsAt, in.CreatedBy,
 		teamMin, teamMax, teamSelf, teamLeave, nullIfEmpty(in.InviteHash), in.InviteCiphertext, in.InviteExpiresAt,
@@ -355,7 +358,8 @@ func (s *PostgresStore) UpdateBoard(ctx context.Context, id uuid.UUID, in Update
 			created_at, updated_at, team_min_members, team_max_members,
 			team_allow_self_create, team_allow_leave_after_start, invite_code_expires_at,
 			(SELECT count(*) FROM modules m WHERE m.board_id = boards.id),
-			COALESCE((SELECT array_agg(DISTINCT m.type ORDER BY m.type) FROM modules m WHERE m.board_id = boards.id), '{}')`,
+			COALESCE((SELECT array_agg(DISTINCT m.type ORDER BY m.type) FROM modules m WHERE m.board_id = boards.id), '{}'),
+			(SELECT count(*) FROM board_access_groups bag WHERE bag.board_id = boards.id)`,
 		id, in.Slug, in.Name, in.Description, in.ParticipationMode, in.RegistrationMode,
 		in.Visibility, in.RatingVisibility, in.StartsAt, in.EndsAt,
 		in.TeamSettingsSet, teamMin, teamMax, teamSelf, teamLeave,
@@ -457,7 +461,8 @@ func (s *PostgresStore) UpdateBoardStatus(ctx context.Context, id uuid.UUID, sta
 			created_at, updated_at, team_min_members, team_max_members,
 			team_allow_self_create, team_allow_leave_after_start, invite_code_expires_at,
 			(SELECT count(*) FROM modules m WHERE m.board_id = boards.id),
-			COALESCE((SELECT array_agg(DISTINCT m.type ORDER BY m.type) FROM modules m WHERE m.board_id = boards.id), '{}')`,
+			COALESCE((SELECT array_agg(DISTINCT m.type ORDER BY m.type) FROM modules m WHERE m.board_id = boards.id), '{}'),
+			(SELECT count(*) FROM board_access_groups bag WHERE bag.board_id = boards.id)`,
 		id, status))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrBoardNotFound

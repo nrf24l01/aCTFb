@@ -135,6 +135,10 @@ type Board struct {
 
 	TeamSettings     *TeamSettings
 	AccessGroupUUIDs []uuid.UUID
+	// AccessGroupCount is the projected number of access groups. List/detail
+	// reads populate it so AccessMode() is correct without loading group
+	// identifiers, and the public projection never exposes those identifiers.
+	AccessGroupCount int
 	InviteExpiresAt  *time.Time
 }
 
@@ -155,20 +159,36 @@ func (b Board) EffectiveStatus(now time.Time) BoardStatus {
 }
 
 // AccessMode projects the legacy triple onto the canonical three-option mode.
-// Only unambiguous combinations map to PUBLIC/AUDIENCE/INVITE. Everything else
-// is LEGACY so old boards keep their existing read/join behaviour and the UI
-// can ask the organizer for an explicit choice instead of silently converting.
+// The mapping is exact and deliberately narrow:
+//
+//	PUBLIC   = PUBLIC   + OPEN        + no access groups
+//	AUDIENCE = PRIVATE  + OPEN        + at least one access group
+//	INVITE   = PRIVATE  + INVITE_ONLY + no access groups
+//
+// Every other combination is LEGACY, including PRIVATE+INVITE_ONLY+groups and
+// CLOSED, so old boards keep their existing read/join behaviour and the UI can
+// ask the organizer for an explicit choice instead of silently converting or
+// dropping a group gate.
 func (b Board) AccessMode() string {
+	hasGroups := b.HasAccessGroups()
 	switch {
-	case b.Visibility == VisibilityPublic && b.RegistrationMode == RegistrationOpen && len(b.AccessGroupUUIDs) == 0:
+	case b.Visibility == VisibilityPublic && b.RegistrationMode == RegistrationOpen && !hasGroups:
 		return AccessModePublic
-	case b.Visibility == VisibilityPrivate && b.RegistrationMode == RegistrationOpen && len(b.AccessGroupUUIDs) > 0:
+	case b.Visibility == VisibilityPrivate && b.RegistrationMode == RegistrationOpen && hasGroups:
 		return AccessModeAudience
-	case b.Visibility == VisibilityPrivate && b.RegistrationMode == RegistrationInviteOnly:
+	case b.Visibility == VisibilityPrivate && b.RegistrationMode == RegistrationInviteOnly && !hasGroups:
 		return AccessModeInvite
 	default:
 		return AccessModeLegacy
 	}
+}
+
+// HasAccessGroups reports whether the board is gated by any access group. It
+// accepts either the hydrated UUID list (admin read/update paths) or the count
+// projected by the list/detail SQL, so a projection never has to load group
+// identifiers just to derive the mode.
+func (b Board) HasAccessGroups() bool {
+	return len(b.AccessGroupUUIDs) > 0 || b.AccessGroupCount > 0
 }
 
 // Module is the domain view of a board module. Status is derived from enabled,

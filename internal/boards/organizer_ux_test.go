@@ -116,3 +116,44 @@ func TestManualOnlyModuleIsPublishable(t *testing.T) {
 		t.Fatal("manual task type missing")
 	}
 }
+
+func TestBoardAccessModeLegacyCombinationsStayLegacy(t *testing.T) {
+	group := uuid.New()
+	cases := []struct {
+		name  string
+		board Board
+	}{
+		{"private invite with groups keeps the group gate", Board{Visibility: VisibilityPrivate, RegistrationMode: RegistrationInviteOnly, AccessGroupUUIDs: []uuid.UUID{group}}},
+		{"private invite with projected group count", Board{Visibility: VisibilityPrivate, RegistrationMode: RegistrationInviteOnly, AccessGroupCount: 1}},
+		{"private closed", Board{Visibility: VisibilityPrivate, RegistrationMode: RegistrationClosed}},
+		{"private open without groups", Board{Visibility: VisibilityPrivate, RegistrationMode: RegistrationOpen}},
+		{"public invite", Board{Visibility: VisibilityPublic, RegistrationMode: RegistrationInviteOnly}},
+		{"public with groups", Board{Visibility: VisibilityPublic, RegistrationMode: RegistrationOpen, AccessGroupUUIDs: []uuid.UUID{group}}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := testCase.board.AccessMode(); got != AccessModeLegacy {
+				t.Fatalf("AccessMode() = %s, want LEGACY", got)
+			}
+		})
+	}
+}
+
+func TestSameUUIDSetIgnoresOrderAndDuplicates(t *testing.T) {
+	a, b := uuid.New(), uuid.New()
+	if !sameUUIDSet([]uuid.UUID{a, b}, []uuid.UUID{b, a}) {
+		t.Fatal("same set in a different order must compare equal")
+	}
+	if !sameUUIDSet([]uuid.UUID{a, a, b}, []uuid.UUID{a, b}) {
+		t.Fatal("duplicates must be collapsed")
+	}
+	if sameUUIDSet([]uuid.UUID{a}, []uuid.UUID{a, b}) {
+		t.Fatal("a larger set must differ")
+	}
+	if !sameUUIDSet(nil, []uuid.UUID{}) {
+		t.Fatal("nil and empty must compare equal")
+	}
+	if sameUUIDSet(nil, []uuid.UUID{a}) {
+		t.Fatal("empty must differ from a populated set")
+	}
+}

@@ -24891,8 +24891,10 @@ paths:
       - Site
       summary: Public landing content
       description: Anonymous, whitelisted projection of the organizer-controlled landing document. Never includes
-        email addresses, tokens, actor identity or configuration keys.
+        email addresses, tokens, actor identity or configuration keys. While the document is unpublished it
+        returns the safe built-in fallback, never the draft title or body.
       operationId: getPublicSite
+      security: []
       responses:
         '200':
           description: Public landing projection.
@@ -25068,6 +25070,17 @@ paths:
         required: false
         type: string
         maxLength: 320
+      - name: scope
+        in: query
+        required: false
+        type: string
+        default: PARTICIPANTS
+        enum:
+        - PARTICIPANTS
+        - DIRECTORY
+        description: 'PARTICIPANTS (default) returns only current board participants, which is what audience
+          and team membership can accept. DIRECTORY returns the global user table and additionally requires
+          board.participants.manage or board.staff.manage; an audience-only manager is refused.'
       responses:
         '200':
           description: Bounded board-scoped user page.
@@ -26963,6 +26976,59 @@ definitions:
       parametersPolicy:
         type: object
         additionalProperties: true
+      parameters:
+        type: array
+        description: Safe projection of the immutable published manifest's parameter definitions. It never
+          includes files, environment values, provider credentials or native IDs, and a secret parameter's
+          default is always blank.
+        items:
+          $ref: '#/definitions/ApprovedTemplateParameter'
+
+  ApprovedTemplateParameter:
+    type: object
+    additionalProperties: false
+    required:
+    - key
+    - label
+    - type
+    - required
+    - secret
+    properties:
+      key:
+        type: string
+        minLength: 1
+        maxLength: 128
+      label:
+        type: string
+        maxLength: 256
+      type:
+        type: string
+        enum:
+        - string
+        - int
+        - integer
+        - number
+        - bool
+        - boolean
+        - choice
+        - textarea
+        description: Declared parameter type. The UI renders a matching control and the server re-validates
+          against the immutable manifest.
+      options:
+        type: array
+        uniqueItems: true
+        items:
+          type: string
+          maxLength: 256
+      default:
+        type: string
+        maxLength: 4096
+        description: Declared non-secret default. Always blank for a secret parameter.
+      required:
+        type: boolean
+      secret:
+        type: boolean
+        description: Write-only value; never returned and never echoed in a task or instance response.
 
   ApprovedInstanceTemplateListResponse:
     type: object

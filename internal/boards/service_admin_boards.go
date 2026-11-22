@@ -99,6 +99,7 @@ func (s *Service) AdminCreateBoard(ctx context.Context, principal authorization.
 	created.Status = BoardStatusDraft
 	created.TeamSettings = board.TeamSettings
 	created.AccessGroupUUIDs = board.AccessGroupUUIDs
+	created.AccessGroupCount = len(board.AccessGroupUUIDs)
 	return created, nil
 }
 
@@ -130,6 +131,7 @@ func (s *Service) AdminGetBoard(ctx context.Context, principal authorization.Pri
 			return nil, groupErr
 		}
 		board.AccessGroupUUIDs = groups
+		board.AccessGroupCount = len(groups)
 	}
 	return board, nil
 }
@@ -195,13 +197,18 @@ func (s *Service) AdminUpdateBoard(
 			return nil, err
 		}
 	}
+	// Persist the access-group gate whenever the *merged* set differs from the
+	// current one, not only when the client repeated accessGroupUuids. A
+	// canonical `{"accessMode":"PUBLIC"}` PATCH therefore clears the rows it
+	// normalized away instead of returning a response the database contradicts.
+	replaceGroups := input.AccessGroupUUIDs.Set || !sameUUIDSet(current.AccessGroupUUIDs, merged.AccessGroupUUIDs)
 	params := UpdateBoardParams{
 		Slug: merged.Slug, Name: merged.Name, Description: merged.Description,
 		ParticipationMode: merged.ParticipationMode, RegistrationMode: merged.RegistrationMode,
 		Visibility: merged.Visibility, RatingVisibility: merged.RatingVisibility,
 		StartsAt: merged.StartsAt, EndsAt: merged.EndsAt,
 		TeamSettings: merged.TeamSettings, TeamSettingsSet: input.TeamSettings != nil || input.ClearTeamSettings,
-		AccessGroupUUIDs: merged.AccessGroupUUIDs, ReplaceAccessGroups: input.AccessGroupUUIDs.Set,
+		AccessGroupUUIDs: merged.AccessGroupUUIDs, ReplaceAccessGroups: replaceGroups,
 	}
 	if (input.RegistrationMode.Set || input.AccessMode.Set) && merged.RegistrationMode == RegistrationInviteOnly {
 		if _, _, _, err := s.store.GetBoardInvite(ctx, boardID); err != nil {
@@ -223,8 +230,32 @@ func (s *Service) AdminUpdateBoard(
 		return nil, err
 	}
 	updated.Status = updated.EffectiveStatus(s.clock.Now())
-	updated.TeamSettings, updated.AccessGroupUUIDs = merged.TeamSettings, merged.AccessGroupUUIDs
+	updated.TeamSettings = merged.TeamSettings
+	updated.AccessGroupUUIDs = merged.AccessGroupUUIDs
+	updated.AccessGroupCount = len(merged.AccessGroupUUIDs)
 	return updated, nil
+}
+
+// sameUUIDSet compares two access-group gates as sets. Order is irrelevant and
+// duplicates are collapsed, so a no-op reorder never rewrites the table.
+func sameUUIDSet(left, right []uuid.UUID) bool {
+	leftSet := make(map[uuid.UUID]struct{}, len(left))
+	for _, id := range left {
+		leftSet[id] = struct{}{}
+	}
+	rightSet := make(map[uuid.UUID]struct{}, len(right))
+	for _, id := range right {
+		rightSet[id] = struct{}{}
+	}
+	if len(leftSet) != len(rightSet) {
+		return false
+	}
+	for id := range leftSet {
+		if _, ok := rightSet[id]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func mergeBoard(current *Board, input UpdateBoardInput) (Board, error) {
