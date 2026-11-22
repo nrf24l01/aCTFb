@@ -36,8 +36,12 @@ const emit = defineEmits<{
   (event: 'saved'): void
 }>()
 
-type FormatKey = 'FLAG' | 'MANUAL' | 'INSTANCE' | 'PENTEST' | 'ATTACK_DEFENSE'
+type FormatKey = 'FLAG' | 'MANUAL' | 'INSTANCE' | 'PENTEST' | 'ATTACK_DEFENSE' | 'EXTENSION'
 
+// Only formats backed by a native workflow are offered for a NEW module. An
+// installed plugin format is not a free-form choice: it needs registered
+// capability metadata, so an existing EXTENSION module is edited in place with
+// its format read-only instead of being re-mapped to a native type.
 const formats: Array<{ key: FormatKey; label: string; type: ModuleType; allowed: TaskType[] }> = [
   { key: 'FLAG', label: 'Flag challenges', type: 'TASKS', allowed: ['FLAG'] },
   { key: 'MANUAL', label: 'Manual review', type: 'TASKS', allowed: ['MANUAL'] },
@@ -48,6 +52,7 @@ const formats: Array<{ key: FormatKey; label: string; type: ModuleType; allowed:
 
 function formatForModule(module: AdminModule | null | undefined): FormatKey {
   if (!module) return 'FLAG'
+  if (module.type === 'EXTENSION') return 'EXTENSION'
   if (module.type === 'PENTEST') return 'PENTEST'
   if (module.type === 'ATTACK_DEFENSE') return 'ATTACK_DEFENSE'
   const single = module.allowedTaskTypes.length === 1 ? module.allowedTaskTypes[0] : undefined
@@ -88,6 +93,12 @@ const pending = ref(false)
 const isEdit = computed(() => Boolean(props.module))
 const isLegacyMixed = computed(() => Boolean(props.module?.legacyMixed))
 const selectedFormat = computed(() => formats.find((entry) => entry.key === form.format) ?? formats[0])
+const isExtension = computed(() => form.format === 'EXTENSION')
+// Read-only identity for an installed plugin module. No new extension selector
+// is invented: the value is the actual stored type, key and task-type list.
+const extensionLabel = computed(
+  () => `Extension: ${props.module?.extensionKey || 'unknown'} (unavailable)`,
+)
 const isInstance = computed(() => form.format === 'INSTANCE')
 const preview = computed(() => renderMarkdown(form.description))
 
@@ -98,9 +109,9 @@ watch(
     form.name = module?.name ?? ''
     form.description = module?.description ?? ''
     form.format = formatForModule(module)
-    form.legacyTaskType = module && module.allowedTaskTypes.length > 1
-      ? (module.allowedTaskTypes[0] as TaskType)
-      : ''
+    // Never preselect a type: an unrelated name/enabled save must not silently
+    // resolve a legacy mixed module. Only an explicit choice narrows it.
+    form.legacyTaskType = ''
     form.audienceMode = module && module.audienceUuids.length > 0 ? 'SELECTED' : 'EVERYONE'
     form.audienceUuids = [...(module?.audienceUuids ?? [])]
     form.enabled = module?.enabled ?? true
@@ -143,6 +154,12 @@ function validateSettings(): string | undefined {
 }
 
 function allowedTaskTypes(): TaskType[] {
+  if (isExtension.value) {
+    // Preserve exactly what the installed provider declared. Changing it would
+    // be a format change, which is not offered here.
+    const existing = props.module?.allowedTaskTypes ?? []
+    return existing.length > 0 ? [...existing] : ['EXTENSION']
+  }
   if (isLegacyMixed.value) {
     return form.legacyTaskType ? [form.legacyTaskType] : (props.module?.allowedTaskTypes ?? [])
   }
@@ -242,7 +259,12 @@ async function submit() {
             </Tabs>
           </div>
 
-          <FormField label="Format" for-id="module-format" :error="problems.window" hint="Immutable after creation.">
+          <FormField v-if="isExtension" label="Format" for-id="module-format" hint="Installed plugin format. It cannot be changed here.">
+            <p id="module-format" class="border border-border px-2 py-1.5 text-sm text-muted-foreground">
+              {{ extensionLabel }}
+            </p>
+          </FormField>
+          <FormField v-else label="Format" for-id="module-format" :error="problems.window" hint="Immutable after creation.">
             <select
               id="module-format"
               v-model="form.format"
