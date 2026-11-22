@@ -26,6 +26,8 @@ import {
 } from '@/features/admin/validation'
 import { buildCreateTaskRequest, buildSubmissionPolicy, buildUpdateTaskRequest } from '@/features/admin/taskPayload'
 import {
+  fromTemplateParameters,
+  hasUnsupportedPolicy,
   initialParameterValues,
   parseParameterPolicy,
   type TemplateParameterField,
@@ -114,6 +116,11 @@ const approvedTemplates = ref<ApprovedInstanceTemplate[]>([])
 const templatesLoading = ref(false)
 const templatesError = ref<unknown>(null)
 const parameterFields = ref<TemplateParameterField[]>([])
+// Set when the approved template's allowlist carries a restriction the server
+// does not support yet, so the dialog shows an actionable operator error rather
+// than an empty (and misleading) "no parameters" state.
+const unsupportedPolicy = ref(false)
+const templateHasNoParameters = ref(false)
 
 watch(
   () => [props.open, props.task] as const,
@@ -140,6 +147,8 @@ watch(
     form.parameters = {}
     form.secretParameters = {}
     parameterFields.value = []
+    unsupportedPolicy.value = false
+    templateHasNoParameters.value = false
     problems.value = {}
     error.value = null
     templatesError.value = null
@@ -204,9 +213,17 @@ function selectApprovedTemplate(value: unknown) {
   if (!template) return
   form.deploymentTemplateUuid = template.templateUuid
   form.templateVersion = template.version
-  parameterFields.value = parseParameterPolicy(template.parametersPolicy)
+  unsupportedPolicy.value = hasUnsupportedPolicy(template.parametersPolicy)
+  // The published manifest projection is the source of truth. The operator
+  // allowlist policy is a restriction, never a field schema.
+  const declared = template.parameters ?? []
+  parameterFields.value = declared.length > 0
+    ? fromTemplateParameters(declared)
+    : parseParameterPolicy(template.parametersPolicy)
+  templateHasNoParameters.value = parameterFields.value.length === 0
   form.parameters = initialParameterValues(parameterFields.value.filter((field) => !field.secret))
-  form.secretParameters = initialParameterValues(parameterFields.value.filter((field) => field.secret))
+  // Secret inputs always start blank: a stored secret is write-only.
+  form.secretParameters = {}
 }
 
 function instanceProblem(): string | undefined {
@@ -470,7 +487,14 @@ async function submit() {
                   </select>
                 </FormField>
 
-                <div v-if="parameterFields.length > 0" class="space-y-3 border-t border-border pt-3">
+                <div v-if="unsupportedPolicy" class="space-y-2 border border-gold/60 p-3">
+                  <p class="text-xs text-gold">
+                    This template's allowlist declares a parameter restriction that is not supported yet, so the task
+                    cannot bind. Ask an operator to clear <code>parametersPolicy</code> on the allowlist: template
+                    parameters are validated from the published manifest instead.
+                  </p>
+                </div>
+                <div v-else-if="parameterFields.length > 0" class="space-y-3 border-t border-border pt-3">
                   <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Template parameters</p>
                   <FormField
                     v-for="field in parameterFields.filter((entry) => !entry.secret)"
@@ -524,6 +548,9 @@ async function submit() {
                     </FormField>
                   </template>
                 </div>
+                <p v-else-if="templateHasNoParameters" class="text-xs text-muted-foreground">
+                  This template declares no parameters, so the task binds with its defaults.
+                </p>
                 <p v-if="problems.instance" class="text-xs text-love">{{ problems.instance }}</p>
               </template>
             </template>

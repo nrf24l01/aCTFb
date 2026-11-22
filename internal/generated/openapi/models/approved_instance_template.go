@@ -5,10 +5,12 @@ package models
 import (
 	"context"
 	stderrors "errors"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag/jsonutils"
+	"github.com/go-openapi/swag/typeutils"
 	"github.com/go-openapi/validate"
 )
 
@@ -22,6 +24,9 @@ type ApprovedInstanceTemplate struct {
 	// Max Length: 128
 	// Min Length: 1
 	Name *string `json:"name"`
+
+	// Safe projection of the immutable published manifest's parameter definitions. It never includes files, environment values, provider credentials or native IDs, and a secret parameter's default is always blank.
+	Parameters []*ApprovedTemplateParameter `json:"parameters"`
 
 	// parameters policy
 	ParametersPolicy any `json:"parametersPolicy,omitempty"`
@@ -48,6 +53,10 @@ func (m *ApprovedInstanceTemplate) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateName(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateParameters(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -81,6 +90,36 @@ func (m *ApprovedInstanceTemplate) validateName(formats strfmt.Registry) error {
 
 	if err := validate.MaxLength("name", "body", *m.Name, 128); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (m *ApprovedInstanceTemplate) validateParameters(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.Parameters) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Parameters); i++ {
+		if typeutils.IsZero(m.Parameters[i]) { // not required
+			continue
+		}
+
+		if m.Parameters[i] != nil {
+			if err := m.Parameters[i].Validate(formats); err != nil {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
+					return ve.ValidateName("parameters" + "." + strconv.Itoa(i))
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
+					return ce.ValidateName("parameters" + "." + strconv.Itoa(i))
+				}
+
+				return err
+			}
+		}
+
 	}
 
 	return nil
@@ -144,6 +183,10 @@ func (m *ApprovedInstanceTemplate) validateVersion(formats strfmt.Registry) erro
 func (m *ApprovedInstanceTemplate) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.contextValidateParameters(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateTemplateUUID(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -151,6 +194,35 @@ func (m *ApprovedInstanceTemplate) ContextValidate(ctx context.Context, formats 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ApprovedInstanceTemplate) contextValidateParameters(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Parameters); i++ {
+
+		if m.Parameters[i] != nil {
+
+			if typeutils.IsZero(m.Parameters[i]) { // not required
+				continue
+			}
+
+			if err := m.Parameters[i].ContextValidate(ctx, formats); err != nil {
+				ve := new(errors.Validation)
+				if stderrors.As(err, &ve) {
+					return ve.ValidateName("parameters" + "." + strconv.Itoa(i))
+				}
+				ce := new(errors.CompositeError)
+				if stderrors.As(err, &ce) {
+					return ce.ValidateName("parameters" + "." + strconv.Itoa(i))
+				}
+
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 

@@ -170,8 +170,13 @@ func TestSiteUnpublishedHidesDraftIntroFromPublic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("public: %v", err)
 	}
-	if public.IntroMarkdown != "" || public.Published {
-		t.Fatalf("unpublished public = %#v", public)
+	// Neither the draft body nor the draft title is disclosed; the safe fallback
+	// is served instead.
+	if public.IntroMarkdown == markdown || public.Title == title || public.Published {
+		t.Fatalf("unpublished public leaked draft state = %#v", public)
+	}
+	if public.Title == "" || public.IntroMarkdown == "" {
+		t.Fatalf("unpublished public must serve the meaningful fallback, got %#v", public)
 	}
 	admin, err := svc.Admin(ctx, authorization.Principal{UserID: adminID})
 	if err != nil {
@@ -189,5 +194,90 @@ func TestSiteRejectsOversizedIntro(t *testing.T) {
 	big := strings.Repeat("a", 128*1024+1)
 	if _, err := svc.Update(context.Background(), authorization.Principal{UserID: adminID}, UpdateInput{IntroMarkdown: &big}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("oversized intro err = %v, want invalid input", err)
+	}
+}
+
+// TestSiteUnpublishedNeverLeaksDraftIdentity pins the anonymity boundary: while
+// a document is unpublished, neither its draft title nor its body may reach an
+// anonymous caller, and the safe fallback is served instead.
+func TestSiteUnpublishedNeverLeaksDraftIdentity(t *testing.T) {
+	db := newSiteTestDB(t)
+	svc := NewService(db)
+	ctx := context.Background()
+	adminID := insertSiteUser(t, db, "admin", true, false)
+
+	title := "Secret Autumn Draft"
+	markdown := "unreleased challenge list"
+	published := false
+	if _, err := svc.Update(ctx, authorization.Principal{UserID: adminID},
+		UpdateInput{Title: &title, IntroMarkdown: &markdown, Published: &published}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	public, err := svc.Public(ctx)
+	if err != nil {
+		t.Fatalf("public: %v", err)
+	}
+	if public.Title == title {
+		t.Fatal("anonymous projection leaked the draft title")
+	}
+	if public.IntroMarkdown == markdown {
+		t.Fatal("anonymous projection leaked the draft body")
+	}
+	if public.Title == "" || public.IntroMarkdown == "" {
+		t.Fatal("unpublished projection must still serve the meaningful fallback")
+	}
+	if public.Published {
+		t.Fatal("unpublished projection reported published=true")
+	}
+}
+
+// TestSiteConcurrentDifferentFieldSavesBothPersist proves the singleton row is
+// read under a row lock, so two admins editing different fields cannot lose one
+// another's change.
+func TestSiteConcurrentDifferentFieldSavesBothPersist(t *testing.T) {
+	db := newSiteTestDB(t)
+	svc := NewService(db)
+	ctx := context.Background()
+	adminID := insertSiteUser(t, db, "admin", true, false)
+	admin := authorization.Principal{UserID: adminID}
+
+	// Establish a known baseline.
+	baseTitle := "Baseline title"
+	baseIntro := "baseline intro"
+	if _, err := svc.Update(ctx, admin, UpdateInput{Title: &baseTitle, IntroMarkdown: &baseIntro}); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	title := "Concurrent title"
+	intro := "concurrent intro"
+	errs := make(chan error, 2)
+	start := make(chan struct{})
+	go func() {
+		<-start
+		_, err := svc.Update(context.Background(), admin, UpdateInput{Title: &title})
+		errs <- err
+	}()
+	go func() {
+		<-start
+		_, err := svc.Update(context.Background(), admin, UpdateInput{IntroMarkdown: &intro})
+		errs <- err
+	}()
+	close(start)
+	for i := 0; i < 2; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent update: %v", err)
+		}
+	}
+
+	final, err := svc.Admin(ctx, admin)
+	if err != nil {
+		t.Fatalf("admin read: %v", err)
+	}
+	if final.Title != title {
+		t.Fatalf("title = %q, want %q (a concurrent save was lost)", final.Title, title)
+	}
+	if final.IntroMarkdown != intro {
+		t.Fatalf("intro = %q, want %q (a concurrent save was lost)", final.IntroMarkdown, intro)
 	}
 }

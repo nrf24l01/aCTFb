@@ -7,12 +7,26 @@ import type {
   InstanceActionRequest,
 } from '@/shared/types/api'
 
+export interface ApprovedTemplateParameter {
+  key: string
+  label: string
+  type: string
+  options?: string[]
+  /** Always blank for a secret parameter; a secret default is never disclosed. */
+  default?: string
+  required: boolean
+  secret: boolean
+}
+
 export interface ApprovedInstanceTemplate {
   templateUuid: string
   version: number
   slug: string
   name: string
+  /** Operator allowlist restriction. Non-empty values are not supported yet. */
   parametersPolicy?: Record<string, unknown>
+  /** Safe projection of the published manifest's parameter definitions. */
+  parameters?: ApprovedTemplateParameter[]
 }
 
 export interface InstanceListQuery {

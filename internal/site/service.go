@@ -24,6 +24,7 @@ const (
 	maxIntroBytes  = 128 * 1024
 	adminAction    = "site.update"
 	resourceName   = "site_settings"
+	fallbackTitle  = "Welcome"
 )
 
 var (
@@ -65,8 +66,16 @@ func NewService(db *postgres.DB) *Service {
 	return &Service{db: db}
 }
 
-// Public returns the anonymous projection. Unpublished documents expose the
-// title and the published flag but never the draft Markdown body.
+// fallbackIntro is the meaningful built-in landing content used when no site
+// document is published. It is deliberately generic: an unpublished draft must
+// never leak its own title or body to an anonymous visitor.
+const fallbackIntro = `This is the challenge board. Browse the open boards to get started.
+
+- Sign in to join a board and submit answers.
+- Organizers can edit this introduction under **Admin → Site**.`
+
+// Public returns the anonymous projection. An unpublished document discloses
+// neither its draft title nor its draft body: it returns the safe fallback.
 func (s *Service) Public(ctx context.Context) (*PublicSettings, error) {
 	if s == nil || s.db == nil || s.db.Pool == nil {
 		return nil, ErrNoDatabase
@@ -75,10 +84,15 @@ func (s *Service) Public(ctx context.Context) (*PublicSettings, error) {
 	if err != nil {
 		return nil, err
 	}
-	public := settings.PublicSettings
-	if !public.Published {
-		public.IntroMarkdown = ""
+	if !settings.Published {
+		return &PublicSettings{
+			Title:         fallbackTitle,
+			IntroMarkdown: fallbackIntro,
+			Published:     false,
+			UpdatedAt:     settings.UpdatedAt,
+		}, nil
 	}
+	public := settings.PublicSettings
 	return &public, nil
 }
 
@@ -107,12 +121,17 @@ func (s *Service) Update(ctx context.Context, principal authorization.Principal,
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	actorID, err := requireGlobalAdmin(ctx, tx, principal)
+	// FOR SHARE pins the admin row for the transaction so a concurrent demotion
+	// cannot race the write, matching the access service's write paths.
+	actorID, err := requireGlobalAdminForShare(ctx, tx, principal)
 	if err != nil {
 		return nil, err
 	}
 
-	current, err := loadSettings(ctx, tx)
+	// Lock the singleton row before reading it. Without this, two concurrent
+	// saves of different fields would each write the whole row and silently
+	// overwrite the other's change.
+	current, err := loadSettingsForUpdate(ctx, tx)
 	if err != nil {
 		return nil, err
 	}
@@ -180,18 +199,38 @@ type rowQuerier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
+// loadSettingsForUpdate reads the singleton with a row lock inside the caller's
+// transaction, so the read-modify-write of the document is serialized.
+func loadSettingsForUpdate(ctx context.Context, q rowQuerier) (*AdminSettings, error) {
+	return loadSettingsWithQuery(ctx, q, `
+		SELECT title, intro_markdown, published, updated_at, updated_by_user_id
+		FROM site_settings WHERE id = true FOR UPDATE
+	`)
+}
+
 func loadSettings(ctx context.Context, q rowQuerier) (*AdminSettings, error) {
-	var settings AdminSettings
-	var updatedBy *uuid.UUID
-	err := q.QueryRow(ctx, `
+	return loadSettingsWithQuery(ctx, q, `
 		SELECT title, intro_markdown, published, updated_at, updated_by_user_id
 		FROM site_settings WHERE id = true
-	`).Scan(&settings.Title, &settings.IntroMarkdown, &settings.Published, &settings.UpdatedAt, &updatedBy)
+	`)
+}
+
+func loadSettingsWithQuery(ctx context.Context, q rowQuerier, query string) (*AdminSettings, error) {
+	var settings AdminSettings
+	var updatedBy *uuid.UUID
+	err := q.QueryRow(ctx, query).Scan(
+		&settings.Title, &settings.IntroMarkdown, &settings.Published, &settings.UpdatedAt, &updatedBy,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// A deployment upgraded before 018 or a manually truncated table still
 		// gets a safe default instead of a 500.
 		return &AdminSettings{
-			PublicSettings: PublicSettings{Title: "Welcome", Published: false, UpdatedAt: time.Now().UTC()},
+			PublicSettings: PublicSettings{
+				Title:         fallbackTitle,
+				IntroMarkdown: fallbackIntro,
+				Published:     false,
+				UpdatedAt:     time.Now().UTC(),
+			},
 		}, nil
 	}
 	if err != nil {
@@ -202,7 +241,15 @@ func loadSettings(ctx context.Context, q rowQuerier) (*AdminSettings, error) {
 	return &settings, nil
 }
 
+func requireGlobalAdminForShare(ctx context.Context, q rowQuerier, principal authorization.Principal) (uuid.UUID, error) {
+	return requireGlobalAdminWithLock(ctx, q, principal, " FOR SHARE")
+}
+
 func requireGlobalAdmin(ctx context.Context, q rowQuerier, principal authorization.Principal) (uuid.UUID, error) {
+	return requireGlobalAdminWithLock(ctx, q, principal, "")
+}
+
+func requireGlobalAdminWithLock(ctx context.Context, q rowQuerier, principal authorization.Principal, lock string) (uuid.UUID, error) {
 	if principal.UserID == uuid.Nil {
 		return uuid.Nil, ErrUnauthorized
 	}
@@ -210,7 +257,7 @@ func requireGlobalAdmin(ctx context.Context, q rowQuerier, principal authorizati
 	var roles []string
 	err := q.QueryRow(ctx, `
 		SELECT disabled, COALESCE(roles, ARRAY['user']::text[]) FROM users WHERE id = $1
-	`, principal.UserID).Scan(&disabled, &roles)
+	`+lock, principal.UserID).Scan(&disabled, &roles)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return uuid.Nil, ErrUnauthorized
 	}

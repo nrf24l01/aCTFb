@@ -59,9 +59,23 @@ func (h *Handler) ListApprovedInstanceTemplates(c *echo.Context) error {
 		if len(item.ParametersPolicy) > 0 {
 			_ = json.Unmarshal(item.ParametersPolicy, &policy)
 		}
+		parameters := make([]*models.ApprovedTemplateParameter, 0, len(item.Parameters))
+		for _, parameter := range item.Parameters {
+			key := parameter.Key
+			label := parameter.Label
+			paramType := parameter.Type
+			options := append([]string(nil), parameter.Options...)
+			defaultValue := parameter.Default
+			required := parameter.Required
+			secret := parameter.Secret
+			parameters = append(parameters, &models.ApprovedTemplateParameter{
+				Key: &key, Label: &label, Type: &paramType, Options: options,
+				Default: defaultValue, Required: &required, Secret: &secret,
+			})
+		}
 		response = append(response, &models.ApprovedInstanceTemplate{
 			TemplateUUID: &templateUUID, Slug: &slug, Name: &name, Version: &version,
-			ParametersPolicy: policy,
+			ParametersPolicy: policy, Parameters: parameters,
 		})
 	}
 	return c.JSON(http.StatusOK, &models.ApprovedInstanceTemplateListResponse{Items: response})

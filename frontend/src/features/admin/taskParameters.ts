@@ -1,7 +1,66 @@
 /**
- * Normalises the operator-supplied template `parametersPolicy` into typed form
- * fields. The backend stores this policy as raw JSON, so the UI accepts the two
- * documented shapes:
+ * The authoritative source for the typed parameter form is the approved
+ * immutable template's published-manifest `parameters` projection. It carries
+ * only parameter definitions, and a secret parameter never carries a default.
+ *
+ * `parametersPolicy` (the operator allowlist restriction) is NOT a field schema
+ * and is not interpreted as one: a non-empty policy is still rejected by the
+ * server, so the UI surfaces that as an unsupported configuration instead of
+ * pretending the form works.
+ */
+export function fromTemplateParameters(parameters: ApprovedTemplateParameter[]): TemplateParameterField[] {
+  const fields: TemplateParameterField[] = []
+  for (const parameter of parameters) {
+    if (!parameter.key) continue
+    const options = parameter.options ?? []
+    fields.push({
+      key: parameter.key,
+      label: parameter.label || parameter.key,
+      type: normalizeDeclaredType(parameter.type, options.length > 0),
+      options,
+      // A secret default is never sent; even if a server bug echoed one, it is
+      // dropped here so the input always starts blank.
+      defaultValue: parameter.secret ? '' : (parameter.default ?? ''),
+      required: parameter.required === true,
+      secret: parameter.secret === true,
+    })
+  }
+  return fields
+}
+
+function normalizeDeclaredType(declared: string, hasOptions: boolean): TemplateParameterField['type'] {
+  const value = (declared || '').toLowerCase()
+  switch (value) {
+    case 'int':
+    case 'integer':
+    case 'number':
+      return 'number'
+    case 'bool':
+    case 'boolean':
+      return 'boolean'
+    case 'choice':
+    case 'select':
+      return 'select'
+    case 'textarea':
+    case 'text':
+      return 'textarea'
+    case 'string':
+      return hasOptions ? 'select' : 'string'
+    default:
+      return hasOptions ? 'select' : 'string'
+  }
+}
+
+/** True when the allowlist carries a restriction the server does not support. */
+export function hasUnsupportedPolicy(policy: Record<string, unknown> | null | undefined): boolean {
+  if (!policy) return false
+  return Object.keys(policy).length > 0
+}
+
+/**
+ * Legacy fallback: normalises an operator-supplied `parametersPolicy` into typed
+ * form fields. Only used when a template carries no manifest projection. The UI
+ * accepts the two documented shapes:
  *
  * 1. an array of `{key,label,type,options,default,required,secret}` objects
  *    (the deployment manifest `parameters` shape), or
@@ -10,6 +69,8 @@
  * Anything unrecognised yields no fields. The UI never falls back to a raw JSON
  * textarea and never invents a template UUID field.
  */
+import type { ApprovedTemplateParameter } from '@/features/instances/api'
+
 export interface TemplateParameterField {
   key: string
   label: string

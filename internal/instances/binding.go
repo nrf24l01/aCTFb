@@ -94,6 +94,48 @@ type ApprovedTemplateVersion struct {
 	Name             string
 	Version          int
 	ParametersPolicy json.RawMessage
+	// Parameters is the safe projection of the immutable published manifest's
+	// parameter *definitions*. It carries no files, env values, provider
+	// credentials or native IDs, and a secret parameter's default is always
+	// blank so a default secret is never disclosed.
+	Parameters []TemplateParameter
+}
+
+// TemplateParameter is the picker/form projection of one declared template
+// parameter. It mirrors deployment.Parameter without any provider detail.
+type TemplateParameter struct {
+	Key      string
+	Label    string
+	Type     string
+	Options  []string
+	Default  string
+	Required bool
+	Secret   bool
+}
+
+// projectTemplateParameters masks secret defaults and drops everything that is
+// not a parameter definition.
+func projectTemplateParameters(manifestRaw []byte) []TemplateParameter {
+	var manifest deployment.Template
+	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
+		return nil
+	}
+	projected := make([]TemplateParameter, 0, len(manifest.Parameters))
+	for _, parameter := range manifest.Parameters {
+		item := TemplateParameter{
+			Key:      parameter.Key,
+			Label:    parameter.Label,
+			Type:     parameter.Type,
+			Options:  append([]string(nil), parameter.Options...),
+			Required: parameter.Required,
+			Secret:   parameter.Secret,
+		}
+		if !parameter.Secret {
+			item.Default = parameter.Default
+		}
+		projected = append(projected, item)
+	}
+	return projected
 }
 
 // ListApprovedTemplateVersions enumerates only versions explicitly allowlisted
@@ -107,7 +149,7 @@ func (s *Service) ListApprovedTemplateVersions(ctx context.Context, actor author
 		return nil, err
 	}
 	rows, err := s.store.db.Pool.Query(ctx, `
-		SELECT DISTINCT t.id, t.slug, t.name, v.version, a.parameters_policy
+		SELECT DISTINCT t.id, t.slug, t.name, v.version, a.parameters_policy, v.manifest
 		FROM deployment_template_allowlist a
 		JOIN deployment_template_versions v ON v.id = a.template_version_id
 		JOIN deployment_templates t ON t.id = v.template_id
@@ -124,11 +166,12 @@ func (s *Service) ListApprovedTemplateVersions(ctx context.Context, actor author
 	items := []ApprovedTemplateVersion{}
 	for rows.Next() {
 		var item ApprovedTemplateVersion
-		var policy []byte
-		if err := rows.Scan(&item.TemplateUUID, &item.Slug, &item.Name, &item.Version, &policy); err != nil {
+		var policy, manifestRaw []byte
+		if err := rows.Scan(&item.TemplateUUID, &item.Slug, &item.Name, &item.Version, &policy, &manifestRaw); err != nil {
 			return nil, err
 		}
 		item.ParametersPolicy = append(json.RawMessage(nil), policy...)
+		item.Parameters = projectTemplateParameters(manifestRaw)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -204,7 +247,7 @@ func (s *store) bindInstance(ctx context.Context, actor uuid.UUID, input BindInp
 	if trimmed := strings.TrimSpace(string(parametersPolicy)); trimmed != "" && trimmed != "null" && trimmed != "{}" {
 		// There is no persisted policy schema yet. Failing closed is safer than
 		// silently ignoring an operator-declared restriction.
-		return nil, instanceError(CodeTemplateInvalid, "allowlist parametersPolicy is not supported until a schema is implemented", 422)
+		return nil, instanceError(CodeTemplateInvalid, "this allowlist declares a parametersPolicy restriction, which is not supported yet; clear parametersPolicy on the allowlist (template parameters are validated from the published manifest) or use a template without one", 422)
 	}
 	rows, err := tx.Query(ctx, `
 		SELECT kind, integration_id FROM deployment_template_allowlist_targets
