@@ -27,16 +27,16 @@ Model/project scope: subagent session, model `bobr-cli-proxy/alicn/deepseek-v4.1
 |---|---|---|---|
 | 1 | Public root landing with organizer Markdown, anonymous whitelist, admin editor, transactional audit, sanitizer | Implemented | `migrations/018_site_settings.sql`; `internal/site`; `GET /api/v2/site`; `GET/PATCH /api/v2/admin/site`; `features/site`; `shared/lib/markdown.ts`; `TestSitePublicDefaultsAndWhitelist`, `TestSiteUpdateRequiresLiveAdminAndAudits`, `TestSiteUnpublishedHidesDraftIntroFromPublic`, `TestSiteRejectsOversizedIntro`; markdown unit tests; browser `anonymous landing renders organizer Markdown as real DOM after an admin edit` |
 | 2 | Hide successful health/readiness access logs, keep failures | Implemented | `internal/httpapi/router.go`; `TestAccessLogHidesSuccessfulHealthProbes`, `TestAccessLogKeepsFailedReadiness`, `TestAccessLogKeepsLookalikeHealthRoutes`; nginx `location = /healthz` already `access_log off` |
-| 3 | Server-backed searchable pickers, permissions, group membership, audience/team pickers, scoped eligibility, no raw UUID boxes | Implemented | `internal/access/usersearch.go`; 8 additive endpoints; `SearchPicker` + `UserPicker` + `TeamPicker`; `AudiencePanel`; `ParticipantsPanel`; `RoleGrantDialog`; `AdminTeamsPanel`; `TestSearchUsersMatchesUUIDUsernameAndEmailLiterally`, `TestSearchUsersEscapesWildcardsAndPaginates`, `TestSearchUsersRejectsNonAdminAndDisabled`, `TestBoardUserSearchRequiresLiveParticipantsManage`, `TestBoardTeamSearchRequiresRosterPermissionAndStaysInBoard`, `TestAudienceManagerCanSearchBoardUsers`, `TestAccessGroupMembersAddListRemove`; browser `global group membership picker searches the server beyond the first page` |
+| 3 | Server-backed searchable pickers, permissions, group membership, audience/team pickers, scoped eligibility, no raw UUID boxes | Implemented | `internal/access/usersearch.go`; 11 additive operations (listed under "New API surface"); `SearchPicker` + `UserPicker` + `TeamPicker`; `AudiencePanel`; `ParticipantsPanel`; `RoleGrantDialog`; `AdminTeamsPanel`; `TestSearchUsersMatchesUUIDUsernameAndEmailLiterally`, `TestSearchUsersEscapesWildcardsAndPaginates`, `TestSearchUsersRejectsNonAdminAndDisabled`, `TestBoardUserSearchRequiresLiveParticipantsManage`, `TestBoardTeamSearchRequiresRosterPermissionAndStaysInBoard`, `TestAudienceManagerCanSearchBoardUsers`, `TestAccessGroupMembersAddListRemove`; browser `global group membership picker searches the server beyond the first page` |
 | 4 | One three-option board access control, exact mode mapping on every read, gate-preserving legacy saves, invite affordances keyed on the persisted registration mode, confirmation on an explicit legacy gate conversion, anonymous public browse | Implemented | `Board.AccessMode`; `accessMode` on Board/AdminBoard/create/patch; `BoardSettingsDialog.vue`; `AdminBoardPage.vue` legacy notice; `OptionalUser`, `ListPublicBoards`, `GetPublicBoard`; `TestBoardAccessModeProjection`, `TestApplyAccessModeNormalizesLegacyFields`, `TestValidateAccessModeConflict`; browser `board access is one control: public browse, audience and invite stay private` |
 | 5 | One module format, task cardinality 1, legacy mixed read-only, native A+D/PENTEST preserved | Implemented | `validateNewModuleFormat`; `legacyMixed`; `ModuleEditorDialog.vue`; `TestNewModuleFormatCardinality`, `TestManualOnlyModuleIsPublishable`; browser `module has one format and the task editor inherits it`; A+D and PENTEST browser tests unchanged and passing |
 | 6 | Conditional task modal, inherited type, MiB limits, typed template parameters from the published manifest, secret-keep, draft-first | Implemented | `TaskEditorDialog.vue`; `taskParameters.ts`; `AdminModuleSection.vue` Publish/Unpublish; `taskParameters.test.ts`, `taskPayload.test.ts`; browser `draft FLAG task with Markdown publishes and accepts a real submission`, `instance task editor offers typed template parameters, not raw JSON` |
 | 7 | Full-page task view, INSTANCE + manual form, state actions, staff edit, history below content | Implemented | `TaskPage.vue`; `ManualSubmissionForm.vue`; `FlagSubmitForm.vue`; `TaskCard.vue`; browser `draft FLAG task...` (mobile 390×844, no overflow) |
 | 8 | Captain team management without raw UUIDs | Implemented | `SearchCaptainRoster` + `GET /boards/{boardUuid}/team/roster-search`; `MyTeamMembers` + `GET /boards/{boardUuid}/team/members`; rewritten `TeamPanel.vue` (names, per-member remove, current-member captain transfer, invite-key add); `TestCaptainRosterSearchIsCaptainOnlyAndHidesEmail`; real-PG own-roster assertions in `TestP1RTeamsManualAudienceGroupsAudiences` path |
 | 9 | Discard confirmation on every editor dismissal path | Implemented | `useDiscardGuard.ts` + `useDiscardGuard.test.ts`; wired into board, module and task dialogs; browser `every editor confirms before discarding unsaved work` (Escape, click-outside, secret preserved) |
-| 10 | Full browser acceptance on real backend, one worker, owned cleanup | Implemented | `e2e/tests/organizer-ux.spec.ts`; `e2e/run-full-e2e.sh`: **14 passed**, 0 new containers, 0 new volumes, core/Vue hashes unchanged |
+| 10 | Full browser acceptance on real backend, one worker, owned cleanup | Implemented | `e2e/tests/organizer-ux.spec.ts`; suite inventory **18 tests**. Last full-suite run: **17 passed (4.0m)**, log `/tmp/opencode/actfb-organizer-ux-fixes-run.log`. After adding the 18th test (legacy invite affordances), the **2** targeted tests passed (9.2s), log `/tmp/opencode/actfb-organizer-ux-final-run.log`. Both runs: 0 new containers, 0 new volumes, core/Vue hashes unchanged |
 | — | Admin CLI recovery inventory | Verified earlier, not redone | `go run ./cmd/backend admin --help` exits 0 without DB/config |
-| — | Remote CI / published GHCR image check | Pending delivery gate | Not run; requires a reviewed push |
+| — | Remote CI / published GHCR image check | In progress in the delivery pass | Authorized push to `main`; results recorded in "Delivery verification" once the Actions run and image inspection complete |
 
 ## Commands actually run (final pass)
 
@@ -90,6 +90,18 @@ No route was intercepted and no response was stubbed. Sanitizer assertions are o
    successful group-member add. Empty successful bodies now resolve (`client.test.ts`).
 4. The seeded intro repeated the page title as an in-body H1.
 5. The E2E harness needed the A+D runner image allowlist that config validation requires.
+
+## Inventory (actual counts, computed from source)
+
+| Inventory | Count | How computed |
+|---|---|---|
+| Canonical Swagger operations | **205** | parsed `docs/swagger.yaml`; 152 paths, 205 method operations |
+| Runtime `/api/v2` routes | **188** | distinct `method + path` registrations in non-test, non-generated Go sources (12 legacy file routes exist in both the boards and files adapters, but boot disables one set, so the distinct count is unchanged) |
+| Additive organizer-UX operations | **11** | the list below; each has an `operationId` in the contract |
+| Migrations | **18** | `migrations/001`–`018`; only `018_site_settings.sql` is new |
+| Frontend unit tests | **108** | `bun run test:unit`, 23 files |
+| Browser tests in the suite | **18** | `bunx playwright test --list` |
+| Admin CLI subcommands | **5** | `create`, `list`, `promote`, `demote`, `reset-password` |
 
 ## New API surface (11 additive operations)
 

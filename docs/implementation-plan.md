@@ -294,7 +294,7 @@ Prior disposition:
 
 | Area | Status | Evidence / gap |
 |---|---|---|
-| OpenAPI contract | **implemented as contract; additive remaining routes added** | 143 paths / 194 operations / 401 definitions; 39 P1 operations implemented (33 board + 6 RBAC); all remaining operations have handler/worker code |
+| OpenAPI contract | **implemented as contract; additive remaining routes added** | 2026-11-13 snapshot: 143 paths / 194 operations / 401 definitions; 39 P1 operations implemented (33 board + 6 RBAC); all remaining operations have handler/worker code. Current inventory after the organizer UX pass: **205 operations / 152 paths** (`docs/organizer-ux-verification.md`) |
 | Remaining schema `007`–`016` | **implemented, real-PG PASS** | teams/access/audiences/subjects; files/manual/events; deployment/runtime/pentest; plugins; A+D; 012 allowlist/lease/immutability/AD invariants; 013 durable MANUAL text/immutable snapshot; 014 explicit trusted-js approval; 015 reserved private plugin identities; 016 INSTANCE text guard; down/up preserves P0/P1 |
 | Board / Module / Task / Submission / Score (individual FLAG) | **accepted — local first slice** | 33 routes; real-PG flow/idempotency/scoped security; six canonical live responses; P1-01..P1-05 + L2/L3 fixed/verified |
 | P1 learning flow (individual) | **accepted — local first slice** | HTTP PASS 43.21 s; Docker-profile browser 12.1 s test / 12.6 s total; not production/all-153 |
@@ -405,9 +405,10 @@ runtime, then the plugin system. Do not mark the whole project complete or produ
 `009_deployment_runtime.sql`, `010_plugins.sql`, `011_attack_defense.sql`, `012_runtime_security.sql`,
 `013_manual_text.sql`, `014_plugin_trusted_js.sql`, `015_plugin_private_identities.sql`, and
 `016_instance_text.sql` are implemented as additive Goose migrations. Real-PostgreSQL `TestMigrationsRemainingStages` PASS covers backfill, constraints, down/up,
-idempotent re-up, and preservation of seeded P0/P1 rows. `docs/swagger.yaml` currently has 143 paths / 194
-operations / 401 definitions; `swagger generate model` is checksum-reproducible and all 401 model files are
-present. The worker/runtime packages are implemented (`cmd/events-dispatcher`, `cmd/file-scanner`,
+idempotent re-up, and preservation of seeded P0/P1 rows. At that 2026-11-13 snapshot `docs/swagger.yaml` had
+143 paths / 194 operations / 401 definitions; `swagger generate model` is checksum-reproducible and all 401
+model files were present. The current contract inventory (after the organizer UX pass) is in
+`docs/organizer-ux-verification.md` ("Inventory"): **205 operations across 152 paths**. The worker/runtime packages are implemented (`cmd/events-dispatcher`, `cmd/file-scanner`,
 `cmd/instance-worker`, `cmd/ad-worker`, `cmd/plugin-runner`, `cmd/retention`, `cmd/storage-init`); the remaining
 limits are external provider credentials and production-only controls, not missing worker code. Details:
 `docs/remaining-schema.md`.
@@ -443,9 +444,10 @@ additive. `014+` requires new approval. Exact tables, backfills and compatibilit
 `docs/remaining-stages-contracts.md` §2–§4 and `docs/remaining-schema.md`.
 
 **Schema state (2026-11-13):** migrations `007`–`013` are implemented and PASS on real PostgreSQL (backfill,
-constraints, down/up, idempotent re-up, seeded P0/P1 rows preserved); `docs/swagger.yaml` now has **143 paths /
-194 operations / 401 definitions**; generated models are reproducible with `swagger v0.36.7` and all 401
-models are present. The P1R/P2/P3/P4/P5 worker packages are implemented (`cmd/events-dispatcher`,
+constraints, down/up, idempotent re-up, seeded P0/P1 rows preserved); at that date `docs/swagger.yaml` had
+**143 paths / 194 operations / 401 definitions**; generated models are reproducible with `swagger v0.36.7` and
+all 401 models were present. The current inventory is **205 operations across 152 paths**, see
+`docs/organizer-ux-verification.md`. The P1R/P2/P3/P4/P5 worker packages are implemented (`cmd/events-dispatcher`,
 `cmd/file-scanner`, `cmd/instance-worker`, `cmd/ad-worker`, `cmd/plugin-runner`, `cmd/retention`,
 `cmd/storage-init`); external provider credentials remain the blocker for non-Docker acceptance.
 
