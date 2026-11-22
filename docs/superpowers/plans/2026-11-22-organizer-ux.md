@@ -99,3 +99,13 @@ Gates run: `go build ./...`, `go vet ./...`, `go test ./...`, real-PostgreSQL pa
       roster action, group search instead of a 100 cap, real publish regression test.
 - [x] Evidence: `docs/organizer-ux-review-fixes.md`; scoped package
       `/tmp/opencode/organizer-ux-fixes.diff`.
+
+## Scoped re-review round 1 (2026-11-22)
+
+- [x] R1 invite-code affordances (participant join input, staff reveal/rotate) keyed on the
+      persisted `registrationMode === 'INVITE_ONLY'`, so legacy `INVITE_ONLY` boards keep them.
+- [x] R2 an explicit `LEGACY` gate conversion asks for confirmation; a metadata-only save still
+      does not.
+- [x] N1 `ApprovedTemplateParameter.type` enum equals the manifest set (`string, text, int, bool,
+      choice`), regenerated with swagger v0.36.7.
+- [x] N2 redundant captain UUID column removed from the admin team table.

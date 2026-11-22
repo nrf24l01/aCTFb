@@ -248,6 +248,75 @@ No `page.route`, `fulfill`, `routeFromHAR` or response stub is used in any spec.
 - No new migration. Migrations remain `001`–`018`; `018_site_settings.sql` is unchanged by this
   pass (the seeded intro already matched the fallback text).
 
+## Scoped re-review round 1 — R1, R2, N1, N2
+
+Review: `docs/organizer-ux-review.md` (appended section, `d3bba35..d90a386`). Verdict was
+"approve with two small remaining Important regressions". Both are fixed here, plus the two minors.
+
+### R1 — legacy `INVITE_ONLY` boards lost their invite-code affordances
+
+Confirmed at `BoardPage.vue:264` and `AdminBoardPage.vue:263`: both gated on the derived
+`accessMode`, so a LEGACY `INVITE_ONLY` board hid the join code field while still showing the join
+action, and staff lost the reveal/rotate panel.
+
+Fix: a new `requiresInviteCode(board)` helper keys on the authoritative persisted
+`registrationMode === 'INVITE_ONLY'`. Both affordances use it. The group gate, the invite hash and
+all stored data are untouched, so legacy read **and join** behaviour is preserved.
+
+Tests:
+- `accessMode.test.ts` — `requiresInviteCode` true for `INVITE_ONLY` (canonical and both legacy
+  shapes), false for `OPEN` and `CLOSED`; `isInviteBoard` stays canonical-mode only.
+- Browser `legacy invite-only boards keep their invite affordances` — a participant on a legacy
+  `PUBLIC+INVITE_ONLY` board sees `#board-detail-invite`; an `OPEN` board does not; a legacy
+  `PRIVATE+INVITE_ONLY+groups` board shows the participant code field **and** the staff
+  `Reveal current code` control while still reporting `LEGACY`.
+- RED verified: reverting the two `v-if` conditions makes that browser test fail with
+  `locator('#board-detail-invite') element(s) not found`.
+
+### R2 — no explicit-conversion confirmation on a LEGACY board
+
+Confirmed at `BoardSettingsDialog.vue:108-112`: `gateChangeNeedsConfirm` returned `false` whenever
+`initialAccessMode === 'LEGACY'`, so converting a legacy board holding a live gate to `Public` or
+`Invite code` saved immediately.
+
+Fix: the `initialAccessMode === 'LEGACY'` early return is removed. Any explicit mode change that
+would replace or clear a live gate now asks first, including `LEGACY → PUBLIC/INVITE`. A
+metadata-only save changes no mode, so it still never prompts, sends no policy payload, and
+cancelling "Keep editing" leaves the form unchanged. Confirming performs the selected conversion.
+
+Tests (component, `BoardSettingsDialog.test.ts`):
+- `asks before converting a LEGACY board with a live gate to Public` — the confirmation appears.
+- `does not prompt for a metadata-only save of the same LEGACY board` — a rename saves with no
+  prompt.
+- RED verified: restoring the early return makes the first test fail.
+- The two existing dialog tests (three-mode control; legacy board preserved with no mode
+  preselected) still pass.
+
+### N1 — `ApprovedTemplateParameter.type` enum did not match the manifest
+
+The manifest validator accepts exactly `string, text, int, bool, choice`
+(`internal/deployment/validator.go:112-116`); the closed schema enum listed
+`string,int,integer,number,bool,boolean,choice,textarea`, so a published `type: text` parameter was
+projected verbatim outside its own documented enum.
+
+Fix: the enum is now exactly the manifest set, changed in `docs/swagger.yaml` and regenerated with
+swagger v0.36.7 — no hand edits to generated models. The UI already mapped `text` to a multiline
+textarea.
+
+Tests:
+- `TestApprovedTemplateParameterTypeEnumMatchesManifest` — the enum equals the manifest set,
+  every accepted type validates against the schema, and an unknown type is rejected. RED verified
+  before the enum change.
+- `taskParameters.metadata.test.ts` — `text` renders as `textarea`; an unknown declared type
+  degrades to a single-line `string` input (defensive only; the server rejects it).
+- `TestTypedTemplateParametersEndToEnd` now also declares a `text` parameter and round-trips a
+  multiline value through the real binding.
+
+### N2 — residual captain UUID column
+
+`AdminTeamsPanel.vue` no longer renders a `Captain UUID` column or mentions participant UUIDs. The
+team name is primary with a short id suffix as secondary detail; no input asks for an identifier.
+
 ## Test counts added in this pass
 
 - **20 new Go test functions** (real PostgreSQL or real HTTP unless noted):
@@ -266,6 +335,17 @@ No `page.route`, `fulfill`, `routeFromHAR` or response stub is used in any spec.
 - **3 new browser tests** (14 → 17 total): scoped pickers, legacy gate-preserving save, typed
   parameter binding. The existing 14 assertions were preserved, not reduced.
 
+## Local commits — scoped re-review round 1 (after `d90a386`)
+
+| Commit | Scope |
+|---|---|
+| `07c005a` | preserve the appended scoped re-review in `docs/organizer-ux-review.md` |
+| `7933c35` | R1 invite affordances keyed on `registrationMode` + browser/unit tests |
+| `abb32c9` | R2 LEGACY gate-conversion confirmation + component tests |
+| `17d5991` | N1 parameter type enum aligned with the manifest (regenerated) + tests |
+| `f8fe174` | N2 redundant captain UUID column removed |
+| (this commit) | report and verification reconciliation |
+
 ## Local commits in this pass (after `d3bba35`)
 
 | Commit | Scope |
@@ -280,6 +360,7 @@ No `page.route`, `fulfill`, `routeFromHAR` or response stub is used in any spec.
 
 ## Review package
 
-Scoped to the fixes only: `/tmp/opencode/organizer-ux-fixes.diff` (`d3bba35..HEAD`).
-The whole-baseline package `/tmp/opencode/organizer-ux-review.diff` (`79d79f8..1c63267`) is
-retained unchanged.
+- Round 1: `/tmp/opencode/organizer-ux-fixes.diff` (`d3bba35..d90a386`).
+- Scoped re-review round 1: `/tmp/opencode/organizer-ux-final-fixes.diff` (`d90a386..HEAD`).
+- Whole baseline: `/tmp/opencode/organizer-ux-review.diff` (`79d79f8..1c63267`), retained
+  unchanged.
