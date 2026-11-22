@@ -152,21 +152,24 @@ void load()
     <div class="space-y-3 px-4 py-4">
       <ErrorAlert v-if="error" :error="error" title="Team request failed" />
       <LoadingState v-if="loading" :rows="2" />
-      <EmptyState v-else-if="items.length === 0" title="No teams" description="Create a team and add participant user UUIDs." />
+      <EmptyState v-else-if="items.length === 0" title="No teams" description="Create a team, then add board participants by name." />
       <div v-else class="overflow-x-auto border border-border">
         <Table>
           <TableHeader>
             <TableRow class="border-border hover:bg-transparent">
-              <TableHead>Name</TableHead>
-              <TableHead>Captain UUID</TableHead>
+              <TableHead>Team</TableHead>
               <TableHead>Members</TableHead>
               <TableHead class="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRow v-for="team in items" :key="team.uuid">
-              <TableCell>{{ team.name }}</TableCell>
-              <TableCell class="break-all text-xs text-muted-foreground">{{ team.captainUuid }}</TableCell>
+              <TableCell>
+                <span class="font-medium">{{ team.name }}</span>
+                <span class="block font-mono text-[10px] uppercase text-muted-foreground">
+                  {{ team.uuid.slice(0, 8) }}
+                </span>
+              </TableCell>
               <TableCell>{{ team.membersCount }}/{{ team.maxMembers }}</TableCell>
               <TableCell class="text-right">
                 <div class="flex justify-end gap-1">
