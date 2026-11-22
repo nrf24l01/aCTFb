@@ -248,6 +248,16 @@ No `page.route`, `fulfill`, `routeFromHAR` or response stub is used in any spec.
 - No new migration. Migrations remain `001`–`018`; `018_site_settings.sql` is unchanged by this
   pass (the seeded intro already matched the fallback text).
 
+## Scoped re-review round 2 — APPROVED (0 Critical / 0 Important)
+
+Round-2 verdict approved the work. The single remaining documentation minor (D1: requirement row 3 said
+"8 additive endpoints" while the inventory lists 11) is closed: the row now references the 11-operation
+list, and an Inventory table records counts computed from source (205 Swagger operations across 152
+paths, 188 distinct runtime `/api/v2` routes, 11 additive operations, 18 migrations, 108 frontend unit
+tests, 18 browser tests, 5 admin CLI subcommands). Two present-tense "currently has 194 operations"
+statements in `docs/implementation-plan.md` were corrected to dated snapshots pointing at the current
+inventory.
+
 ## Scoped re-review round 1 — R1, R2, N1, N2 (closed)
 
 Reviewed range `d3bba35..d90a386`; this round's commits are `d90a386..c8554d8` (6 commits, 17 files).

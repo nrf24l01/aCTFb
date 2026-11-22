@@ -11,7 +11,8 @@ local scope, including real-browser acceptance. Base commit `79d79f8`.
 - Browser evidence for the fixed state: `/tmp/opencode/actfb-organizer-ux-fixes-run.log`
   (17 passed).
 
-Nothing is pushed; remote CI and published-image checks stay pending until the review gate opens.
+Delivery is complete: the reviewed range is pushed to `main` at `511e03916d48e11ef5bcf3b9655504ea7bd5451e`,
+CI is green, and the ten GHCR images are published and verified.
 
 Spec: `docs/superpowers/specs/2026-11-22-organizer-ux-design.md`.
 Plan: `docs/superpowers/plans/2026-11-22-organizer-ux.md`.
@@ -36,7 +37,7 @@ Model/project scope: subagent session, model `bobr-cli-proxy/alicn/deepseek-v4.1
 | 9 | Discard confirmation on every editor dismissal path | Implemented | `useDiscardGuard.ts` + `useDiscardGuard.test.ts`; wired into board, module and task dialogs; browser `every editor confirms before discarding unsaved work` (Escape, click-outside, secret preserved) |
 | 10 | Full browser acceptance on real backend, one worker, owned cleanup | Implemented | `e2e/tests/organizer-ux.spec.ts`; suite inventory **18 tests**. Last full-suite run: **17 passed (4.0m)**, log `/tmp/opencode/actfb-organizer-ux-fixes-run.log`. After adding the 18th test (legacy invite affordances), the **2** targeted tests passed (9.2s), log `/tmp/opencode/actfb-organizer-ux-final-run.log`. Both runs: 0 new containers, 0 new volumes, core/Vue hashes unchanged |
 | — | Admin CLI recovery inventory | Verified earlier, not redone | `go run ./cmd/backend admin --help` exits 0 without DB/config |
-| — | Remote CI / published GHCR image check | In progress in the delivery pass | Authorized push to `main`; results recorded in "Delivery verification" once the Actions run and image inspection complete |
+| — | Remote CI / published GHCR image check | **Closed** | Push to `main` at `511e039`, 4-job Actions run success, all 10 GHCR images public/latest/immutable, anonymous pull, published `admin --help` + real CLI create/list/reset/demote + HTTP login. See "Delivery verification" |
 
 ## Commands actually run (final pass)
 
@@ -184,3 +185,76 @@ non-string parameter values.
 - **happy-dom serialisation**: it drops the tag of the first top-level node during DOMPurify
   serialisation. Unit assertions therefore target non-first nodes; the real browser asserts the
   leading heading as an element.
+
+## Delivery verification (2026-11-22)
+
+The main review approved the organizer UX work (round 2: 0 Critical / 0 Important). The reviewed local
+range `79d79f8..HEAD` (38 commits at push time, 138 files) was fast-forward pushed to `origin/main`; no
+rebase, amend, or force was used, and no unrelated working-tree file was staged.
+
+### Source and CI
+
+| Field | Value |
+| --- | --- |
+| Reviewed base | `79d79f8` |
+| Source commit pushed | `511e03916d48e11ef5bcf3b9655504ea7bd5451e` |
+| Local commits in range | 38 |
+| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/45041326499 |
+| Jobs | Backend quality, Frontend quality, Integration, Publish images — **all success** |
+| Shape | the normal 4 jobs; no expanded matrix, no weakened gate, no disabled validation |
+
+Two routine CI bugs surfaced and were fixed minimally with root-cause tests, then re-pushed:
+
+| Run | Failure | Root cause | Fix |
+| --- | --- | --- | --- |
+| `45037092117` | Integration: `Apply migrations to a clean schema` | `internal/platform/postgres/migrate_test.go` hardcoded `17` as "latest" in 15 assertions; the additive `018` migration broke it | expected version derived from the migrations directory (`latestMigrationVersion`) |
+| `45038011279` | Integration: `Production image runtime smoke` | `scripts/test-production-runtime.sh` hardcoded `17` as the expected goose version | expected version derived and normalized to a plain integer; packaging contract also asserts `018_site_settings.sql` ships |
+
+No security default, health endpoint, origin check, or validation was changed to make CI pass.
+
+### Published images
+
+| Check | Result |
+| --- | --- |
+| Images | 10 (`backend`, `frontend`, `notification`, `retention`, `events-dispatcher`, `file-scanner`, `storage-init`, `plugin-runner`, `ad-worker`, `instance-worker`) |
+| Tags | `latest` and `sha-511e03916d48e11ef5bcf3b9655504ea7bd5451e`, both resolving to the same digest |
+| Visibility | public; verified with an anonymous manifest check and a logged-out `docker pull` |
+| Architecture | `linux/amd64` |
+| Image hygiene | backend contains no Go toolchain, `go.mod`, `node_modules`, `bun`, `node`, `git` or `docker`; frontend is static only |
+
+Digests and compressed sizes are in `docs/ghcr-verification.md` (single table, not duplicated here).
+
+### Published-image behaviour (cleanroom)
+
+- Migrations reached version **18**; `/ready` and `/health` OK.
+- `admin --help` with `--network none`, no DB/config: 5 subcommands; `create --help` documents
+  `--password-stdin`.
+- `admin create --password-stdin` created an enabled verified admin without printing the password;
+  `admin list` showed `enabled admin`.
+- Real HTTP login with those credentials succeeded; `/me` returned `[user, admin]`; admin-only
+  `GET /api/v2/admin/site` = 200.
+- `admin reset-password`: old token rejected (401), new password logs in.
+- `admin demote`: refused for the last enabled admin; succeeded once a second admin existed.
+- Published frontend: anonymous `GET /api/v2/site` through the nginx `/api` proxy returned the
+  whitelisted projection; SPA shell, deep link and hashed bundle served; `LandingPage`, `AdminSitePage`,
+  `SearchPicker`, `UserPicker` and `markdown` chunks present; admin PATCH of the site then anonymous
+  read-back returned the new title/Markdown, and a non-admin PATCH was 403.
+
+### Local acceptance re-run on the pushed source
+
+| Gate | Result |
+| --- | --- |
+| `bash e2e/run-full-e2e.sh` (full Docker harness) | **18 passed (4.1m)**, 1 worker, `0 new containers, 0 new volumes`, core/Vue hashes unchanged |
+| `./scripts/test-production-runtime.sh` | PASS: migrations=18, admin CLI help, retention `--once`, frontend `/healthz`+SPA+proxy, uid 10001 |
+| `./scripts/test-production-packaging.sh` | 267 checks passed, 0 failed |
+| `go build/vet/test ./...` | PASS |
+| `bun run typecheck` / `test:unit` / `build` | PASS, 23 files / 108 tests |
+
+### Retained limits
+
+- External OCI registry, live Proxmox/KubeVirt/VM targets, and third-party Git/GitLab credentials were
+  not supplied; only the Docker `CONTAINER` runtime path is acceptance-verified.
+- A non-empty allowlist `parametersPolicy` is still rejected by the binder (no supported schema); the UI
+  surfaces it as an operator error rather than pretending the form works.
+- Legacy mixed `TASKS` modules are preserved, not bulk-converted.
+- The full product is not claimed production-ready beyond the verified local scope above.

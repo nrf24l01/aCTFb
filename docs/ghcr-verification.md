@@ -1,48 +1,73 @@
 # GHCR publication verification
 
-Status: **published and verified from `main` at commit `29227d7`** (YAML application settings and
-datasource-only production env). Ten separate images are publicly pullable without registry credentials. The
-measured size/digest table below is the previous full `2191282` measurement; the current publish re-ran all ten
-images and was verified through anonymous manifest checks plus a cleanroom raw-bundle
-`pull`/`up -d --wait`/health/readiness/0640 config-bind/login-refresh smoke.
+Status: **published and verified from `main` at commit `511e039`** (organizer UX pass). Ten separate
+images are publicly pullable without registry credentials, each with `latest` and an immutable
+`sha-<full-sha>` tag resolving to the same digest.
 
-Current publication: run https://github.com/nrf24l01/aCTFb/actions/runs/43638812660, image source commit
-`29227d785a78cc0047d2cf434b3c9dea14397e5b`, immutable tag
-`sha-29227d785a78cc0047d2cf434b3c9dea14397e5b`. This publication includes YAML readers for retention, plugin
-runner, and A+D worker settings; the production Compose file no longer injects APP/JWT/auth/feature flags, and
-`config.yaml` is mounted read-only with host mode `0640` group `10001`.
+Current publication: run https://github.com/nrf24l01/aCTFb/actions/runs/45041326499, image source commit
+`511e03916d48e11ef5bcf3b9655504ea7bd5451e`, immutable tag `sha-511e03916d48e11ef5bcf3b9655504ea7bd5451e`.
+This publication ships the organizer UX surface (public landing with organizer Markdown, canonical board
+access mode, single-format modules, typed instance parameters, scoped pickers) and is verified with an
+anonymous pull plus a cleanroom run of the published backend/frontend pair.
 
-Historical note: the earlier `3ef4d5b` and `fea429a` publications used a shared backend/worker image.
-`f133e3b` was the first one-process-per-container publication. `d7694b2` enforced the docs/config/tests contract.
-`2191282` kept the same image contents/sizes as its predecessor while updating docs, tests, and the bake-file
-newline, producing new labels/digests.
+Earlier publications (retained for history): `29227d7` (YAML application settings + datasource-only env),
+`3ef4d5b`/`fea429a` (shared backend/worker image), `f133e3b` (first one-process-per-container),
+`2191282` (docs/tests/labels only).
 
 ## Publication
 
 | Field | Value |
 | --- | --- |
-| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/43593223721 |
-| Commit | `21912820d814d87abde92c4f47333c7a1534a5e5` |
+| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/45041326499 |
+| Commit | `511e03916d48e11ef5bcf3b9655504ea7bd5451e` |
 | Conclusion | success (Backend quality, Frontend quality, Integration, Publish images) |
 | Platform | `linux/amd64` only |
 | Provenance attestations | none; single OCI image manifests |
-| Registry visibility | public, verified by anonymous manifests and pulls with an empty temporary `DOCKER_CONFIG` |
+| Registry visibility | public, verified by anonymous manifest checks and an anonymous `docker pull` |
 
-| Image | Digest | Compressed | Uncompressed | User |
-| --- | --- | --- | --- | --- |
-| `ghcr.io/nrf24l01/actfb-backend` | `sha256:7b911e9ed1ccba713108932b2748b1b4d616a104c459254642b091d7a0cfa45e` | 20,275,304 B | 56,149,571 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-frontend` | `sha256:432c664824217e247c5e2a7f7465d78a40524fdc703868da279acdd4f9f27331` | 23,644,020 B | 55,091,714 B | `101:101` |
-| `ghcr.io/nrf24l01/actfb-notification` | `sha256:c346d70bbef18a2caa925fbd3860f7c934c299ed9073317941534c5fc8764559` | 12,329,083 B | 28,488,097 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-retention` | `sha256:a8974381b6274629f9095ca589aea36555e7f9c9beab41471e480c7a32b4522c` | 10,934,376 B | 25,844,302 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `sha256:d4fa2435bec7a0e29745d9e6a0016360f5d228a26bcee771827332f805f6ba06` | 11,994,511 B | 28,699,214 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-file-scanner` | `sha256:38b586863a760b8e04bea905ef296935bf4cba2a9d35e7da254350459e6312cc` | 13,352,330 B | 32,766,542 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-storage-init` | `sha256:1606d008d4c2aeea5158e0399bbbf947ce5bf59e0d2ed230e626971e17c6c3e2` | 10,955,456 B | 25,291,342 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-plugin-runner` | `sha256:f60a8c5224494206258348d660da362961a7caf6760c734adc682efafc0991c8` | 9,996,009 B | 22,178,382 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-ad-worker` | `sha256:09c54838a7e2adb3f0ef059a4a2c85627ab3cc2ba53366236815b0361fd4acc1` | 27,016,153 B | 69,429,576 B | `10001:10001` |
-| `ghcr.io/nrf24l01/actfb-instance-worker` | `sha256:dd5cbac28c10a940a0d220ee68810adaf869ba511a93b425f2261daea9f82a1e` | 13,810,377 B | 33,577,550 B | `10001:10001` |
+| Image | Digest | Compressed |
+| --- | --- | --- |
+| `ghcr.io/nrf24l01/actfb-backend` | `sha256:e818a0fb1cee24be22303f60b716550f09588bd2c2cc8ab8f98371003a9d12f0` | 20,382,436 B |
+| `ghcr.io/nrf24l01/actfb-frontend` | `sha256:b32fa91c0314d02bb45d5e176876afdec5da87fcaaf236c1d1e23339b75813a1` | 23,685,499 B |
+| `ghcr.io/nrf24l01/actfb-notification` | `sha256:463039eed36f34f31f0ccbf9225f8835d3679bb1cd1b29b777f548bbfcdb7a52` | 12,341,417 B |
+| `ghcr.io/nrf24l01/actfb-retention` | `sha256:0275c32deff83eaafeb010236a93cbf618cf3c35f18aa2b69f1a9e08d563445b` | 10,939,779 B |
+| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `sha256:1087e6f4096fe5718a0f0387a81c0b1d3f16d8c7b5cd90aee18e562b1e464d24` | 12,000,779 B |
+| `ghcr.io/nrf24l01/actfb-file-scanner` | `sha256:b778f19d9a9a00890c53a7ffbbaca0be841790942facddc3b40aec335afe8efb` | 13,358,887 B |
+| `ghcr.io/nrf24l01/actfb-storage-init` | `sha256:973ef6d3f82ba60e5f069f9f55abbf3591937f51d03fd9e4b63c1bd876b9ca3c` | 10,956,010 B |
+| `ghcr.io/nrf24l01/actfb-plugin-runner` | `sha256:917fb9762226568c6ede770916e094941815c607a38ba72c98d582e3db07d8ce` | 10,292,272 B |
+| `ghcr.io/nrf24l01/actfb-ad-worker` | `sha256:5227d3aea61de665a9dc629ebe9475a34f419d27906bc9998a2e623e84c9321b` | 27,022,626 B |
+| `ghcr.io/nrf24l01/actfb-instance-worker` | `sha256:830ad29bc9ec581789449fd0084acd41b40bdc846c6fc926d8a8943630de4e03` | 13,820,902 B |
 
-Every image has both `latest` and `sha-21912820d814d87abde92c4f47333c7a1534a5e5`, resolving to the digest
-above. OCI source is `https://github.com/nrf24l01/actfb`; revision/version labels match the source commit/tag.
+Every image carries both `latest` and `sha-511e03916d48e11ef5bcf3b9655504ea7bd5451e`, resolving to the
+digest above; the image label `org.opencontainers.image.revision` equals the source commit. OCI source is
+`https://github.com/nrf24l01/actfb`.
+
+### Delivery verification performed in this pass
+
+| Check | Result |
+| --- | --- |
+| 4-job Actions run on `511e039` | Backend quality, Frontend quality, Integration, Publish images: **all success** |
+| Anonymous manifest for all 10 images (`latest` and `sha-<sha>`) | present; both tags resolve to the same digest |
+| Anonymous `docker pull` (logged out of `ghcr.io`) | `backend:sha-511e039…` pulled successfully |
+| Architecture | `linux/amd64` |
+| Backend `admin --help` with `--network none`, no DB/config | 5 subcommands listed (`create`, `list`, `promote`, `demote`, `reset-password`) |
+| `admin create --help` | documents `--password-stdin` |
+| Cleanroom: published backend + `postgres:18-alpine`, generated temp config | migrations=18, `/ready` + `/health` OK |
+| `admin create --password-stdin` on the published image | created `cliadmin`; password never printed |
+| `admin list` | shows `cliadmin … enabled admin` |
+| Real HTTP login with the CLI-created credentials | 200; `/me` returns roles `[user, admin]` |
+| Admin-only `GET /api/v2/admin/site` | 200 authorized |
+| `admin reset-password` | old access token rejected (401); new password logs in |
+| `admin demote` of the only enabled admin | refused: "cannot remove or disable the last enabled admin" |
+| `admin demote` after a second admin exists | succeeds, account preserved as `enabled user` |
+| Published frontend: anonymous `GET /api/v2/site` via the nginx `/api` proxy | whitelisted projection (title/intro/published) |
+| Published frontend: SPA shell + deep link + hashed bundle | served; `LandingPage`, `AdminSitePage`, `SearchPicker`, `UserPicker`, `markdown` chunks present |
+| Published frontend: admin PATCH `/api/v2/admin/site`, then anonymous read-back | new title/Markdown returned; non-admin PATCH = 403 |
+| Image hygiene | backend has no `go`, `go.mod`, `node_modules`, `bun`, `node`, `git` or `docker`; frontend is static only |
+| Fixtures | 0 containers, 0 volumes, 0 networks, 0 workdirs left after the checks |
+
+Admin CLI operator status is now **verified against the published image**, closing the earlier
+"published CLI unverified (provider outage)" gap; see `docs/admin-cli.md`.
 
 ## Public pull verification
 

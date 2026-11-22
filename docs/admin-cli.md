@@ -122,3 +122,35 @@ prints only UUID, username, email, and status.
 | `0` | Success, help, or an idempotent `no change` result. |
 | `1` | Operation/configuration/database error, including missing schema and last-enabled-admin rejection. |
 | `2` | Usage error: unknown top-level command/subcommand, invalid flag, missing or conflicting target, or invalid create input. |
+## Published-image verification (2026-11-22)
+
+The CLI is verified inside the **published** backend image, not only a local build, which closes the
+earlier "published CLI unverified" gap.
+
+| Field | Value |
+| --- | --- |
+| Image | `ghcr.io/nrf24l01/actfb-backend:sha-511e03916d48e11ef5bcf3b9655504ea7bd5451e` |
+| Digest | `sha256:e818a0fb1cee24be22303f60b716550f09588bd2c2cc8ab8f98371003a9d12f0` |
+| Source | `main` at `511e03916d48e11ef5bcf3b9655504ea7bd5451e`, run https://github.com/nrf24l01/aCTFb/actions/runs/45041326499 |
+| Pull | anonymous (no registry credentials) |
+
+Checks actually performed against that image:
+
+- `admin --help` with `--network none` and no config/PostgreSQL: lists `create`, `list`, `promote`,
+  `demote`, `reset-password`.
+- `admin create --help`: documents `--password-stdin`.
+- Cleanroom: the published backend plus a disposable `postgres:18-alpine`, a generated temporary
+  `config.yaml` (own keys, loopback origin, `secure_cookies: false`, mode `0640` group `10001`) and
+  datasource env only. Migrations reached version **18**; `/ready` and `/health` returned OK.
+- `admin create --username … --password-stdin`: created an enabled, email-verified admin; the password
+  was not printed.
+- `admin list`: printed the created user as `enabled admin`.
+- Real HTTP login with those credentials returned a token; `/me` returned roles `[user, admin]`; the
+  admin-only `GET /api/v2/admin/site` returned 200.
+- `admin reset-password --password-stdin`: the previously issued access token was then rejected (401)
+  and the new password logged in.
+- `admin demote` of the only enabled admin was refused with `cannot remove or disable the last enabled
+  admin`; after a second admin existed the demote succeeded and preserved the account as `enabled user`.
+
+No user production database was touched: every check ran in its own disposable PostgreSQL container,
+volume, and network, all removed afterwards.

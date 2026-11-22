@@ -752,11 +752,17 @@ Verification for this pass (including the independent-review fixes) is in
 `docs/organizer-ux-verification.md` and `docs/organizer-ux-review-fixes.md`: full Go build/vet/test,
 real-PostgreSQL packages, frontend unit/typecheck/build, and the full real-browser Docker suite.
 
+**Delivered:** the reviewed range was pushed to `main` at `511e03916d48e11ef5bcf3b9655504ea7bd5451e`;
+the 4-job Actions run is green and all ten GHCR images are published and verified (public, `latest` +
+immutable `sha-<sha>`, `linux/amd64`). The published backend CLI and the published frontend landing/admin
+Markdown path were exercised in a cleanroom against real PostgreSQL. Evidence:
+`docs/ghcr-verification.md`, `docs/admin-cli.md`, `docs/organizer-ux-verification.md`.
+
 Remaining limits:
 
 - Legacy mixed TASKS modules are preserved, not bulk-converted; resolution still refuses to drop a
   type that existing tasks use.
 - A non-empty allowlist `parametersPolicy` is still rejected by the binder (it has no supported
   schema); the UI surfaces that as an operator error.
-- External GHCR publication/CI remains pending until a reviewed push is authorized; the admin CLI
-  `--help` path is verified locally without a database.
+- External GHCR publication/CI is **closed** for this range: the reviewed push, the 4-job CI run and
+  the ten public images are verified, including the published-image admin CLI.
