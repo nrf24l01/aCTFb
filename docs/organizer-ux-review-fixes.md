@@ -248,6 +248,24 @@ No `page.route`, `fulfill`, `routeFromHAR` or response stub is used in any spec.
 - No new migration. Migrations remain `001`–`018`; `018_site_settings.sql` is unchanged by this
   pass (the seeded intro already matched the fallback text).
 
+## Test counts added in this pass
+
+- **20 new Go test functions** (real PostgreSQL or real HTTP unless noted):
+  `TestAudienceAccessModeProjectsOnEveryRead`, `TestAccessModeOnlyPatchPersistsGateNormalization`,
+  `TestLegacyInviteWithGroupsSurvivesUnrelatedSave`, `TestAccessModeProjectionOnListAndDetail`,
+  `TestManualOnlyModulePublishHTTP`, `TestAnonymousBoardReadBoundaries`,
+  `TestBoardAccessModeLegacyCombinationsStayLegacy`, `TestSameUUIDSetIgnoresOrderAndDuplicates`,
+  `TestBoardUserSearchScopeIsExplicit`, `TestAudienceOnlyManagerCannotUseDirectoryScope`,
+  `TestBoardTeamSearchExcludesEmptyTeams`, `TestCaptainRosterRevocationIsImmediate`,
+  `TestMyTeamMembersRevokedGroupAccessStopsRoster`, `TestAudienceMemberListResolvesDisplayNames`,
+  `TestAudienceMemberNameReachesTheWire`, `TestTypedTemplateParametersEndToEnd`,
+  `TestSiteUnpublishedNeverLeaksDraftIdentity`, `TestSiteConcurrentDifferentFieldSavesBothPersist`,
+  `TestUpdateReadsSingletonUnderRowLock`, `TestOrganizerUXContract`.
+- **6 new frontend tests**: picker context reset, EXTENSION identity + payload, legacy mixed
+  default, string parameter payload, manifest type mapping, unsupported-policy detection.
+- **3 new browser tests** (14 → 17 total): scoped pickers, legacy gate-preserving save, typed
+  parameter binding. The existing 14 assertions were preserved, not reduced.
+
 ## Local commits in this pass (after `d3bba35`)
 
 | Commit | Scope |
