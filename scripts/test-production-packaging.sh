@@ -475,6 +475,7 @@ if [[ "${ACTFB_TEST_IMAGES:-0}" == "1" ]]; then
           test -r /app/migrations/001_init.sql
           test -r /app/migrations/016_instance_text.sql
           test -r /app/migrations/017_admin_cli_audit.sql
+          test -r /app/migrations/018_site_settings.sql
           test -r /app/email_templates/verification/subject.tmpl
           test -d /app/plugins
           test "$(stat -c %a /app/plugins)" != 777

@@ -204,7 +204,17 @@ grep -qi 'X-Content-Type-Options: nosniff' <<<"$asset_headers"
 uid="$(docker exec "$BACKEND" id -u)"
 [[ "$uid" == "10001" ]]
 migration_version="$(docker exec "$PG" psql -U actfb_smoke -d actfb_smoke -tAc 'select max(version_id) from goose_db_version')"
-[[ "$migration_version" == "17" ]]
+# Derive the expected latest version from the migrations directory instead of
+# hardcoding it: an additive migration must not break this smoke check.
+# goose stores the version as an integer (018 -> 18), so normalize the filename
+# prefix to a plain number before comparing.
+expected_migration_version="$(ls "$ROOT"/migrations/[0-9][0-9][0-9]_*.sql \
+  | sed -E 's|.*/([0-9]+)_.*|\1|' | awk '{ print $1 + 0 }' | sort -n | tail -n1)"
+[[ -n "$expected_migration_version" ]]
+[[ "$migration_version" == "$expected_migration_version" ]] || {
+  echo "migration version in the image = $migration_version, expected $expected_migration_version" >&2
+  exit 1
+}
 
 backend_size="$(docker image inspect --format '{{.Size}}' "$BACKEND_IMAGE")"
 frontend_size="$(docker image inspect --format '{{.Size}}' "$FRONTEND_IMAGE")"
