@@ -19,15 +19,17 @@ import {
 } from '@/components/ui/select'
 import ErrorAlert from '@/components/layout/ErrorAlert.vue'
 import FormField from '@/components/layout/FormField.vue'
+import UserPicker from '@/features/access/components/UserPicker.vue'
+import { accessApi } from '@/features/access/api'
 import { boardsApi } from '@/features/boards/api/boards'
 import { grantableRoles, validateGrant } from '@/features/boards/permissions'
-import { isUuid } from '@/shared/lib/validate'
 import { toIsoOrNull } from '@/shared/lib/format'
 import { isApiError } from '@/shared/api/errors'
 import type {
   BoardPermissionsResponse,
   BoardRole,
   ModuleListItem,
+  UserDirectoryEntry,
 } from '@/shared/types/api'
 
 const props = defineProps<{
@@ -44,17 +46,29 @@ const emit = defineEmits<{
 }>()
 
 const form = reactive({ userUuid: '', role: 'board_editor' as BoardRole, moduleUuid: 'none', expiresAt: '' })
+const selectedUser = ref<UserDirectoryEntry | null>(null)
 const problem = ref<string | null | undefined>()
 const error = ref<unknown>(null)
 const pending = ref(false)
 
 const roles = computed(() => grantableRoles(props.permissions, props.globalAdmin))
 
+async function searchUsers(query: string): Promise<UserDirectoryEntry[]> {
+  return (await accessApi.searchBoardUsers(props.boardUuid, query, 20, 0)).items
+}
+
+function selectUser(user: UserDirectoryEntry) {
+  selectedUser.value = user
+  form.userUuid = user.uuid
+  if (problem.value === 'Choose a user.') problem.value = undefined
+}
+
 watch(
   () => [props.open, roles.value] as const,
   ([open, available]) => {
     if (!open) return
     form.userUuid = ''
+    selectedUser.value = null
     form.role = available.includes('board_editor') ? 'board_editor' : available[0] ?? 'reviewer'
     form.moduleUuid = 'none'
     form.expiresAt = ''
@@ -79,8 +93,8 @@ async function submit() {
     problem.value = 'Enter a valid expiry date and time.'
     return
   }
-  problem.value = !isUuid(form.userUuid)
-    ? 'Enter the user UUID.'
+  problem.value = !form.userUuid
+    ? 'Choose a user.'
     : validateGrant({
         role: form.role,
         moduleUuid,
@@ -123,9 +137,18 @@ async function submit() {
       </DialogHeader>
       <form class="space-y-4" novalidate @submit.prevent="submit">
         <ErrorAlert v-if="error" :error="error" title="Could not grant role" />
-        <FormField label="User UUID" for-id="grant-user" :error="problem">
-          <Input id="grant-user" v-model="form.userUuid" autocomplete="off" spellcheck="false" />
-        </FormField>
+        <div class="space-y-2">
+          <UserPicker
+            label="User"
+            :search="searchUsers"
+            placeholder="Search by username, email or UUID"
+            @select="selectUser"
+          />
+          <p v-if="selectedUser" class="text-xs text-muted-foreground">
+            Selected: {{ selectedUser.username }} · {{ selectedUser.email }}
+          </p>
+          <p v-if="problem" class="text-xs text-love">{{ problem }}</p>
+        </div>
         <FormField label="Role" for-id="grant-role">
           <Select v-model="form.role">
             <SelectTrigger id="grant-role" class="w-full">

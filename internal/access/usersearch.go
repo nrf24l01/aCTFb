@@ -79,7 +79,15 @@ func (s *AccessService) SearchBoardUsers(ctx context.Context, principal authoriz
 	if err != nil {
 		return UserDirectoryPage{}, err
 	}
-	if !decision.Allowed {
+	allowed := decision.Allowed
+	if !allowed {
+		staffDecision, staffErr := s.auth.Authorize(ctx, principal, authorization.PermissionBoardStaffManage, authorization.Scope{BoardID: boardID})
+		if staffErr != nil {
+			return UserDirectoryPage{}, staffErr
+		}
+		allowed = staffDecision.Allowed
+	}
+	if !allowed {
 		return UserDirectoryPage{}, ErrForbidden
 	}
 	page, err := s.searchUsers(ctx, s.db.Pool, q)

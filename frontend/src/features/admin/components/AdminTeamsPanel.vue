@@ -9,9 +9,10 @@ import ErrorAlert from '@/components/layout/ErrorAlert.vue'
 import FormField from '@/components/layout/FormField.vue'
 import LoadingState from '@/components/layout/LoadingState.vue'
 import ConfirmDialog from '@/components/layout/ConfirmDialog.vue'
+import UserPicker from '@/features/access/components/UserPicker.vue'
+import { accessApi } from '@/features/access/api'
 import { teamsApi } from '@/features/teams/api'
-import { isUuid } from '@/shared/lib/validate'
-import type { Team } from '@/shared/types/api'
+import type { Team, UserDirectoryEntry } from '@/shared/types/api'
 
 const props = defineProps<{ boardUuid: string }>()
 
@@ -26,8 +27,19 @@ const deleteTarget = ref<Team | null>(null)
 const deleting = ref(false)
 const memberTeam = ref<Team | null>(null)
 const memberUuid = ref('')
+const memberName = ref('')
 const memberProblem = ref<string | undefined>()
 const memberPending = ref(false)
+
+async function searchUsers(query: string): Promise<UserDirectoryEntry[]> {
+  return (await accessApi.searchBoardUsers(props.boardUuid, query, 20, 0)).items
+}
+
+function selectMember(user: UserDirectoryEntry) {
+  memberUuid.value = user.uuid
+  memberName.value = user.username
+  memberProblem.value = undefined
+}
 
 async function load() {
   loading.value = true
@@ -85,12 +97,13 @@ async function removeTeam() {
 function openMember(team: Team) {
   memberTeam.value = team
   memberUuid.value = ''
+  memberName.value = ''
   memberProblem.value = undefined
 }
 
 async function addMember() {
   if (!memberTeam.value) return
-  memberProblem.value = isUuid(memberUuid.value) ? undefined : 'Enter the participant user UUID.'
+  memberProblem.value = memberUuid.value ? undefined : 'Choose a participant.'
   if (memberProblem.value) return
   memberPending.value = true
   try {
@@ -106,7 +119,7 @@ async function addMember() {
 
 async function removeMember() {
   if (!memberTeam.value) return
-  memberProblem.value = isUuid(memberUuid.value) ? undefined : 'Enter the member user UUID.'
+  memberProblem.value = memberUuid.value ? undefined : 'Choose a member.'
   if (memberProblem.value) return
   memberPending.value = true
   try {
@@ -189,14 +202,17 @@ void load()
       <DialogContent class="rounded-none border-border bg-black">
         <DialogHeader>
           <DialogTitle>{{ memberTeam?.name }} members</DialogTitle>
-          <DialogDescription>
-            No participant team-member list endpoint exists in the current contract. Enter the participant user UUID.
-          </DialogDescription>
+          <DialogDescription>Search board users, then add or remove the selected participant.</DialogDescription>
         </DialogHeader>
         <form class="space-y-4" novalidate @submit.prevent="addMember">
-          <FormField label="Participant user UUID" for-id="admin-team-member" :error="memberProblem">
-            <Input id="admin-team-member" v-model="memberUuid" autocomplete="off" spellcheck="false" />
-          </FormField>
+          <UserPicker
+            label="Participant"
+            :search="searchUsers"
+            placeholder="Search by username, email or UUID"
+            @select="selectMember"
+          />
+          <p v-if="memberName" class="text-xs text-muted-foreground">Selected: {{ memberName }}</p>
+          <p v-if="memberProblem" class="text-xs text-love">{{ memberProblem }}</p>
           <DialogFooter>
             <Button type="button" variant="ghost" @click="memberTeam = null">Cancel</Button>
             <Button type="submit" variant="outline" :disabled="memberPending">Add</Button>

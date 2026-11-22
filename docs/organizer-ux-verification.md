@@ -11,7 +11,7 @@ Plan: `docs/superpowers/plans/2026-11-22-organizer-ux.md`.
 |---|---|---|---|
 | 1 | Public root landing, organizer Markdown, anonymous whitelist, admin editor, audit, sanitizer | Implemented | migration `018`; `internal/site`; `GET /api/v2/site`; `GET/PATCH /api/v2/admin/site`; `frontend/src/features/site`; `shared/lib/markdown.ts`; site PG tests; markdown tests |
 | 2 | Hide successful health/readiness access logs, keep failures | Implemented | `internal/httpapi/router.go`; `TestAccessLogHidesSuccessfulHealthProbes`, `TestAccessLogKeepsFailedReadiness`, `TestAccessLogKeepsLookalikeHealthRoutes`; nginx `location = /healthz` already `access_log off` |
-| 3 | Server-backed searchable user picker, permissions, group membership, no UUID boxes | Implemented (audience picker partial) | `internal/access/usersearch.go`; 5 new endpoints; `UserPicker.vue` + tests; access-group members UI; participants UI. Audience member picker remains a bounded board-roster select |
+| 3 | Server-backed searchable user picker, permissions, group membership, no UUID boxes | Implemented (audience and captain team picker partial) | `internal/access/usersearch.go`; 5 new endpoints; `UserPicker.vue` + tests; access-group members, board participants, staff role grant and admin team member UIs now use the picker. Audience member picker remains a bounded board-roster select; the participant team-captain add flow still needs a captain-scoped roster endpoint |
 | 4 | One three-option board access control, legacy preservation, anonymous public browse | Implemented | `Board.AccessMode`; `accessMode` on Board/AdminBoard/create/patch; `BoardSettingsDialog.vue` + test; legacy notice in `AdminBoardPage.vue`; `OptionalUser` + `ListPublicBoards`/`GetPublicBoard`; anonymous list/detail integration assertions; router public board routes with sign-in-to-participate UI |
 | 5 | One module format, task cardinality 1, legacy mixed read-only | Implemented | `validateNewModuleFormat`; `legacyMixed`; `ModuleEditorDialog.vue` + test; `organizer_ux_test.go` |
 | 6 | Conditional task modal, inherited type, MiB, template parameter form, secret-keep | Implemented | `TaskEditorDialog.vue`; `taskParameters.ts` + test; `taskPayload.test.ts` |
@@ -90,6 +90,10 @@ response fields; legacy `visibility`, `registrationMode` and `allowedTaskTypes` 
 - **Audience picker**: audience membership still uses the bounded board participant/team roster
   select. It never queries the global user directory, so it does not expose a directory to
   participants; it is not the new searchable combobox.
+- **Team captain member picker**: staff/admin team management now uses the board picker, but the
+  participant captain flow still asks for a member UUID because there is no captain-scoped
+  board-roster endpoint. Using the global directory there would leak identities, so it was not
+  wired to the new picker.
 - **Instance bindings**: bindings are immutable after creation; the edit form intentionally sends
   only `{enabled:true}` and never blank secrets. Changing a template requires a new task.
 - **Browser E2E**: not re-run. The previous 7-scenario lifecycle suite was not modified in this
