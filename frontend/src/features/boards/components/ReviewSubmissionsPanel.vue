@@ -165,9 +165,9 @@ void load()
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="PENDING_REVIEW">PENDING_REVIEW</SelectItem>
-              <SelectItem value="ACCEPTED">ACCEPTED</SelectItem>
-              <SelectItem value="REJECTED">REJECTED</SelectItem>
+              <SelectItem value="PENDING_REVIEW">Waiting review</SelectItem>
+              <SelectItem value="ACCEPTED">Accepted</SelectItem>
+              <SelectItem value="REJECTED">Rejected</SelectItem>
             </SelectContent>
           </Select>
         </div>

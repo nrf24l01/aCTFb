@@ -74,7 +74,7 @@ onUnmounted(hide)
         Board invite code
       </h2>
       <p class="mt-1 text-xs text-muted-foreground">
-        Required for INVITE_ONLY boards. Returned only to global admin or board_owner; never stored in the browser.
+        Needed to join this board. Shown only to staff who may manage it and never stored in the browser.
       </p>
     </div>
     <div class="space-y-3 px-4 py-4">
@@ -92,7 +92,7 @@ onUnmounted(hide)
         {{ loading ? 'Loading…' : 'Reveal current code' }}
       </Button>
       <p class="text-xs text-muted-foreground">
-        Rotation invalidates the old code immediately. The GET fails closed if the server encryption key is unavailable.
+        Rotating invalidates the old code immediately.
       </p>
     </div>
     <ConfirmDialog

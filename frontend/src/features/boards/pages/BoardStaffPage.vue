@@ -140,7 +140,7 @@ void load()
       <EmptyState
         v-if="!canManageStaff(permissions) && !canManageParticipants(permissions) && !canReadAudit(permissions) && !canManageAudiences"
         title="Scoped read access"
-        description="You can read submissions only within your assigned scope. The submission table and manual review are not part of this first slice; FLAG answers are checked automatically and review is not allowed."
+        description="You can read submissions only within your assigned scope. Ask a board owner for review or participant permissions if you need them."
       />
     </div>
   </PageContainer>
