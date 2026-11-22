@@ -214,14 +214,6 @@ void load()
               </li>
             </ul>
           </section>
-
-          <section aria-labelledby="history-heading">
-            <h2 id="history-heading" class="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              Your submissions
-            </h2>
-            <SubmissionHistory :submissions="submissions" :loading="historyLoading" @download="downloadOwnFile" />
-            <ErrorAlert v-if="historyError" :error="historyError" title="Could not load submission history" class="mt-3" />
-          </section>
         </div>
 
         <div class="space-y-4 self-start">
@@ -251,6 +243,14 @@ void load()
           />
         </div>
       </div>
+
+      <section class="mt-8" aria-labelledby="history-heading">
+        <h2 id="history-heading" class="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          Your submissions
+        </h2>
+        <SubmissionHistory :submissions="submissions" :loading="historyLoading" @download="downloadOwnFile" />
+        <ErrorAlert v-if="historyError" :error="historyError" title="Could not load submission history" class="mt-3" />
+      </section>
     </template>
   </PageContainer>
 </template>
