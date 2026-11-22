@@ -20,6 +20,17 @@ this is not a claim of a fully hardened production release.
 
 See [docs/implementation-plan.md](docs/implementation-plan.md) for implemented/partial status and evidence.
 
+## Operator UI
+
+The root `/` is a public landing page with an organizer-controlled Markdown introduction. Edit it under
+**Admin → Site** with Write/Preview; raw HTML is escaped and link protocols are allowlisted. Anonymous visitors
+see only the title, intro, published flag and update time.
+
+Boards use one access control: **Public**, **Selected audiences** (global access groups) or **Invite code**.
+Existing boards with old ambiguous combinations keep their behaviour and show a legacy notice until an organizer
+chooses an explicit mode. Modules have one format; tasks inherit it. Board, module and task editors use
+searchable user pickers instead of UUID text boxes.
+
 ## Deployment
 
 Run this in a new private directory. Requirements: Docker Engine with Compose v2, `linux/amd64`, `wget`, and

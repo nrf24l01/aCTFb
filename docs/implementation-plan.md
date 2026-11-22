@@ -695,3 +695,43 @@ GHCR publication. No product-domain behavior was changed.
 - Review fixes make `web_app.allowed_origins` mandatory, scope trusted proxies to the dedicated `actfb-proxy`
   subnet, preserve the public Host port, overwrite client-supplied XFF, and provide a non-root `plugins-data`
   volume at `/app/plugins`. C1/C2/I1 runtime checks are described in `docs/ghcr-verification.md`.
+## Organizer UX pass (2026-11-22)
+
+Approved frozen design: `docs/superpowers/specs/2026-11-22-organizer-ux-design.md`; plan:
+`docs/superpowers/plans/2026-11-22-organizer-ux.md`; evidence: `docs/organizer-ux-verification.md`.
+
+Implemented in this pass (additive; `/api/v2` unchanged, migration `018` is the only new schema):
+
+- **Public landing**: singleton `site_settings`, `GET /api/v2/site` (anonymous whitelist) and
+  `GET/PATCH /api/v2/admin/site` (live global admin, transactional audit). Vue landing page and
+  Admin → Site Write/Preview editor; `marked` + DOMPurify with raw HTML escaping and URL protocol
+  allowlisting. Default intro is seeded, editable, and not a hardcoded page.
+- **Health log noise**: successful `/health`, `/ready` and `/healthz` access-log entries are hidden;
+  non-2xx readiness/errors and lookalike routes remain logged. Nginx `location = /healthz`
+  already had `access_log off`.
+- **User picker**: global `GET /api/v2/admin/user-search` and board-scoped
+  `GET /api/v2/admin/boards/{boardUuid}/user-search` (live `board.participants.manage`, audited),
+  literal wildcard escaping, UUID exact/prefix and bounded pagination. Real access-group member
+  list/add/remove endpoints. Reusable debounced combobox with stale-request cancellation, keyboard
+  navigation and disabled duplicates; wired into access groups and board participants.
+- **Board access**: additive `accessMode` projection (`PUBLIC`/`AUDIENCE`/`INVITE`/`LEGACY`) on
+  Board/AdminBoard and create/update. Legacy boards are never auto-converted; the UI blocks the
+  mode until the organizer chooses one. One three-option control replaces the visible
+  visibility/registration controls.
+- **Module format**: new TASKS modules require exactly one task type; ATTACK_DEFENSE keeps its
+  native EXPLOIT+PATCH workflow and PENTEST its report type. Existing mixed TASKS modules are
+  preserved and flagged `legacyMixed`; the UI shows a legacy notice and an explicit resolution
+  choice. Single format dropdown with friendly labels.
+- **Task editor/view**: inherited format (no type selector for normal modules), Markdown
+  Write/Preview, friendly text/files choice with MiB limits, approved-template parameter form
+  (typed, no raw JSON/UUID boxes), actionable empty/error state, draft-first default. Task view is
+  a full page with breadcrumb, sanitized Markdown, friendly attachments, INSTANCE panel plus the
+  manual report form, state-specific messages, staff-only edit link and history below content.
+
+Partial / not run in this pass:
+
+- Audience member picker remains a bounded board-roster select (not the new searchable combobox).
+- The browser E2E lifecycle was not re-run in this session; backend real-PostgreSQL suites and
+  frontend unit/typecheck/build were run (see the verification report).
+- External GHCR publication/CI remains blocked until a reviewed push is authorized; the admin CLI
+  `--help` path was verified locally without a database.
