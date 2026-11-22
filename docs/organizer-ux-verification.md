@@ -44,7 +44,7 @@ Model/project scope: subagent session, model `bobr-cli-proxy/alicn/deepseek-v4.1
 | Frontend build | `bun run build` | PASS |
 | Swagger validate | `swagger validate docs/swagger.yaml` | valid (v0.36.7) |
 | Swagger regeneration | generate into temp tree, `diff -rq` vs `internal/generated/openapi/models` | no differences |
-| Full browser suite | `GOMAXPROCS=2 E2E_KEEP=1 E2E_WORKDIR=/tmp/opencode/actfb-ux8 bash e2e/run-full-e2e.sh` | **14 passed (3.2m)**; `owned Docker resources: 0 new containers, 0 new volumes`; `core and Vue artifact hashes unchanged` |
+| Full browser suite | `GOMAXPROCS=2 E2E_KEEP=1 E2E_WORKDIR=/tmp/opencode/actfb-ux8 bash e2e/run-full-e2e.sh` | **14 passed (3.2m)**; `owned Docker resources: 0 new containers, 0 new volumes`; `core and Vue artifact hashes unchanged`. Log kept at `/tmp/opencode/actfb-ux8-run.log` |
 
 ### Browser tests in that run
 
