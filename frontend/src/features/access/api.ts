@@ -9,6 +9,7 @@ import type {
   AdminUserCreateRequest,
   AdminUserPatchRequest,
   AdminUsersResponse,
+  UserDirectoryResponse,
 } from '@/shared/types/api'
 
 export const accessApi = {
@@ -50,5 +51,29 @@ export const accessApi = {
 
   updateUser(userUuid: string, body: AdminUserPatchRequest): Promise<AdminUser> {
     return apiPatch<AdminUser>(`/admin/users/${userUuid}`, body)
+  },
+
+  searchUsers(query: string, limit = 20, offset = 0): Promise<UserDirectoryResponse> {
+    return apiRequest<UserDirectoryResponse>(withQuery('/admin/user-search', pageQuery(limit, offset, query)))
+  },
+
+  searchBoardUsers(boardUuid: string, query: string, limit = 20, offset = 0): Promise<UserDirectoryResponse> {
+    return apiRequest<UserDirectoryResponse>(
+      withQuery(`/admin/boards/${boardUuid}/user-search`, pageQuery(limit, offset, query)),
+    )
+  },
+
+  listGroupMembers(groupUuid: string, limit = 50, offset = 0, query = ''): Promise<UserDirectoryResponse> {
+    return apiRequest<UserDirectoryResponse>(
+      withQuery(`/admin/access-groups/${groupUuid}/members`, pageQuery(limit, offset, query)),
+    )
+  },
+
+  addGroupMember(groupUuid: string, userUuid: string): Promise<void> {
+    return apiPost<void>(`/admin/access-groups/${groupUuid}/members`, { userUuid })
+  },
+
+  removeGroupMember(groupUuid: string, userUuid: string): Promise<void> {
+    return apiDelete(`/admin/access-groups/${groupUuid}/members/${userUuid}`)
   },
 }

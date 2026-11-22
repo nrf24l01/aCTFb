@@ -159,3 +159,7 @@ func noStore(c *echo.Context) {
 	c.Response().Header().Set("Cache-Control", "no-store")
 	c.Response().Header().Set("Pragma", "no-cache")
 }
+
+type groupMemberAddRequest struct {
+	UserUUID string `json:"userUuid"`
+}

@@ -71,3 +71,50 @@ func adminUserResponseFrom(user access.AdminUser) adminUserResponse {
 	}
 	return response
 }
+
+type userDirectoryEntryResponse struct {
+	UUID     string `json:"uuid"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+}
+
+type userDirectoryResponse struct {
+	Items  []userDirectoryEntryResponse `json:"items"`
+	Limit  int64                        `json:"limit"`
+	Offset int64                        `json:"offset"`
+	Total  int64                        `json:"total"`
+}
+
+func userDirectoryResponseFrom(page access.UserDirectoryPage, limit, offset int) userDirectoryResponse {
+	response := userDirectoryResponse{
+		Items:  make([]userDirectoryEntryResponse, 0, len(page.Items)),
+		Limit:  int64(limit),
+		Offset: int64(offset),
+		Total:  int64(page.Total),
+	}
+	for _, entry := range page.Items {
+		response.Items = append(response.Items, userDirectoryEntryResponse{
+			UUID:     entry.UserID.String(),
+			Username: entry.Username,
+			Email:    entry.Email,
+		})
+	}
+	return response
+}
+
+func groupMemberResponseFrom(page access.GroupMemberPage, limit, offset int) userDirectoryResponse {
+	response := userDirectoryResponse{
+		Items:  make([]userDirectoryEntryResponse, 0, len(page.Items)),
+		Limit:  int64(limit),
+		Offset: int64(offset),
+		Total:  int64(page.Total),
+	}
+	for _, member := range page.Items {
+		response.Items = append(response.Items, userDirectoryEntryResponse{
+			UUID:     member.UserID.String(),
+			Username: member.Username,
+			Email:    member.Email,
+		})
+	}
+	return response
+}

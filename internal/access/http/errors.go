@@ -181,6 +181,10 @@ func (h *Handler) writeServiceError(c *echo.Context, err error) error {
 		return writeProblem(c, http.StatusConflict, errorCodeAccessGroupExists, "Access group already exists")
 	case stderrors.Is(err, access.ErrAccessGroupInUse):
 		return writeProblem(c, http.StatusConflict, errorCodeAccessGroupInUse, "Access group is assigned to a board")
+	case stderrors.Is(err, access.ErrAccessGroupMemberExists):
+		return writeProblem(c, http.StatusConflict, oapimodels.ErrorCodeACCESSGROUPMEMBEREXISTS, "User is already a member of this group")
+	case stderrors.Is(err, access.ErrAccessGroupMemberNotFound):
+		return writeProblem(c, http.StatusNotFound, oapimodels.ErrorCodeACCESSGROUPMEMBERNOTFOUND, "User is not a member of this group")
 	case stderrors.Is(err, access.ErrAudienceNotFound):
 		return writeProblem(c, http.StatusNotFound, errorCodeAudienceNotFound, "Audience not found")
 	case stderrors.Is(err, access.ErrAudienceExists):

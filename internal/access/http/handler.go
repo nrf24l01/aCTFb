@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/nrf24l01/actfb/internal/access"
@@ -34,10 +35,17 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	e.PATCH("/api/v2/admin/access-groups/:groupUuid", h.UpdateAccessGroup, auth)
 	e.DELETE("/api/v2/admin/access-groups/:groupUuid", h.DeleteAccessGroup, auth)
 
+	e.GET("/api/v2/admin/access-groups/:groupUuid/members", h.ListGroupMembers, auth)
+	e.POST("/api/v2/admin/access-groups/:groupUuid/members", h.AddGroupMember, auth)
+	e.DELETE("/api/v2/admin/access-groups/:groupUuid/members/:userUuid", h.RemoveGroupMember, auth)
+
 	e.GET("/api/v2/admin/users", h.ListUsers, auth)
 	e.POST("/api/v2/admin/users", h.CreateUser, auth)
 	e.GET("/api/v2/admin/users/:userUuid", h.GetUser, auth)
 	e.PATCH("/api/v2/admin/users/:userUuid", h.UpdateUser, auth)
+
+	e.GET("/api/v2/admin/user-search", h.SearchUsers, auth)
+	e.GET("/api/v2/admin/boards/:boardUuid/user-search", h.SearchBoardUsers, auth)
 }
 
 func (h *Handler) ListAccessGroups(c *echo.Context) error {
@@ -249,4 +257,120 @@ func (h *Handler) UpdateUser(c *echo.Context) error {
 		return h.writeServiceError(c, err)
 	}
 	return c.JSON(http.StatusOK, adminUserResponseFrom(*user))
+}
+
+// SearchUsers is the global-admin picker search. It returns the same bounded
+// page shape as the group member list.
+func (h *Handler) SearchUsers(c *echo.Context) error {
+	noStore(c)
+	principal, ok := httpapi.CurrentPrincipal(c)
+	if !ok {
+		return writeProblem(c, http.StatusUnauthorized, errorCodeUnauthorized, "Authentication required")
+	}
+	limit, offset, problem := pageParams(c)
+	if problem != nil {
+		return problem.write(c)
+	}
+	page, err := h.service.SearchUsers(c.Request().Context(), principal, access.ListQuery{
+		Limit: limit, Offset: offset, Query: c.QueryParam("query"),
+	})
+	if err != nil {
+		return h.writeServiceError(c, err)
+	}
+	return c.JSON(http.StatusOK, userDirectoryResponseFrom(page, limit, offset))
+}
+
+// SearchBoardUsers is the board-scoped picker. The service enforces live
+// board.participants.manage and audits the read; no participant may call it.
+func (h *Handler) SearchBoardUsers(c *echo.Context) error {
+	noStore(c)
+	principal, ok := httpapi.CurrentPrincipal(c)
+	if !ok {
+		return writeProblem(c, http.StatusUnauthorized, errorCodeUnauthorized, "Authentication required")
+	}
+	boardID, problem := pathUUID(c, "boardUuid")
+	if problem != nil {
+		return problem.write(c)
+	}
+	limit, offset, problem := pageParams(c)
+	if problem != nil {
+		return problem.write(c)
+	}
+	page, err := h.service.SearchBoardUsers(c.Request().Context(), principal, boardID, access.ListQuery{
+		Limit: limit, Offset: offset, Query: c.QueryParam("query"),
+	})
+	if err != nil {
+		return h.writeServiceError(c, err)
+	}
+	return c.JSON(http.StatusOK, userDirectoryResponseFrom(page, limit, offset))
+}
+
+// ListGroupMembers returns one access group's membership to a global admin.
+func (h *Handler) ListGroupMembers(c *echo.Context) error {
+	noStore(c)
+	principal, ok := httpapi.CurrentPrincipal(c)
+	if !ok {
+		return writeProblem(c, http.StatusUnauthorized, errorCodeUnauthorized, "Authentication required")
+	}
+	groupID, problem := pathUUID(c, "groupUuid")
+	if problem != nil {
+		return problem.write(c)
+	}
+	limit, offset, problem := pageParams(c)
+	if problem != nil {
+		return problem.write(c)
+	}
+	page, err := h.service.ListAccessGroupMembers(c.Request().Context(), principal, groupID, access.ListQuery{
+		Limit: limit, Offset: offset, Query: c.QueryParam("query"),
+	})
+	if err != nil {
+		return h.writeServiceError(c, err)
+	}
+	return c.JSON(http.StatusOK, groupMemberResponseFrom(page, limit, offset))
+}
+
+// AddGroupMember adds one user to a group with a transactional audit event.
+func (h *Handler) AddGroupMember(c *echo.Context) error {
+	noStore(c)
+	principal, ok := httpapi.CurrentPrincipal(c)
+	if !ok {
+		return writeProblem(c, http.StatusUnauthorized, errorCodeUnauthorized, "Authentication required")
+	}
+	groupID, problem := pathUUID(c, "groupUuid")
+	if problem != nil {
+		return problem.write(c)
+	}
+	var req groupMemberAddRequest
+	if problem := bindJSON(c, &req); problem != nil {
+		return problem.write(c)
+	}
+	userID, err := uuid.Parse(strings.TrimSpace(req.UserUUID))
+	if err != nil {
+		return validationProblem("userUuid", "userUuid is required", "REQUIRED").write(c)
+	}
+	if err := h.service.AddAccessGroupMember(c.Request().Context(), principal, groupID, userID); err != nil {
+		return h.writeServiceError(c, err)
+	}
+	return c.NoContent(http.StatusCreated)
+}
+
+// RemoveGroupMember removes one user from a group with a transactional audit.
+func (h *Handler) RemoveGroupMember(c *echo.Context) error {
+	noStore(c)
+	principal, ok := httpapi.CurrentPrincipal(c)
+	if !ok {
+		return writeProblem(c, http.StatusUnauthorized, errorCodeUnauthorized, "Authentication required")
+	}
+	groupID, problem := pathUUID(c, "groupUuid")
+	if problem != nil {
+		return problem.write(c)
+	}
+	userID, problem := pathUUID(c, "userUuid")
+	if problem != nil {
+		return problem.write(c)
+	}
+	if err := h.service.RemoveAccessGroupMember(c.Request().Context(), principal, groupID, userID); err != nil {
+		return h.writeServiceError(c, err)
+	}
+	return c.NoContent(http.StatusNoContent)
 }

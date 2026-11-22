@@ -1,16 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import EmptyState from '@/components/layout/EmptyState.vue'
 import ErrorAlert from '@/components/layout/ErrorAlert.vue'
-import FormField from '@/components/layout/FormField.vue'
 import LoadingState from '@/components/layout/LoadingState.vue'
 import ConfirmDialog from '@/components/layout/ConfirmDialog.vue'
+import UserPicker from '@/features/access/components/UserPicker.vue'
+import { accessApi } from '@/features/access/api'
 import { boardsApi } from '@/features/boards/api/boards'
-import { isUuid } from '@/shared/lib/validate'
-import type { Page, UserSummary } from '@/shared/types/api'
+import type { Page, UserDirectoryEntry, UserSummary } from '@/shared/types/api'
 
 const props = defineProps<{ boardUuid: string }>()
 const emit = defineEmits<{ (event: 'changed'): void }>()
@@ -18,8 +17,6 @@ const emit = defineEmits<{ (event: 'changed'): void }>()
 const items = ref<UserSummary[]>([])
 const loading = ref(true)
 const error = ref<unknown>(null)
-const addUuid = ref('')
-const addProblem = ref<string | undefined>()
 const addError = ref<unknown>(null)
 const adding = ref(false)
 const removeTarget = ref<UserSummary | null>(null)
@@ -40,15 +37,16 @@ async function load() {
   }
 }
 
-async function add() {
-  addError.value = null
-  addProblem.value = isUuid(addUuid.value) ? undefined : 'Enter the participant user UUID.'
-  if (addProblem.value) return
+async function searchUsers(query: string): Promise<UserDirectoryEntry[]> {
+  const response = await accessApi.searchBoardUsers(props.boardUuid, query, 20, 0)
+  return response.items
+}
 
+async function add(user: UserDirectoryEntry) {
+  addError.value = null
   adding.value = true
   try {
-    await boardsApi.addParticipant(props.boardUuid, { userUuid: addUuid.value.trim() })
-    addUuid.value = ''
+    await boardsApi.addParticipant(props.boardUuid, { userUuid: user.uuid })
     await load()
     emit('changed')
   } catch (caught) {
@@ -90,14 +88,15 @@ void load()
     </div>
 
     <div class="space-y-4 px-4 py-4">
-      <form class="space-y-3 border-b border-border pb-4" novalidate @submit.prevent="add">
+      <form class="space-y-3 border-b border-border pb-4" novalidate @submit.prevent>
         <ErrorAlert v-if="addError" :error="addError" title="Could not add participant" />
-        <FormField label="Add participant by user UUID" for-id="add-participant" :error="addProblem">
-          <Input id="add-participant" v-model="addUuid" autocomplete="off" spellcheck="false" />
-        </FormField>
-        <Button type="submit" variant="outline" :disabled="adding">
-          {{ adding ? 'Adding…' : 'Add participant' }}
-        </Button>
+        <UserPicker
+          label="Add participant"
+          :search="searchUsers"
+          :exclude="items.map((user) => user.uuid)"
+          :placeholder="adding ? 'Adding…' : 'Search by username, email or UUID'"
+          @select="add"
+        />
       </form>
 
       <LoadingState v-if="loading" :rows="3" />
