@@ -3,8 +3,8 @@ import { computed, reactive, ref, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -24,8 +24,14 @@ import {
   validateTaskTitle,
 } from '@/features/admin/validation'
 import { buildCreateTaskRequest, buildSubmissionPolicy, buildUpdateTaskRequest } from '@/features/admin/taskPayload'
+import {
+  initialParameterValues,
+  parseParameterPolicy,
+  type TemplateParameterField,
+} from '@/features/admin/taskParameters'
 import { isApiError } from '@/shared/api/errors'
-import { isUuid } from '@/shared/lib/validate'
+import { renderMarkdown } from '@/shared/lib/markdown'
+import { taskTypeLabel } from '@/features/boards/format'
 import type { AdminTask, SubmissionMode, TaskInstanceConfig, TaskType } from '@/shared/types/api'
 
 const props = defineProps<{
@@ -42,37 +48,58 @@ const emit = defineEmits<{
 }>()
 
 const nativeTaskTypes: TaskType[] = ['FLAG', 'MANUAL', 'INSTANCE']
+const availableTypes = computed(() => {
+  const allowed = props.allowedTaskTypes?.length ? props.allowedTaskTypes : nativeTaskTypes
+  return nativeTaskTypes.filter((type) => allowed.includes(type))
+})
+const isLegacyChoice = computed(() => availableTypes.value.length > 1)
+
+type SubmissionChoice = 'TEXT' | 'FILES' | 'BOTH' | 'EITHER'
+const choiceToMode: Record<SubmissionChoice, SubmissionMode> = {
+  TEXT: 'TEXT',
+  FILES: 'FILES',
+  BOTH: 'TEXT_AND_FILES',
+  EITHER: 'TEXT_OR_FILES',
+}
+const modeToChoice: Partial<Record<SubmissionMode, SubmissionChoice>> = {
+  TEXT: 'TEXT',
+  FILES: 'FILES',
+  TEXT_AND_FILES: 'BOTH',
+  TEXT_OR_FILES: 'EITHER',
+}
+
 const form = reactive({
   title: '',
   category: '',
   description: '',
   points: 100,
-  visible: true,
+  visible: false,
   type: 'FLAG' as TaskType,
-  mode: 'TEXT' as SubmissionMode,
+  choice: 'TEXT' as SubmissionChoice,
   textRequired: true,
   textMinLength: 1,
   textMaxLength: 1_000_000,
   filesRequired: true,
   filesMinCount: 1,
   filesMaxCount: 5,
-  filesMaxSizeBytes: 25 * 1024 * 1024,
+  filesMaxSizeMiB: 25,
   filesAllowedContentTypes: 'application/pdf,text/plain',
   acceptedAnswers: '',
   deploymentTemplateUuid: '',
   templateVersion: 1,
-  parametersJson: '',
-  secretParametersJson: '',
-})
-const availableTypes = computed(() => {
-  const allowed = props.allowedTaskTypes?.length ? props.allowedTaskTypes : nativeTaskTypes
-  return nativeTaskTypes.filter((type) => allowed.includes(type))
+  parameters: {} as Record<string, string>,
+  secretParameters: {} as Record<string, string>,
 })
 const problems = ref<Record<string, string | undefined>>({})
 const error = ref<unknown>(null)
 const pending = ref(false)
 const isEdit = computed(() => Boolean(props.task))
+const preview = computed(() => renderMarkdown(form.description))
+
 const approvedTemplates = ref<ApprovedInstanceTemplate[]>([])
+const templatesLoading = ref(false)
+const templatesError = ref<unknown>(null)
+const parameterFields = ref<TemplateParameterField[]>([])
 
 watch(
   () => [props.open, props.task] as const,
@@ -82,43 +109,54 @@ watch(
     form.category = task?.category ?? ''
     form.description = task?.description ?? ''
     form.points = task?.points ?? 100
-    form.visible = task?.visible ?? true
+    form.visible = task?.visible ?? false
     form.type = task?.type ?? availableTypes.value[0] ?? 'FLAG'
-    form.mode = task?.submission.mode ?? 'TEXT'
+    form.choice = modeToChoice[task?.submission.mode ?? 'TEXT'] ?? 'TEXT'
     form.textRequired = task?.submission.text?.required ?? true
     form.textMinLength = task?.submission.text?.minLength ?? 1
     form.textMaxLength = task?.submission.text?.maxLength ?? 1_000_000
     form.filesRequired = task?.submission.files?.required ?? true
     form.filesMinCount = task?.submission.files?.minCount ?? 1
     form.filesMaxCount = task?.submission.files?.maxCount ?? 5
-    form.filesMaxSizeBytes = task?.submission.files?.maxSizeBytes ?? 25 * 1024 * 1024
+    form.filesMaxSizeMiB = Math.max(1, Math.round((task?.submission.files?.maxSizeBytes ?? 25 * 1024 * 1024) / (1024 * 1024)))
     form.filesAllowedContentTypes = task?.submission.files?.allowedContentTypes.join(', ') ?? 'application/pdf,text/plain'
     form.acceptedAnswers = ''
     form.deploymentTemplateUuid = task?.instanceConfig?.deploymentTemplateUuid ?? ''
     form.templateVersion = task?.instanceConfig?.templateVersion ?? 1
-    form.parametersJson = task?.instanceConfig?.parameters ? JSON.stringify(task.instanceConfig.parameters) : ''
-    form.secretParametersJson = ''
+    form.parameters = {}
+    form.secretParameters = {}
+    parameterFields.value = []
     problems.value = {}
-    if (form.type === 'INSTANCE') void loadApprovedTemplates()
     error.value = null
+    templatesError.value = null
+    if (form.type === 'INSTANCE' && !isEdit.value) void loadApprovedTemplates()
   },
   { immediate: true },
 )
 
+watch(
+  () => form.type,
+  (type) => {
+    if (props.open && type === 'INSTANCE' && !isEdit.value && approvedTemplates.value.length === 0) {
+      void loadApprovedTemplates()
+    }
+  },
+)
+
 function validatePolicy(): string | undefined {
   if (form.type === 'FLAG') return undefined
-  if (form.mode === 'TEXT' || form.mode === 'TEXT_AND_FILES' || form.mode === 'TEXT_OR_FILES') {
+  if (form.choice === 'TEXT' || form.choice === 'BOTH' || form.choice === 'EITHER') {
     if (form.textMinLength < 0 || form.textMaxLength < 1 || form.textMaxLength > 1_000_000) {
-      return 'Text bounds must be within 0..1000000 and maxLength must be at least 1.'
+      return 'Text bounds must be within 0..1000000 and max must be at least 1.'
     }
-    if (form.textMaxLength < form.textMinLength) return 'Text maxLength must be >= minLength.'
+    if (form.textMaxLength < form.textMinLength) return 'Text max length must be at least the minimum.'
   }
-  if (form.mode === 'FILES' || form.mode === 'TEXT_AND_FILES' || form.mode === 'TEXT_OR_FILES') {
+  if (form.choice === 'FILES' || form.choice === 'BOTH' || form.choice === 'EITHER') {
     if (form.filesMinCount < 0 || form.filesMaxCount < 1 || form.filesMaxCount < form.filesMinCount) {
-      return 'File count bounds must be valid (maxCount >= minCount >= 0).'
+      return 'File count bounds must be valid (max >= min >= 0).'
     }
-    if (form.filesMaxSizeBytes < 1 || form.filesMaxSizeBytes > 1_073_741_824) {
-      return 'File size cap must be 1..1073741824 bytes.'
+    if (form.filesMaxSizeMiB < 1 || form.filesMaxSizeMiB > 1024) {
+      return 'File size limit must be between 1 and 1024 MiB.'
     }
     if (parseContentTypes().length === 0) return 'Add at least one allowed content type.'
   }
@@ -130,23 +168,20 @@ function parseContentTypes(): string[] {
 }
 
 async function loadApprovedTemplates() {
-  if (isEdit.value) return
+  templatesLoading.value = true
+  templatesError.value = null
   try {
     approvedTemplates.value = (await instancesApi.listApprovedTemplates(props.boardUuid, props.moduleUuid)).items
-  } catch {
+  } catch (caught) {
     approvedTemplates.value = []
+    templatesError.value = caught
+  } finally {
+    templatesLoading.value = false
   }
 }
 
-watch(
-  () => form.type,
-  (type) => {
-    if (props.open && type === 'INSTANCE') void loadApprovedTemplates()
-  },
-)
-
 function selectApprovedTemplate(value: unknown) {
-  if (value === null || value === undefined) return
+  if (value === null || value === undefined || value === '') return
   const selected = String(value)
   const template = approvedTemplates.value.find(
     (item) => `${item.templateUuid}:${item.version}` === selected,
@@ -154,48 +189,30 @@ function selectApprovedTemplate(value: unknown) {
   if (!template) return
   form.deploymentTemplateUuid = template.templateUuid
   form.templateVersion = template.version
-  form.parametersJson = template.parametersPolicy
-    ? JSON.stringify(template.parametersPolicy)
-    : ''
+  parameterFields.value = parseParameterPolicy(template.parametersPolicy)
+  form.parameters = initialParameterValues(parameterFields.value.filter((field) => !field.secret))
+  form.secretParameters = initialParameterValues(parameterFields.value.filter((field) => field.secret))
 }
 
-function parseStringMap(raw: string): { value?: Record<string, string>; problem?: string } {
-  if (!raw.trim()) return {}
-  try {
-    const parsed = JSON.parse(raw) as unknown
-    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
-      return { problem: 'Must be a JSON object of string values.' }
+function instanceProblem(): string | undefined {
+  if (form.type !== 'INSTANCE' || isEdit.value) return undefined
+  if (!form.deploymentTemplateUuid) return 'Choose an approved template version.'
+  if (!Number.isInteger(form.templateVersion) || form.templateVersion < 1) return 'Choose a valid template version.'
+  for (const field of parameterFields.value) {
+    const value = field.secret ? form.secretParameters[field.key] : form.parameters[field.key]
+    if (field.required && !String(value ?? '').trim()) {
+      return `${field.label} is required.`
     }
-    const result: Record<string, string> = {}
-    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof value !== 'string') return { problem: 'Every parameter value must be a string.' }
-      result[key] = value
-    }
-    return { value: result }
-  } catch {
-    return { problem: 'Invalid JSON.' }
   }
+  return undefined
 }
 
 async function submit() {
   error.value = null
-  const parameters = parseStringMap(form.parametersJson)
-  const secretParameters = parseStringMap(form.secretParametersJson)
-  let instanceProblem: string | undefined
-  if (form.type === 'INSTANCE') {
-    if (isEdit.value) {
-      instanceProblem = undefined
-    } else if (!isUuid(form.deploymentTemplateUuid)) {
-      instanceProblem = 'Enter an approved deployment template UUID.'
-    } else if (!Number.isInteger(form.templateVersion) || form.templateVersion < 1) {
-      instanceProblem = 'Template version must be a positive integer.'
-    }
-  }
-  if (!instanceProblem) instanceProblem = parameters.problem || secretParameters.problem
   const answers = form.type === 'FLAG'
     ? (form.acceptedAnswers.trim()
         ? parseAcceptedAnswers(form.acceptedAnswers)
-        : { answers: [], problem: isEdit.value ? undefined : 'Add at least one accepted answer for a FLAG task.' })
+        : { answers: [], problem: isEdit.value ? undefined : 'Add at least one accepted answer for a flag task.' })
     : { answers: [], problem: undefined }
 
   problems.value = {
@@ -204,7 +221,7 @@ async function submit() {
     points: validatePoints(form.points),
     answers: answers.problem,
     policy: validatePolicy(),
-    instance: instanceProblem,
+    instance: instanceProblem(),
   }
   if (Object.values(problems.value).some(Boolean)) return
 
@@ -212,14 +229,14 @@ async function submit() {
   try {
     const policy = buildSubmissionPolicy({
       type: form.type,
-      mode: form.type === 'FLAG' ? 'TEXT' : form.mode,
+      mode: form.type === 'FLAG' ? 'TEXT' : choiceToMode[form.choice],
       textRequired: form.textRequired,
       textMinLength: form.textMinLength,
       textMaxLength: form.textMaxLength,
       filesRequired: form.filesRequired,
       filesMinCount: form.filesMinCount,
       filesMaxCount: form.filesMaxCount,
-      filesMaxSizeBytes: form.filesMaxSizeBytes,
+      filesMaxSizeBytes: form.filesMaxSizeMiB * 1024 * 1024,
       filesAllowedContentTypes: parseContentTypes(),
     })
     const values = {
@@ -236,10 +253,10 @@ async function submit() {
           ? { enabled: true }
           : {
               enabled: true,
-              deploymentTemplateUuid: form.deploymentTemplateUuid.trim(),
+              deploymentTemplateUuid: form.deploymentTemplateUuid,
               templateVersion: form.templateVersion,
-              ...(parameters.value ? { parameters: parameters.value } : {}),
-              ...(secretParameters.value ? { secretParameters: secretParameters.value } : {}),
+              ...(Object.keys(form.parameters).length > 0 ? { parameters: form.parameters } : {}),
+              ...(Object.keys(form.secretParameters).length > 0 ? { secretParameters: form.secretParameters } : {}),
             })
       : { enabled: false }
     if (props.task) {
@@ -277,156 +294,237 @@ async function submit() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="max-h-[90dvh] overflow-y-auto rounded-none border-border bg-black sm:max-w-xl">
+    <DialogContent class="flex max-h-[92dvh] flex-col rounded-none border-border bg-black sm:max-w-2xl">
       <DialogHeader>
         <DialogTitle>{{ isEdit ? 'Edit task' : 'Create task' }}</DialogTitle>
         <DialogDescription>
-          FLAG uses TEXT/AUTOMATIC with write-only accepted answers. MANUAL tasks persist their text/file policy and
-          award points only after scoped review. Instance tasks need an approved deployment binding; no fake instance is created here.
+          The task format comes from the module. {{ taskTypeLabel(form.type) }} tasks appear as a draft until you publish them.
         </DialogDescription>
       </DialogHeader>
 
-      <form class="space-y-4" novalidate @submit.prevent="submit">
-        <ErrorAlert v-if="error" :error="error" title="Could not save task" />
-        <FormField label="Title" for-id="task-title" :error="problems.title">
-          <Input id="task-title" v-model="form.title" />
-        </FormField>
-        <FormField label="Category" for-id="task-category" :error="problems.category">
-          <Input id="task-category" v-model="form.category" />
-        </FormField>
-        <FormField label="Description" for-id="task-description">
-          <Textarea id="task-description" v-model="form.description" rows="4" />
-        </FormField>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <FormField label="Points" for-id="task-points" :error="problems.points">
-            <Input id="task-points" v-model.number="form.points" type="number" min="0" step="1" />
-          </FormField>
-          <FormField label="Task type" for-id="task-type" hint="Immutable after creation.">
-            <Select v-model="form.type" :disabled="isEdit">
-              <SelectTrigger id="task-type" class="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="type in availableTypes" :key="type" :value="type">{{ type }}</SelectItem>
-              </SelectContent>
-            </Select>
-          </FormField>
-        </div>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <FormField label="Submission mode" for-id="task-mode">
-            <Select v-model="form.mode" :disabled="form.type === 'FLAG'">
-              <SelectTrigger id="task-mode" class="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="TEXT">TEXT</SelectItem>
-                <SelectItem value="FILES">FILES</SelectItem>
-                <SelectItem value="TEXT_AND_FILES">TEXT_AND_FILES</SelectItem>
-                <SelectItem value="TEXT_OR_FILES">TEXT_OR_FILES</SelectItem>
-              </SelectContent>
-            </Select>
-          </FormField>
-          <FormField label="Checker" for-id="task-checker">
-            <Input id="task-checker" :model-value="form.type === 'FLAG' ? 'AUTOMATIC' : 'MANUAL'" disabled />
-          </FormField>
-        </div>
-        <div v-if="form.type !== 'FLAG'" class="space-y-3 border border-border p-3">
-          <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Text policy</p>
-          <label v-if="form.mode !== 'FILES'" class="flex min-h-11 items-center gap-2 text-sm">
-            <Checkbox v-model="form.textRequired" />
-            Text required
-          </label>
-          <div v-if="form.mode !== 'FILES'" class="grid gap-3 sm:grid-cols-2">
-            <FormField label="Text min length" for-id="task-text-min">
-              <Input id="task-text-min" v-model.number="form.textMinLength" type="number" min="0" max="1000000" />
+      <form class="flex min-h-0 flex-1 flex-col" novalidate @submit.prevent="submit">
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+          <ErrorAlert v-if="error" :error="error" title="Could not save task" />
+
+          <div class="flex flex-wrap items-center gap-2 text-sm">
+            <span class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Format</span>
+            <span class="border border-border px-2 py-1">{{ taskTypeLabel(form.type) }}</span>
+          </div>
+
+          <div v-if="isLegacyChoice && !isEdit" class="space-y-2 border border-gold/60 p-3">
+            <p class="text-xs text-gold">This module mixes task types. Choose the task type for this new task.</p>
+            <select v-model="form.type" class="h-9 w-full border border-border bg-black px-2 text-sm">
+              <option v-for="type in availableTypes" :key="type" :value="type">{{ taskTypeLabel(type) }}</option>
+            </select>
+          </div>
+
+          <div class="grid gap-3 sm:grid-cols-3">
+            <FormField label="Title" for-id="task-title" :error="problems.title" class="sm:col-span-2">
+              <Input id="task-title" v-model="form.title" />
             </FormField>
-            <FormField label="Text max length" for-id="task-text-max">
-              <Input id="task-text-max" v-model.number="form.textMaxLength" type="number" min="1" max="1000000" />
+            <FormField label="Points" for-id="task-points" :error="problems.points">
+              <Input id="task-points" v-model.number="form.points" type="number" min="0" step="1" />
             </FormField>
           </div>
-          <p v-if="form.mode !== 'TEXT'" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">File policy</p>
-          <template v-if="form.mode !== 'TEXT'">
-            <label class="flex min-h-11 items-center gap-2 text-sm">
-              <Checkbox v-model="form.filesRequired" />
-              Files required
-            </label>
-            <div class="grid gap-3 sm:grid-cols-2">
-              <FormField label="Min files" for-id="task-files-min">
-                <Input id="task-files-min" v-model.number="form.filesMinCount" type="number" min="0" max="100" />
-              </FormField>
-              <FormField label="Max files" for-id="task-files-max">
-                <Input id="task-files-max" v-model.number="form.filesMaxCount" type="number" min="1" max="100" />
-              </FormField>
-            </div>
-            <FormField label="Max size bytes" for-id="task-files-size">
-              <Input id="task-files-size" v-model.number="form.filesMaxSizeBytes" type="number" min="1" max="1073741824" />
+          <FormField label="Category" for-id="task-category" :error="problems.category">
+            <Input id="task-category" v-model="form.category" />
+          </FormField>
+
+          <div class="space-y-2">
+            <p class="text-sm font-medium">Content</p>
+            <Tabs default-value="write">
+              <TabsList variant="line">
+                <TabsTrigger value="write">Write</TabsTrigger>
+                <TabsTrigger value="preview">Preview</TabsTrigger>
+              </TabsList>
+              <TabsContent value="write">
+                <Textarea id="task-description" v-model="form.description" rows="6" />
+              </TabsContent>
+              <TabsContent value="preview">
+                <div class="min-h-28 border border-border px-3 py-2">
+                  <!-- Sanitised by renderMarkdown. -->
+                  <article class="space-y-2 text-sm" v-html="preview" />
+                  <p v-if="!form.description.trim()" class="text-sm text-muted-foreground">Nothing to preview yet.</p>
+                </div>
+              </TabsContent>
+            </Tabs>
+            <p class="text-xs text-muted-foreground">Attachments are added from the task editor after the draft is saved.</p>
+          </div>
+
+          <FormField
+            v-if="form.type === 'FLAG'"
+            label="Accepted answers"
+            for-id="task-answers"
+            :error="problems.answers"
+            :hint="isEdit
+              ? `Write-only. ${task?.answerConfiguration.configured ? task.answerConfiguration.acceptedAnswersCount : 0} configured. Leave blank to keep them.`
+              : 'One answer per line. Never returned by the API.'"
+          >
+            <Textarea
+              id="task-answers"
+              v-model="form.acceptedAnswers"
+              rows="4"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="flag{...}"
+            />
+          </FormField>
+
+          <fieldset v-if="form.type !== 'FLAG'" class="space-y-3 border border-border p-3">
+            <legend class="px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Submission</legend>
+            <FormField label="What participants submit" for-id="task-choice">
+              <select id="task-choice" v-model="form.choice" class="h-9 w-full border border-border bg-black px-2 text-sm">
+                <option value="TEXT">Text answer</option>
+                <option value="FILES">Files</option>
+                <option value="BOTH">Text and files</option>
+                <option value="EITHER">Text or files</option>
+              </select>
             </FormField>
-            <FormField label="Allowed content types" for-id="task-files-types" hint="Comma-separated MIME types.">
-              <Input id="task-files-types" v-model="form.filesAllowedContentTypes" />
-            </FormField>
-          </template>
-          <p v-if="problems.policy" class="text-xs text-love">{{ problems.policy }}</p>
+
+            <template v-if="form.choice !== 'FILES'">
+              <label class="flex min-h-11 items-center gap-2 text-sm">
+                <Checkbox v-model="form.textRequired" />
+                Text is required
+              </label>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <FormField label="Minimum characters" for-id="task-text-min">
+                  <Input id="task-text-min" v-model.number="form.textMinLength" type="number" min="0" max="1000000" />
+                </FormField>
+                <FormField label="Maximum characters" for-id="task-text-max">
+                  <Input id="task-text-max" v-model.number="form.textMaxLength" type="number" min="1" max="1000000" />
+                </FormField>
+              </div>
+            </template>
+
+            <template v-if="form.choice !== 'TEXT'">
+              <label class="flex min-h-11 items-center gap-2 text-sm">
+                <Checkbox v-model="form.filesRequired" />
+                Files are required
+              </label>
+              <div class="grid gap-3 sm:grid-cols-3">
+                <FormField label="Minimum files" for-id="task-files-min">
+                  <Input id="task-files-min" v-model.number="form.filesMinCount" type="number" min="0" max="100" />
+                </FormField>
+                <FormField label="Maximum files" for-id="task-files-max">
+                  <Input id="task-files-max" v-model.number="form.filesMaxCount" type="number" min="1" max="100" />
+                </FormField>
+                <FormField label="Max size (MiB)" for-id="task-files-size">
+                  <Input id="task-files-size" v-model.number="form.filesMaxSizeMiB" type="number" min="1" max="1024" />
+                </FormField>
+              </div>
+              <FormField label="Allowed content types" for-id="task-files-types" hint="Comma-separated MIME types.">
+                <Input id="task-files-types" v-model="form.filesAllowedContentTypes" />
+              </FormField>
+            </template>
+            <p v-if="problems.policy" class="text-xs text-love">{{ problems.policy }}</p>
+          </fieldset>
+
+          <div v-if="form.type === 'INSTANCE'" class="space-y-3 border border-border p-3">
+            <template v-if="isEdit">
+              <p class="text-xs text-muted-foreground">
+                The instance template binding is immutable after creation. Secret values are never shown; leaving them blank keeps them.
+              </p>
+            </template>
+            <template v-else>
+              <ErrorAlert v-if="templatesError" :error="templatesError" title="Could not load approved templates">
+                <Button type="button" variant="ghost" class="mt-2" @click="loadApprovedTemplates">Retry</Button>
+              </ErrorAlert>
+              <p v-else-if="templatesLoading" class="text-xs text-muted-foreground">Loading approved templates…</p>
+              <div v-else-if="approvedTemplates.length === 0" class="space-y-2 text-sm">
+                <p class="text-muted-foreground">No approved template version is available for this module.</p>
+                <Button as-child variant="outline" size="sm">
+                  <RouterLink to="/admin/templates">Open deployment templates</RouterLink>
+                </Button>
+              </div>
+              <template v-else>
+                <FormField label="Approved template" for-id="task-instance-approved">
+                  <select
+                    id="task-instance-approved"
+                    :value="`${form.deploymentTemplateUuid}:${form.templateVersion}`"
+                    class="h-9 w-full border border-border bg-black px-2 text-sm"
+                    @change="selectApprovedTemplate(($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">Choose an approved version</option>
+                    <option
+                      v-for="template in approvedTemplates"
+                      :key="`${template.templateUuid}:${template.version}`"
+                      :value="`${template.templateUuid}:${template.version}`"
+                    >
+                      {{ template.name }} v{{ template.version }} ({{ template.slug }})
+                    </option>
+                  </select>
+                </FormField>
+
+                <div v-if="parameterFields.length > 0" class="space-y-3 border-t border-border pt-3">
+                  <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Template parameters</p>
+                  <FormField
+                    v-for="field in parameterFields.filter((entry) => !entry.secret)"
+                    :key="field.key"
+                    :label="field.label + (field.required ? ' *' : '')"
+                    :for-id="`param-${field.key}`"
+                  >
+                    <select
+                      v-if="field.type === 'select'"
+                      :id="`param-${field.key}`"
+                      v-model="form.parameters[field.key]"
+                      class="h-9 w-full border border-border bg-black px-2 text-sm"
+                    >
+                      <option value="">Choose…</option>
+                      <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                    <label v-else-if="field.type === 'boolean'" class="flex min-h-9 items-center gap-2 text-sm">
+                      <input v-model="form.parameters[field.key]" type="checkbox" true-value="true" false-value="false" />
+                      {{ field.defaultValue === 'true' ? 'Enabled' : 'Toggle' }}
+                    </label>
+                    <Textarea
+                      v-else-if="field.type === 'textarea'"
+                      :id="`param-${field.key}`"
+                      v-model="form.parameters[field.key]"
+                      rows="3"
+                    />
+                    <Input
+                      v-else
+                      :id="`param-${field.key}`"
+                      v-model="form.parameters[field.key]"
+                      :type="field.type === 'number' ? 'number' : 'text'"
+                    />
+                  </FormField>
+
+                  <template v-if="parameterFields.some((entry) => entry.secret)">
+                    <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Secret parameters</p>
+                    <FormField
+                      v-for="field in parameterFields.filter((entry) => entry.secret)"
+                      :key="field.key"
+                      :label="field.label + (field.required ? ' *' : '')"
+                      :for-id="`secret-${field.key}`"
+                      hint="Write-only. Never displayed again."
+                    >
+                      <Input
+                        :id="`secret-${field.key}`"
+                        v-model="form.secretParameters[field.key]"
+                        type="password"
+                        autocomplete="new-password"
+                        spellcheck="false"
+                      />
+                    </FormField>
+                  </template>
+                </div>
+                <p v-if="problems.instance" class="text-xs text-love">{{ problems.instance }}</p>
+              </template>
+            </template>
+          </div>
+
+          <label class="flex min-h-11 items-center gap-2 text-sm">
+            <Checkbox v-model="form.visible" />
+            Visible to participants
+          </label>
         </div>
-        <label class="flex min-h-11 items-center gap-2 text-sm">
-          <Checkbox v-model="form.visible" />
-          Visible to participants
-        </label>
-        <FormField
-          v-if="form.type === 'FLAG'"
-          label="Accepted answers"
-          for-id="task-answers"
-          :error="problems.answers"
-          :hint="isEdit
-            ? `Write-only. Existing: ${task?.answerConfiguration.configured ? task.answerConfiguration.acceptedAnswersCount : 0}. Leave blank to keep them; entering answers replaces them.`
-            : 'One answer per line. Never returned by the API.'"
-        >
-          <Textarea
-            id="task-answers"
-            v-model="form.acceptedAnswers"
-            rows="4"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="flag{...}"
-          />
-        </FormField>
-        <div v-if="form.type === 'INSTANCE'" class="space-y-3 border border-border p-3">
-          <p class="text-xs text-gold">
-            INSTANCE uses an approved immutable deployment-template version and allowlist. The backend rejects
-            unapproved versions; no raw provider/image/driver option is accepted. The binding is immutable after create.
-          </p>
-          <FormField v-if="approvedTemplates.length > 0 && !isEdit" label="Approved version" for-id="task-instance-approved">
-            <Select
-              :model-value="`${form.deploymentTemplateUuid}:${form.templateVersion}`"
-              @update:model-value="selectApprovedTemplate"
-            >
-              <SelectTrigger id="task-instance-approved" class="w-full"><SelectValue placeholder="Select an allowlisted version" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem
-                  v-for="template in approvedTemplates"
-                  :key="`${template.templateUuid}:${template.version}`"
-                  :value="`${template.templateUuid}:${template.version}`"
-                >
-                  {{ template.name }} v{{ template.version }} ({{ template.slug }})
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </FormField>
-          <FormField label="Deployment template UUID" for-id="task-instance-template" :error="problems.instance">
-            <Input id="task-instance-template" v-model="form.deploymentTemplateUuid" :disabled="isEdit" placeholder="00000000-0000-4000-8000-000000000000" />
-          </FormField>
-          <FormField label="Template version" for-id="task-instance-version">
-            <Input id="task-instance-version" v-model.number="form.templateVersion" type="number" min="1" :disabled="isEdit" />
-          </FormField>
-          <FormField label="Parameters JSON" for-id="task-instance-parameters" hint="Non-secret values only.">
-            <Textarea id="task-instance-parameters" v-model="form.parametersJson" rows="3" :disabled="isEdit" placeholder='{"region":"local"}' />
-          </FormField>
-          <FormField label="Secret parameters JSON" for-id="task-instance-secrets" hint="Write-only; sealed by the trusted instances binder.">
-            <Textarea id="task-instance-secrets" v-model="form.secretParametersJson" rows="3" :disabled="isEdit" placeholder='{"apiToken":"..."}' autocomplete="off" spellcheck="false" />
-          </FormField>
-          <p v-if="isEdit" class="text-xs text-muted-foreground">The existing instance binding is immutable. Create a new task to change it.</p>
-        </div>
-        <p v-else class="text-xs text-muted-foreground">
-          MANUAL submissions enter PENDING_REVIEW with no score; a permitted reviewer accepts or rejects. Scores stay server-authoritative.
-        </p>
-        <DialogFooter>
+
+        <DialogFooter class="mt-4 border-t border-border pt-4">
           <Button type="button" variant="ghost" :disabled="pending" @click="emit('update:open', false)">Cancel</Button>
-          <Button type="submit" :disabled="pending">{{ pending ? 'Saving…' : isEdit ? 'Save task' : 'Create task' }}</Button>
+          <Button type="submit" :disabled="pending">
+            {{ pending ? 'Saving…' : isEdit ? 'Save changes' : 'Save draft' }}
+          </Button>
         </DialogFooter>
       </form>
     </DialogContent>

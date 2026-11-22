@@ -33,3 +33,16 @@ export function formatPoints(points: number | null | undefined): string {
 export function plural(count: number, singular: string, pluralWord = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : pluralWord}`
 }
+
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined || bytes < 0) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KiB', 'MiB', 'GiB']
+  let value = bytes / 1024
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`
+}

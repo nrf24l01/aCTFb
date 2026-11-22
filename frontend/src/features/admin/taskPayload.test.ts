@@ -4,6 +4,7 @@ import {
   buildCreateTaskRequest,
   buildSubmissionPolicy,
   buildUpdateFlagTaskRequest,
+  buildUpdateTaskRequest,
   flagSubmissionPolicy,
 } from '@/features/admin/taskPayload'
 
@@ -97,5 +98,18 @@ describe('MANUAL task policies', () => {
     expect(body.type).toBe('MANUAL')
     expect(body).not.toHaveProperty('acceptedAnswers')
     expect(body.submission.checker).toBe('MANUAL')
+  })
+})
+
+describe('INSTANCE edit payloads', () => {
+  it('keeps the immutable binding and never sends blank secrets', () => {
+    const body = buildUpdateTaskRequest(
+      { ...form, submission: { mode: 'TEXT', checker: 'MANUAL' } },
+      [],
+      { enabled: true },
+    )
+    expect(body.instance).toEqual({ enabled: true })
+    expect(JSON.stringify(body)).not.toContain('secretParameters')
+    expect(JSON.stringify(body)).not.toContain('parameters')
   })
 })

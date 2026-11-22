@@ -150,7 +150,7 @@ async function retry() {
           </span>
           <span v-else-if="verdict.status === 'REJECTED'">That flag is not correct.</span>
           <span v-else>Status: {{ verdict.status }}.</span>
-          <span class="block text-xs text-muted-foreground">The server does not echo submitted answers.</span>
+          <span class="block text-xs text-muted-foreground">Submitted answers are never shown again.</span>
         </AlertDescription>
       </Alert>
 
@@ -191,7 +191,7 @@ async function retry() {
       </form>
 
       <p v-else-if="!task.solved && !supportsFlag" class="text-sm text-muted-foreground">
-        This task type is not supported in the first slice. Only FLAG tasks with TEXT/AUTOMATIC checking can be solved here.
+        This task does not accept automatic flag submissions.
       </p>
       <p v-else-if="!task.solved" class="text-sm text-muted-foreground">
         This task does not accept automatic flag submissions right now.

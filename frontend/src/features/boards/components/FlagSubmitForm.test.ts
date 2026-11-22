@@ -193,6 +193,6 @@ describe('FlagSubmitForm', () => {
       },
     })
     expect(wrapper.find('#task-flag').exists()).toBe(false)
-    expect(wrapper.text()).toContain('not supported in the first slice')
+    expect(wrapper.text()).toContain('does not accept automatic flag submissions')
   })
 })

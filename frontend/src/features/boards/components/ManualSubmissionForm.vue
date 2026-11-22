@@ -78,6 +78,7 @@ async function send(body: { text?: string; draftUuid?: string }, key: string) {
     )
     inFlight = null
     verdict.value = submission
+    text.value = ''
     draftUuid.value = null
     filesReady.value = false
     uploaderKey.value += 1
@@ -108,7 +109,6 @@ async function submit() {
     inFlight = { key: createIdempotencyKey(), body }
   }
   const attempt = inFlight
-  text.value = ''
   await send(attempt.body, attempt.key)
 }
 
@@ -130,7 +130,7 @@ async function retry() {
       <Alert v-if="verdict" class="rounded-none border-gold/60 bg-black">
         <AlertTitle>Submitted</AlertTitle>
         <AlertDescription>
-          Status: {{ verdict.status }}. Manual review awards points only on ACCEPT; no score is shown until the backend decides.
+          Status: {{ verdict.status }}. Points are awarded only when a reviewer accepts the submission.
         </AlertDescription>
       </Alert>
       <ErrorAlert v-if="serverError" :error="serverError" title="Submission failed" />
