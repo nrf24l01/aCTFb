@@ -2,7 +2,7 @@
 
 Date: 2026-11-22
 Spec: `docs/superpowers/specs/2026-11-22-organizer-ux-design.md`
-Status: implemented for the local scope; evidence in `docs/organizer-ux-verification.md`.
+Status: implemented and browser-verified for the local scope; evidence in `docs/organizer-ux-verification.md`.
 
 Each slice is DB → service → API → UI → tests. Work was serial, one agent, Docker only.
 Gates run: `go build ./...`, `go vet ./...`, `go test ./...`, real-PostgreSQL packages
@@ -34,10 +34,12 @@ Gates run: `go build ./...`, `go vet ./...`, `go test ./...`, real-PostgreSQL pa
 - [x] User search: global `GET /api/v2/admin/user-search` with UUID exact/prefix, literal
       wildcard escaping and bounded pagination; board-scoped
       `GET /api/v2/admin/boards/{boardUuid}/user-search` (participants.manage), audited.
-- [x] Frontend `UserPicker.vue` (accessible combobox) + tests (debounce/abort/keyboard/disabled).
-- [x] Wire into access-group members and board participants.
-- [~] Audience member picker still uses the bounded board-roster select; not the global
-      combobox (it intentionally never queries the global directory).
+- [x] Frontend `SearchPicker.vue` with `UserPicker`/`TeamPicker` adapters + tests
+      (debounce/abort/keyboard/disabled/error-retry).
+- [x] Wire into access-group members, board participants, staff grants, admin team members,
+      audience user membership and team audience membership.
+- [x] Captain-only eligible roster search (`/team/roster-search`): live captain, open TEAM board,
+      live group access, no staff permission, names only, audited without the term.
 
 ## Slice 4: Board access mode
 
@@ -72,9 +74,10 @@ Gates run: `go build ./...`, `go vet ./...`, `go test ./...`, real-PostgreSQL pa
 - [x] InstancePanel + manual report form coexist.
 - [x] State-specific actions, staff edit link, Markdown content, history below, friendly bytes.
 - [x] Removed raw enum/technical explanations from touched views.
-- [~] Browser lifecycle not re-run in this session.
+- [x] Browser lifecycle re-run: all 14 real-browser tests pass (6 existing + 7 new + p1-core).
 
 ## Final
 
 - [x] `docs/organizer-ux-verification.md` with requirement table and actual evidence.
-- [ ] Separate logical local commits per slice, no push (pending review gate).
+- [x] Separate logical local commits per slice (18 commits, `79d79f8..1c63267`), no push.
+- [x] Review package at `/tmp/opencode/organizer-ux-review.diff`.
