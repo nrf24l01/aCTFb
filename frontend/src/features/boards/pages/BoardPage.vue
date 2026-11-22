@@ -25,6 +25,7 @@ import {
 } from '@/features/boards/permissions'
 import { isApiError } from '@/shared/api/errors'
 import { formatDateTime, plural } from '@/shared/lib/format'
+import { accessModeLabel, isInviteBoard, participationLabel } from '@/features/boards/accessMode'
 import type { Board, BoardMe, BoardPermissionsResponse, ModuleListItem } from '@/shared/types/api'
 
 const route = useRoute()
@@ -151,13 +152,12 @@ void load()
 
     <EmptyState
       v-else-if="accessDenied"
-      title="This board is private"
-      description="A board stays hidden until you join. If you received an unguessable board link, you can join here."
+      title="This board requires access"
+      description="Sign in and join to continue. If the organizer gave you an invite code, enter it below."
     >
       <div class="space-y-3">
         <ErrorAlert v-if="joinError" :error="joinError" title="Could not join board" />
-        <p class="break-all text-xs text-muted-foreground">Board UUID: {{ boardUuid }}</p>
-        <FormField label="Invite code (INVITE_ONLY only)" for-id="board-join-invite" hint="Leave blank for OPEN boards.">
+        <FormField label="Invite code" for-id="board-join-invite" hint="Only needed when the organizer provided one.">
           <Input id="board-join-invite" v-model="joinInviteCode" autocomplete="off" spellcheck="false" />
         </FormField>
         <Button :disabled="joining" @click="join">{{ joining ? 'Joining…' : 'Join this board' }}</Button>
@@ -229,7 +229,7 @@ void load()
               <p v-if="board.rating.visibility === 'PUBLIC'">Place: {{ me?.place ?? '—' }}</p>
               <p v-else class="text-xs text-muted-foreground">Place hidden while rating is hidden.</p>
               <p class="text-xs text-muted-foreground">
-                {{ plural(modules.length, 'module') }} · {{ board.participationMode }} · {{ board.registrationMode }}
+                {{ plural(modules.length, 'module') }} · {{ participationLabel(board.participationMode) }} · {{ accessModeLabel(board.accessMode) }}
               </p>
               <Button
                 v-if="me?.joined"
@@ -242,7 +242,7 @@ void load()
               <form v-else-if="canJoinFromPage" class="space-y-2 border-t border-border pt-3" novalidate @submit.prevent="join">
                 <ErrorAlert v-if="joinError" :error="joinError" title="Could not join board" />
                 <FormField
-                  v-if="board.registrationMode === 'INVITE_ONLY'"
+                  v-if="isInviteBoard(board.accessMode)"
                   label="Invite code"
                   for-id="board-detail-invite"
                   hint="The organizer provides this code."
@@ -259,9 +259,7 @@ void load()
 
           <section v-if="isStaff" class="border border-border px-4 py-3 text-xs text-muted-foreground">
             <p class="font-semibold uppercase tracking-wider">Staff view</p>
-            <p class="mt-1">
-              Staff are not participants automatically. Scoped permissions are resolved live by the backend.
-            </p>
+            <p class="mt-1">Manage tasks and review submissions from the board actions above.</p>
           </section>
         </aside>
       </div>

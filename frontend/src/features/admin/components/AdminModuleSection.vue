@@ -9,6 +9,7 @@ import ErrorAlert from '@/components/layout/ErrorAlert.vue'
 import LoadingState from '@/components/layout/LoadingState.vue'
 import ConfirmDialog from '@/components/layout/ConfirmDialog.vue'
 import TaskEditorDialog from '@/features/admin/components/TaskEditorDialog.vue'
+import { moduleFormatLabel, taskTypeLabel } from '@/features/boards/format'
 import TaskAttachmentsPanel from '@/features/admin/components/TaskAttachmentsPanel.vue'
 import ADAdminPanel from '@/features/admin/components/ADAdminPanel.vue'
 import PentestAdminPanel from '@/features/admin/components/PentestAdminPanel.vue'
@@ -92,8 +93,7 @@ void load()
       <div>
         <h2 :id="`module-${module.uuid}-heading`" class="font-semibold">{{ module.name }}</h2>
         <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <Badge variant="outline" class="rounded-none">{{ module.type }}</Badge>
-          <Badge variant="outline" class="rounded-none">{{ module.allowedTaskTypes.join(', ') }}</Badge>
+          <Badge variant="outline" class="rounded-none">{{ moduleFormatLabel(module.type, module.allowedTaskTypes) }}</Badge>
           <Badge variant="outline" class="rounded-none">{{ module.enabled ? 'enabled' : 'disabled' }}</Badge>
           <span>order {{ module.order }}</span>
           <span>{{ module.description || 'No description' }}</span>
@@ -143,7 +143,7 @@ void load()
             <TableRow v-for="task in tasks" :key="task.uuid" class="border-border">
               <TableCell>
                 <span class="font-medium">{{ task.title }}</span>
-                <span class="block text-xs text-muted-foreground">{{ task.type }} · {{ task.uuid }}</span>
+                <span class="block text-xs text-muted-foreground">{{ taskTypeLabel(task.type) }}</span>
               </TableCell>
               <TableCell>{{ task.category }}</TableCell>
               <TableCell>{{ task.points }}</TableCell>

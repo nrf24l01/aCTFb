@@ -341,6 +341,98 @@ func validateAcceptedAnswers(answers []string) error {
 	return nil
 }
 
+// applyAccessMode normalizes the canonical three-option mode onto the legacy
+// persisted columns. It never runs for boards that keep the old fields only.
+func applyAccessMode(board *Board, mode string) error {
+	switch mode {
+	case AccessModePublic:
+		board.Visibility = VisibilityPublic
+		board.RegistrationMode = RegistrationOpen
+		board.AccessGroupUUIDs = nil
+	case AccessModeAudience:
+		board.Visibility = VisibilityPrivate
+		board.RegistrationMode = RegistrationOpen
+		if len(board.AccessGroupUUIDs) == 0 {
+			return Invalid("body.accessGroupUuids", "Selected audiences requires at least one access group", "REQUIRED")
+		}
+	case AccessModeInvite:
+		board.Visibility = VisibilityPrivate
+		board.RegistrationMode = RegistrationInviteOnly
+		board.AccessGroupUUIDs = nil
+	default:
+		return Invalid("body.accessMode", "must be PUBLIC, AUDIENCE or INVITE", "INVALID_VALUE")
+	}
+	return nil
+}
+
+// validateAccessModeConflict rejects clients that send a canonical mode plus
+// legacy fields that contradict it. It never rewrites a legacy board silently.
+func validateAccessModeConflict(mode string, visibility, registration *string, groupsSet, groupsEmpty bool) error {
+	switch mode {
+	case AccessModePublic:
+		if visibility != nil && *visibility != VisibilityPublic {
+			return Invalid("body.visibility", "conflicts with accessMode PUBLIC", "INVALID_VALUE")
+		}
+		if registration != nil && *registration != RegistrationOpen {
+			return Invalid("body.registrationMode", "conflicts with accessMode PUBLIC", "INVALID_VALUE")
+		}
+		if groupsSet && !groupsEmpty {
+			return Invalid("body.accessGroupUuids", "conflicts with accessMode PUBLIC", "INVALID_VALUE")
+		}
+	case AccessModeAudience:
+		if visibility != nil && *visibility != VisibilityPrivate {
+			return Invalid("body.visibility", "conflicts with accessMode AUDIENCE", "INVALID_VALUE")
+		}
+		if registration != nil && *registration != RegistrationOpen {
+			return Invalid("body.registrationMode", "conflicts with accessMode AUDIENCE", "INVALID_VALUE")
+		}
+		if groupsSet && groupsEmpty {
+			return Invalid("body.accessGroupUuids", "Selected audiences requires at least one access group", "REQUIRED")
+		}
+	case AccessModeInvite:
+		if visibility != nil && *visibility != VisibilityPrivate {
+			return Invalid("body.visibility", "conflicts with accessMode INVITE", "INVALID_VALUE")
+		}
+		if registration != nil && *registration != RegistrationInviteOnly {
+			return Invalid("body.registrationMode", "conflicts with accessMode INVITE", "INVALID_VALUE")
+		}
+		if groupsSet && !groupsEmpty {
+			return Invalid("body.accessGroupUuids", "conflicts with accessMode INVITE", "INVALID_VALUE")
+		}
+	case "":
+	default:
+		return Invalid("body.accessMode", "must be PUBLIC, AUDIENCE or INVITE", "INVALID_VALUE")
+	}
+	return nil
+}
+
+// validateNewModuleFormat enforces the single-format rule for newly created
+// modules. Existing mixed TASKS modules are intentionally not rejected here;
+// they keep their data and are surfaced as legacy read-only in the admin UI.
+func validateNewModuleFormat(module Module) error {
+	switch module.Type {
+	case ModuleTypeTasks:
+		if len(module.AllowedTaskTypes) != 1 {
+			return Invalid("body.allowedTaskTypes", "a new TASKS module must have exactly one task type", "INVALID_VALUE")
+		}
+	case ModuleTypeAttackDefense:
+		if len(module.AllowedTaskTypes) != 2 ||
+			!containsString(module.AllowedTaskTypes, TaskTypeExploit) ||
+			!containsString(module.AllowedTaskTypes, TaskTypePatch) {
+			return Unsupported("body.allowedTaskTypes", "ATTACK_DEFENSE uses its native EXPLOIT+PATCH workflow")
+		}
+	case ModuleTypePentest:
+		if len(module.AllowedTaskTypes) != 1 || module.AllowedTaskTypes[0] != TaskTypePentestReport {
+			return Unsupported("body.allowedTaskTypes", "PENTEST uses the native PENTEST_REPORT workflow")
+		}
+	case ModuleTypeExtension:
+		if len(module.AllowedTaskTypes) != 1 || module.AllowedTaskTypes[0] != TaskTypeExtension {
+			return Unsupported("body.allowedTaskTypes", "EXTENSION uses exactly one EXTENSION task type")
+		}
+	}
+	return nil
+}
+
 func containsString(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {

@@ -124,14 +124,14 @@ void load()
               :aria-invalid="Boolean(joinProblem)"
             />
           </FormField>
-          <FormField label="Invite code (INVITE_ONLY only)" for-id="join-board-invite" hint="Leave blank for OPEN boards.">
+          <FormField label="Invite code" for-id="join-board-invite" hint="Only needed when the organizer provided one.">
             <Input id="join-board-invite" v-model="inviteCode" autocomplete="off" spellcheck="false" />
           </FormField>
           <Button type="submit" class="w-full" :disabled="joining">
             {{ joining ? 'Joining…' : 'Join board' }}
           </Button>
           <p class="text-xs text-muted-foreground">
-            Closed boards accept staff-added participants only. The server decides whether joining is allowed.
+            The server decides whether joining is allowed for this board.
           </p>
         </form>
       </section>

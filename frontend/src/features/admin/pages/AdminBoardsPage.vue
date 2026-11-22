@@ -12,6 +12,7 @@ import StatusPill from '@/components/layout/StatusPill.vue'
 import BoardSettingsDialog from '@/features/admin/components/BoardSettingsDialog.vue'
 import { boardsApi } from '@/features/boards/api/boards'
 import { useSession } from '@/features/auth/session'
+import { accessModeLabel, participationLabel } from '@/features/boards/accessMode'
 import { formatDateTime, plural } from '@/shared/lib/format'
 import type { Board } from '@/shared/types/api'
 
@@ -91,13 +92,13 @@ void load()
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 class="font-semibold">{{ board.name }}</h2>
-              <p class="text-xs text-muted-foreground">{{ board.slug }} · {{ board.visibility }}</p>
+              <p class="text-xs text-muted-foreground">{{ board.slug }} · {{ accessModeLabel(board.accessMode) }}</p>
             </div>
             <StatusPill :status="board.status" />
           </div>
           <div class="mt-2 flex flex-wrap items-center gap-2">
-            <Badge variant="outline" class="rounded-none">{{ board.participationMode }}</Badge>
-            <Badge variant="outline" class="rounded-none">{{ board.registrationMode }}</Badge>
+            <Badge variant="outline" class="rounded-none">{{ participationLabel(board.participationMode) }}</Badge>
+            <Badge variant="outline" class="rounded-none">{{ accessModeLabel(board.accessMode) }}</Badge>
             <Badge variant="outline" class="rounded-none">{{ board.rating.visibility }}</Badge>
             <span class="text-xs text-muted-foreground">{{ plural(board.modulesCount, 'module') }}</span>
             <span class="text-xs text-muted-foreground">{{ formatDateTime(board.startsAt) }} → {{ formatDateTime(board.endsAt) }}</span>

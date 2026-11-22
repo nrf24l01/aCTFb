@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -17,6 +18,7 @@ import FormField from '@/components/layout/FormField.vue'
 import { boardsApi } from '@/features/boards/api/boards'
 import { parseDateWindow, validateModuleName } from '@/features/admin/validation'
 import { formatDateTimeLocal } from '@/shared/lib/format'
+import { renderMarkdown } from '@/shared/lib/markdown'
 import { isApiError } from '@/shared/api/errors'
 import type { AdminModule, Audience, ModuleType, TaskType } from '@/shared/types/api'
 
@@ -32,46 +34,50 @@ const emit = defineEmits<{
   (event: 'saved'): void
 }>()
 
+type FormatKey = 'FLAG' | 'MANUAL' | 'INSTANCE' | 'PENTEST' | 'ATTACK_DEFENSE'
+
+const formats: Array<{ key: FormatKey; label: string; type: ModuleType; allowed: TaskType[] }> = [
+  { key: 'FLAG', label: 'Flag challenges', type: 'TASKS', allowed: ['FLAG'] },
+  { key: 'MANUAL', label: 'Manual review', type: 'TASKS', allowed: ['MANUAL'] },
+  { key: 'INSTANCE', label: 'Instance tasks', type: 'TASKS', allowed: ['INSTANCE'] },
+  { key: 'PENTEST', label: 'Pentest', type: 'PENTEST', allowed: ['PENTEST_REPORT'] },
+  { key: 'ATTACK_DEFENSE', label: 'Attack & Defense', type: 'ATTACK_DEFENSE', allowed: ['EXPLOIT', 'PATCH'] },
+]
+
+function formatForModule(module: AdminModule | null | undefined): FormatKey {
+  if (!module) return 'FLAG'
+  if (module.type === 'PENTEST') return 'PENTEST'
+  if (module.type === 'ATTACK_DEFENSE') return 'ATTACK_DEFENSE'
+  const single = module.allowedTaskTypes.length === 1 ? module.allowedTaskTypes[0] : undefined
+  if (single === 'MANUAL') return 'MANUAL'
+  if (single === 'INSTANCE') return 'INSTANCE'
+  return 'FLAG'
+}
+
 const form = reactive({
   name: '',
   description: '',
-  moduleType: 'TASKS' as ModuleType,
-  allowedTaskTypes: ['FLAG'] as TaskType[],
+  format: 'FLAG' as FormatKey,
+  legacyTaskType: '' as TaskType | '',
+  audienceMode: 'EVERYONE' as 'EVERYONE' | 'SELECTED',
   audienceUuids: [] as string[],
   enabled: true,
   order: 0,
   startsAt: '',
   endsAt: '',
   instanceMaxConcurrent: 1,
-  instanceDefaultTtlSeconds: 3600,
-  instanceMaxTtlSeconds: 14400,
+  instanceDefaultTtlHours: 1,
+  instanceMaxTtlHours: 4,
   instanceResetEnabled: true,
 })
-
-const taskTypeOptions: Record<string, TaskType[]> = {
-  TASKS: ['FLAG', 'MANUAL', 'INSTANCE'],
-  ATTACK_DEFENSE: ['EXPLOIT', 'PATCH'],
-  PENTEST: ['PENTEST_REPORT'],
-  EXTENSION: [],
-}
-
-watch(
-  () => form.moduleType,
-  (type) => {
-    if (props.module) return
-    form.allowedTaskTypes = type === 'TASKS'
-      ? ['FLAG']
-      : type === 'ATTACK_DEFENSE'
-        ? ['EXPLOIT', 'PATCH']
-        : type === 'PENTEST'
-          ? ['PENTEST_REPORT']
-          : []
-  },
-)
 const problems = ref<Record<string, string | undefined>>({})
 const error = ref<unknown>(null)
 const pending = ref(false)
 const isEdit = computed(() => Boolean(props.module))
+const isLegacyMixed = computed(() => Boolean(props.module?.legacyMixed))
+const selectedFormat = computed(() => formats.find((entry) => entry.key === form.format) ?? formats[0])
+const isInstance = computed(() => form.format === 'INSTANCE')
+const preview = computed(() => renderMarkdown(form.description))
 
 watch(
   () => [props.open, props.module] as const,
@@ -79,14 +85,17 @@ watch(
     if (!open) return
     form.name = module?.name ?? ''
     form.description = module?.description ?? ''
-    form.moduleType = module?.type ?? 'TASKS'
-    form.allowedTaskTypes = [...(module?.allowedTaskTypes ?? ['FLAG'])]
+    form.format = formatForModule(module)
+    form.legacyTaskType = module && module.allowedTaskTypes.length > 1
+      ? (module.allowedTaskTypes[0] as TaskType)
+      : ''
+    form.audienceMode = module && module.audienceUuids.length > 0 ? 'SELECTED' : 'EVERYONE'
     form.audienceUuids = [...(module?.audienceUuids ?? [])]
     form.enabled = module?.enabled ?? true
     form.order = module?.order ?? 0
     form.instanceMaxConcurrent = module?.taskInstanceSettings?.maxConcurrentInstancesPerSubject ?? 1
-    form.instanceDefaultTtlSeconds = module?.taskInstanceSettings?.defaultTtlSeconds ?? 3600
-    form.instanceMaxTtlSeconds = module?.taskInstanceSettings?.maxTtlSeconds ?? 14400
+    form.instanceDefaultTtlHours = (module?.taskInstanceSettings?.defaultTtlSeconds ?? 3600) / 3600
+    form.instanceMaxTtlHours = (module?.taskInstanceSettings?.maxTtlSeconds ?? 14400) / 3600
     form.instanceResetEnabled = module?.taskInstanceSettings?.resetEnabled ?? true
     form.startsAt = module?.startsAt ? formatDateTimeLocal(new Date(module.startsAt)) : ''
     form.endsAt = module?.endsAt ? formatDateTimeLocal(new Date(module.endsAt)) : ''
@@ -96,29 +105,35 @@ watch(
   { immediate: true },
 )
 
-function toggleTaskType(type: TaskType) {
-  form.allowedTaskTypes = form.allowedTaskTypes.includes(type)
-    ? form.allowedTaskTypes.filter((value) => value !== type)
-    : [...form.allowedTaskTypes, type]
-}
-
 function toggleAudience(uuid: string) {
   form.audienceUuids = form.audienceUuids.includes(uuid)
     ? form.audienceUuids.filter((value) => value !== uuid)
     : [...form.audienceUuids, uuid]
 }
 
-function validateModuleSettings(): string | undefined {
-  if (form.allowedTaskTypes.length === 0) return 'Choose at least one allowed task type.'
-  if (form.allowedTaskTypes.includes('INSTANCE')) {
-    if (form.instanceMaxTtlSeconds < form.instanceDefaultTtlSeconds) {
+function validateSettings(): string | undefined {
+  if (form.audienceMode === 'SELECTED' && form.audienceUuids.length === 0) {
+    return 'Choose at least one audience, or select Everyone with board access.'
+  }
+  if (isLegacyMixed.value && !form.legacyTaskType) {
+    return 'Choose one task type to resolve this legacy mixed module.'
+  }
+  if (isInstance.value) {
+    if (form.instanceMaxTtlHours < form.instanceDefaultTtlHours) {
       return 'Maximum TTL must be at least the default TTL.'
     }
-    if (form.instanceDefaultTtlSeconds < 60 || form.instanceMaxTtlSeconds > 604800) {
-      return 'Instance TTL must be between 60 and 604800 seconds.'
+    if (form.instanceDefaultTtlHours < 1 / 60 || form.instanceMaxTtlHours > 168) {
+      return 'Instance TTL must be between 1 minute and 168 hours.'
     }
   }
   return undefined
+}
+
+function allowedTaskTypes(): TaskType[] {
+  if (isLegacyMixed.value) {
+    return form.legacyTaskType ? [form.legacyTaskType] : (props.module?.allowedTaskTypes ?? [])
+  }
+  return selectedFormat.value.allowed
 }
 
 async function submit() {
@@ -126,26 +141,26 @@ async function submit() {
   const window = parseDateWindow(form.startsAt, form.endsAt)
   problems.value = {
     name: validateModuleName(form.name.trim()),
-    window: window.problem ?? validateModuleSettings(),
+    window: window.problem ?? validateSettings(),
     order: Number.isInteger(form.order) && form.order >= 0 ? undefined : 'Order must be a non-negative whole number.',
   }
   if (Object.values(problems.value).some(Boolean)) return
 
   pending.value = true
   try {
-    const taskInstanceSettings = form.allowedTaskTypes.includes('INSTANCE')
+    const taskInstanceSettings = isInstance.value || props.module?.taskInstanceSettings
       ? {
           maxConcurrentInstancesPerSubject: form.instanceMaxConcurrent,
-          defaultTtlSeconds: form.instanceDefaultTtlSeconds,
-          maxTtlSeconds: form.instanceMaxTtlSeconds,
+          defaultTtlSeconds: Math.round(form.instanceDefaultTtlHours * 3600),
+          maxTtlSeconds: Math.round(form.instanceMaxTtlHours * 3600),
           resetEnabled: form.instanceResetEnabled,
         }
       : null
     const body = {
       name: form.name.trim(),
       description: form.description,
-      allowedTaskTypes: form.allowedTaskTypes,
-      audienceUuids: form.audienceUuids,
+      allowedTaskTypes: allowedTaskTypes(),
+      audienceUuids: form.audienceMode === 'SELECTED' ? form.audienceUuids : [],
       enabled: form.enabled,
       order: form.order,
       startsAt: window.startsAt,
@@ -157,14 +172,17 @@ async function submit() {
     } else {
       await boardsApi.createModule(props.boardUuid, {
         ...body,
-        type: form.moduleType,
+        type: selectedFormat.value.type,
       })
     }
     emit('saved')
     emit('update:open', false)
   } catch (caught) {
     if (isApiError(caught)) {
-      problems.value = { name: caught.fieldIssue('name') }
+      problems.value = {
+        name: caught.fieldIssue('name'),
+        window: caught.fieldIssue('allowedTaskTypes') ?? caught.fieldIssue('audienceUuids'),
+      }
     }
     error.value = caught
   } finally {
@@ -175,92 +193,134 @@ async function submit() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="max-h-[90dvh] overflow-y-auto rounded-none border-border bg-black sm:max-w-lg">
+    <DialogContent class="flex max-h-[90dvh] flex-col rounded-none border-border bg-black sm:max-w-xl">
       <DialogHeader>
         <DialogTitle>{{ isEdit ? 'Edit module' : 'Create module' }}</DialogTitle>
         <DialogDescription>
-          Native module types: TASKS (FLAG/MANUAL/INSTANCE), ATTACK_DEFENSE (EXPLOIT/PATCH), PENTEST (report).
-          EXTENSION modules are shown only when backend plugin capability metadata exists; no arbitrary type strings are accepted.
+          A module has one format. Tasks inside it inherit that format; you do not choose a task type again.
         </DialogDescription>
       </DialogHeader>
 
-      <form class="space-y-4" novalidate @submit.prevent="submit">
-        <ErrorAlert v-if="error" :error="error" title="Could not save module" />
-        <FormField label="Name" for-id="module-name" :error="problems.name">
-          <Input id="module-name" v-model="form.name" />
-        </FormField>
-        <FormField label="Description" for-id="module-description">
-          <Textarea id="module-description" v-model="form.description" rows="3" />
-        </FormField>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <FormField label="Module type" for-id="module-type" hint="Immutable after creation.">
-            <Select v-model="form.moduleType" :disabled="isEdit">
-              <SelectTrigger id="module-type" class="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="TASKS">TASKS</SelectItem>
-                <SelectItem value="ATTACK_DEFENSE">ATTACK_DEFENSE</SelectItem>
-                <SelectItem value="PENTEST">PENTEST</SelectItem>
-              </SelectContent>
-            </Select>
+      <form class="flex min-h-0 flex-1 flex-col" novalidate @submit.prevent="submit">
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+          <ErrorAlert v-if="error" :error="error" title="Could not save module" />
+
+          <FormField label="Name" for-id="module-name" :error="problems.name">
+            <Input id="module-name" v-model="form.name" />
           </FormField>
-          <FormField label="Allowed task types" for-id="module-task-types" :error="problems.window">
-            <div class="space-y-1">
-              <label v-for="type in taskTypeOptions[form.moduleType] ?? []" :key="type" class="flex min-h-9 items-center gap-2 text-sm">
+
+          <div class="space-y-2">
+            <p class="text-sm font-medium">Short description</p>
+            <Tabs default-value="write">
+              <TabsList variant="line">
+                <TabsTrigger value="write">Write</TabsTrigger>
+                <TabsTrigger value="preview">Preview</TabsTrigger>
+              </TabsList>
+              <TabsContent value="write">
+                <Textarea id="module-description" v-model="form.description" rows="3" />
+              </TabsContent>
+              <TabsContent value="preview">
+                <div class="min-h-20 border border-border px-3 py-2">
+                  <!-- Sanitised by renderMarkdown. -->
+                  <article class="space-y-2 text-sm" v-html="preview" />
+                  <p v-if="!form.description.trim()" class="text-sm text-muted-foreground">Nothing to preview yet.</p>
+                </div>
+              </TabsContent>
+            </Tabs>
+          </div>
+
+          <FormField label="Format" for-id="module-format" :error="problems.window" hint="Immutable after creation.">
+            <select
+              id="module-format"
+              v-model="form.format"
+              :disabled="isEdit"
+              class="h-9 w-full border border-border bg-black px-2 text-sm disabled:opacity-60"
+            >
+              <option v-for="entry in formats" :key="entry.key" :value="entry.key">{{ entry.label }}</option>
+            </select>
+          </FormField>
+
+          <div v-if="isLegacyMixed" class="space-y-2 border border-gold/60 p-3">
+            <p class="text-xs text-gold">
+              This existing module mixes {{ props.module?.allowedTaskTypes.join(', ') }} tasks. Its data and history are
+              unchanged. Choose one task type to resolve it, or leave it as-is. Existing tasks of other types block the change.
+            </p>
+            <FormField label="Resolve to one task type" for-id="module-legacy-type">
+              <select id="module-legacy-type" v-model="form.legacyTaskType" class="h-9 w-full border border-border bg-black px-2 text-sm">
+                <option value="">Keep current mixed types</option>
+                <option v-for="type in props.module?.allowedTaskTypes ?? []" :key="type" :value="type">{{ type }}</option>
+              </select>
+            </FormField>
+          </div>
+
+          <fieldset class="space-y-2 border border-border p-3">
+            <legend class="px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Audience</legend>
+            <label class="flex min-h-9 items-center gap-2 text-sm">
+              <input v-model="form.audienceMode" type="radio" value="EVERYONE" />
+              Everyone with board access
+            </label>
+            <label class="flex min-h-9 items-center gap-2 text-sm">
+              <input v-model="form.audienceMode" type="radio" value="SELECTED" />
+              Selected board audiences
+            </label>
+            <div v-if="form.audienceMode === 'SELECTED'" class="space-y-1 border-t border-border pt-2">
+              <label v-for="audience in audiences ?? []" :key="audience.uuid" class="flex min-h-9 items-center gap-2 text-sm">
                 <Checkbox
-                  :model-value="form.allowedTaskTypes.includes(type)"
-                  @update:model-value="toggleTaskType(type)"
+                  :model-value="form.audienceUuids.includes(audience.uuid)"
+                  @update:model-value="toggleAudience(audience.uuid)"
                 />
-                {{ type }}
+                {{ audience.name }}
               </label>
-              <p v-if="(taskTypeOptions[form.moduleType] ?? []).length === 0" class="text-xs text-muted-foreground">
-                EXTENSION requires installed backend plugin metadata; it is not offered as a free-form type.
+              <p v-if="(audiences ?? []).length === 0" class="text-xs text-muted-foreground">
+                This board has no audiences yet. Create one on the board page first.
               </p>
             </div>
-          </FormField>
+          </fieldset>
+
+          <div class="grid gap-3 sm:grid-cols-2">
+            <FormField label="Starts at (optional)" for-id="module-starts" hint="Defaults to the board schedule.">
+              <Input id="module-starts" v-model="form.startsAt" type="datetime-local" />
+            </FormField>
+            <FormField label="Ends at (optional)" for-id="module-ends" :error="problems.window">
+              <Input id="module-ends" v-model="form.endsAt" type="datetime-local" />
+            </FormField>
+          </div>
+
+          <details class="border border-border p-3">
+            <summary class="cursor-pointer text-sm font-medium">Advanced</summary>
+            <div class="mt-3 space-y-3">
+              <FormField label="Order" for-id="module-order" :error="problems.order">
+                <Input id="module-order" v-model.number="form.order" type="number" min="0" step="1" />
+              </FormField>
+              <label class="flex min-h-11 items-center gap-2 text-sm">
+                <Checkbox v-model="form.enabled" />
+                Enabled
+              </label>
+              <div v-if="isInstance" class="space-y-3 border-t border-border pt-3">
+                <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Instance limits</p>
+                <FormField label="Max concurrent per participant" for-id="module-instance-concurrent">
+                  <Input id="module-instance-concurrent" v-model.number="form.instanceMaxConcurrent" type="number" min="1" max="100" />
+                </FormField>
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <FormField label="Default lifetime (hours)" for-id="module-instance-default-ttl">
+                    <Input id="module-instance-default-ttl" v-model.number="form.instanceDefaultTtlHours" type="number" min="0.02" max="168" step="0.5" />
+                  </FormField>
+                  <FormField label="Maximum lifetime (hours)" for-id="module-instance-max-ttl">
+                    <Input id="module-instance-max-ttl" v-model.number="form.instanceMaxTtlHours" type="number" min="0.02" max="168" step="0.5" />
+                  </FormField>
+                </div>
+                <label class="flex min-h-11 items-center gap-2 text-sm">
+                  <Checkbox v-model="form.instanceResetEnabled" />
+                  Allow participants to reset
+                </label>
+              </div>
+            </div>
+          </details>
         </div>
-        <div v-if="audiences && audiences.length > 0" class="space-y-2 border border-border p-3">
-          <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Audience gating</p>
-          <p class="text-xs text-muted-foreground">Empty selection means every joined participant/subject can see the module.</p>
-          <label v-for="audience in audiences" :key="audience.uuid" class="flex min-h-9 items-center gap-2 text-sm">
-            <Checkbox
-              :model-value="form.audienceUuids.includes(audience.uuid)"
-              @update:model-value="toggleAudience(audience.uuid)"
-            />
-            {{ audience.name }}
-          </label>
-        </div>
-        <div v-if="form.allowedTaskTypes.includes('INSTANCE')" class="grid gap-3 border border-border p-3 sm:grid-cols-2">
-          <p class="sm:col-span-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Instance settings</p>
-          <FormField label="Max concurrent per subject" for-id="module-instance-concurrent">
-            <Input id="module-instance-concurrent" v-model.number="form.instanceMaxConcurrent" type="number" min="1" max="100" />
-          </FormField>
-          <FormField label="Default TTL seconds" for-id="module-instance-default-ttl">
-            <Input id="module-instance-default-ttl" v-model.number="form.instanceDefaultTtlSeconds" type="number" min="60" max="604800" />
-          </FormField>
-          <FormField label="Max TTL seconds" for-id="module-instance-max-ttl">
-            <Input id="module-instance-max-ttl" v-model.number="form.instanceMaxTtlSeconds" type="number" min="60" max="604800" />
-          </FormField>
-          <label class="flex min-h-11 items-center gap-2 text-sm">
-            <Checkbox v-model="form.instanceResetEnabled" />
-            Allow reset
-          </label>
-        </div>
-        <FormField label="Order" for-id="module-order" :error="problems.order">
-          <Input id="module-order" v-model.number="form.order" type="number" min="0" step="1" />
-        </FormField>
-        <label class="flex min-h-11 items-center gap-2 text-sm">
-          <Checkbox v-model="form.enabled" />
-          Enabled
-        </label>
-        <FormField label="Starts at (optional)" for-id="module-starts">
-          <Input id="module-starts" v-model="form.startsAt" type="datetime-local" />
-        </FormField>
-        <FormField label="Ends at (optional)" for-id="module-ends" :error="problems.window">
-          <Input id="module-ends" v-model="form.endsAt" type="datetime-local" />
-        </FormField>
-        <DialogFooter>
+
+        <DialogFooter class="mt-4 border-t border-border pt-4">
           <Button type="button" variant="ghost" :disabled="pending" @click="emit('update:open', false)">Cancel</Button>
-          <Button type="submit" :disabled="pending">{{ pending ? 'Saving…' : isEdit ? 'Save module' : 'Create module' }}</Button>
+          <Button type="submit" :disabled="pending">{{ pending ? 'Saving…' : isEdit ? 'Save changes' : 'Create module' }}</Button>
         </DialogFooter>
       </form>
     </DialogContent>

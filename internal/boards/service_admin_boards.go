@@ -56,6 +56,15 @@ func (s *Service) AdminCreateBoard(ctx context.Context, principal authorization.
 		StartsAt: input.StartsAt, EndsAt: input.EndsAt,
 		TeamSettings: input.TeamSettings, AccessGroupUUIDs: input.AccessGroupUUIDs,
 	}
+	if input.AccessMode != "" {
+		visibility, registration := input.Visibility, input.RegistrationMode
+		if err := validateAccessModeConflict(input.AccessMode, &visibility, &registration, input.AccessGroupUUIDs != nil, len(input.AccessGroupUUIDs) == 0); err != nil {
+			return nil, err
+		}
+		if err := applyAccessMode(&board, input.AccessMode); err != nil {
+			return nil, err
+		}
+	}
 	if err := validateBoardInput(board, s.clock.Now()); err != nil {
 		return nil, err
 	}
@@ -156,6 +165,24 @@ func (s *Service) AdminUpdateBoard(
 	if err != nil {
 		return nil, err
 	}
+	if input.AccessMode.Set {
+		if input.AccessMode.Value == nil {
+			return nil, Invalid("body.accessMode", "must not be null", "INVALID_VALUE")
+		}
+		var visibility, registration *string
+		if input.Visibility.Set && input.Visibility.Value != nil {
+			visibility = input.Visibility.Value
+		}
+		if input.RegistrationMode.Set && input.RegistrationMode.Value != nil {
+			registration = input.RegistrationMode.Value
+		}
+		if err := validateAccessModeConflict(*input.AccessMode.Value, visibility, registration, input.AccessGroupUUIDs.Set, len(merged.AccessGroupUUIDs) == 0); err != nil {
+			return nil, err
+		}
+		if err := applyAccessMode(&merged, *input.AccessMode.Value); err != nil {
+			return nil, err
+		}
+	}
 	if err := validateBoardInput(merged, s.clock.Now()); err != nil {
 		return nil, err
 	}
@@ -176,7 +203,7 @@ func (s *Service) AdminUpdateBoard(
 		TeamSettings: merged.TeamSettings, TeamSettingsSet: input.TeamSettings != nil || input.ClearTeamSettings,
 		AccessGroupUUIDs: merged.AccessGroupUUIDs, ReplaceAccessGroups: input.AccessGroupUUIDs.Set,
 	}
-	if input.RegistrationMode.Set && merged.RegistrationMode == RegistrationInviteOnly {
+	if (input.RegistrationMode.Set || input.AccessMode.Set) && merged.RegistrationMode == RegistrationInviteOnly {
 		if _, _, _, err := s.store.GetBoardInvite(ctx, boardID); err != nil {
 			code, genErr := newInviteCode()
 			if genErr != nil {

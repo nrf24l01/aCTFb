@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/nrf24l01/actfb/internal/access"
 	"github.com/nrf24l01/actfb/internal/authorization"
 	"github.com/nrf24l01/actfb/internal/boards"
@@ -70,14 +72,24 @@ func TestP1RHTTPRoutes(t *testing.T) {
 		"teamSettings": map[string]any{"minMembers": 1, "maxMembers": 3, "allowSelfCreate": true, "allowLeaveAfterStart": true},
 	}, nil, http.StatusCreated), http.StatusCreated)
 	boardID := string(*board.UUID)
+	boardUUID, err := uuid.Parse(boardID)
+	if err != nil {
+		t.Fatalf("parse board uuid: %v", err)
+	}
 	if board.TeamSettings == nil || board.TeamSettings.MaxMembers == nil || *board.TeamSettings.MaxMembers != 3 {
 		t.Fatalf("AdminBoard teamSettings = %+v", board.TeamSettings)
 	}
-	module := decode[oapimodels.AdminModule](t, doJSON(t, router, http.MethodPost,
-		"/api/v2/admin/boards/"+boardID+"/modules", adminToken, map[string]any{
-			"name": "Tasks", "type": "TASKS", "allowedTaskTypes": []string{"FLAG", "MANUAL"}, "enabled": true,
-		}, nil, http.StatusCreated), http.StatusCreated)
-	moduleID := string(*module.UUID)
+	// Seed a legacy mixed-format module directly: existing data predates the
+	// single-format creation rule and must remain usable for MANUAL+FLAG tasks.
+	module, err := boards.NewPostgresStore(db).CreateModule(ctx, boards.CreateModuleParams{
+		BoardID: boardUUID, Name: "Tasks", Type: boards.ModuleTypeTasks,
+		AllowedTaskTypes: []string{boards.TaskTypeFlag, boards.TaskTypeManual},
+		Enabled:          true, CreatedBy: adminUser.ID,
+	}, boards.AuditEventParams{Action: "test.module.seed", ResourceType: "module", ActorUserID: adminUser.ID})
+	if err != nil {
+		t.Fatalf("seed legacy mixed module: %v", err)
+	}
+	moduleID := module.ID.String()
 	manualTask := decode[oapimodels.AdminTask](t, doJSON(t, router, http.MethodPost,
 		"/api/v2/admin/boards/"+boardID+"/modules/"+moduleID+"/tasks", adminToken, map[string]any{
 			"title": "Manual", "type": "MANUAL", "category": "web", "description": "manual",

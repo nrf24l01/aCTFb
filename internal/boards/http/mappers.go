@@ -59,6 +59,7 @@ func boardModel(board boards.Board) *oapimodels.Board {
 	}
 	joined := board.Joined
 	visibility := oapimodels.BoardVisibility(board.Visibility)
+	accessMode := oapimodels.AccessMode(board.AccessMode())
 	moduleTypes := make([]oapimodels.ModuleType, 0, len(board.ModuleTypes))
 	for _, moduleType := range board.ModuleTypes {
 		moduleTypes = append(moduleTypes, oapimodels.ModuleType(moduleType))
@@ -78,6 +79,7 @@ func boardModel(board boards.Board) *oapimodels.Board {
 		StartsAt:          dateTimeModel(board.StartsAt),
 		EndsAt:            dateTimeModel(board.EndsAt),
 		Joined:            &joined,
+		AccessMode:        accessMode,
 	}
 }
 
@@ -176,6 +178,7 @@ func adminModuleModel(module boards.Module) *oapimodels.AdminModule {
 		StartsAt:         base.StartsAt,
 		EndsAt:           base.EndsAt,
 		Enabled:          &enabled,
+		LegacyMixed:      module.Type == boards.ModuleTypeTasks && len(module.AllowedTaskTypes) > 1,
 	}
 	return admin
 }
@@ -564,6 +567,7 @@ func adminBoardModel(board boards.Board) *oapimodels.AdminBoard {
 		Joined:            base.Joined,
 		TeamSettings:      teamSettings,
 		AccessGroupUuids:  groups,
+		AccessMode:        base.AccessMode,
 	}
 }
 

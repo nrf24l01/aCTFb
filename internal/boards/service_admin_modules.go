@@ -69,6 +69,9 @@ func (s *Service) AdminCreateModule(ctx context.Context, principal authorization
 	if err := validateModuleInput(module, *board); err != nil {
 		return nil, err
 	}
+	if err := validateNewModuleFormat(module); err != nil {
+		return nil, err
+	}
 	if module.Type == ModuleTypeExtension {
 		if err := s.validatePluginCheckerConfig(ctx, principal, boardID, module.ID, module.ExtensionKey, ""); err != nil {
 			return nil, err

@@ -64,11 +64,14 @@ func TestP1RTeamsManualAudienceGroupsAdjustments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create team board: %v", err)
 	}
-	module, err := service.AdminCreateModule(ctx, admin, teamBoard.ID, CreateModuleInput{
-		Name: "Tasks", Type: ModuleTypeTasks, AllowedTaskTypes: []string{TaskTypeFlag, TaskTypeManual}, Enabled: true,
-	})
+	// Simulate a legacy mixed-format module inserted before the single-format
+	// rule. Existing data must stay readable; only new creation is restricted.
+	module, err := NewPostgresStore(db).CreateModule(ctx, CreateModuleParams{
+		BoardID: teamBoard.ID, Name: "Tasks", Type: ModuleTypeTasks,
+		AllowedTaskTypes: []string{TaskTypeFlag, TaskTypeManual}, Enabled: true, CreatedBy: adminID,
+	}, AuditEventParams{Action: "test.module.seed", ResourceType: "module", ActorUserID: adminID})
 	if err != nil {
-		t.Fatalf("create module: %v", err)
+		t.Fatalf("create legacy mixed module: %v", err)
 	}
 	flagTask, err := service.AdminCreateTask(ctx, admin, teamBoard.ID, module.ID, CreateTaskInput{
 		Title: "Flag", Type: TaskTypeFlag, Category: "web", Points: 100, Visible: true,

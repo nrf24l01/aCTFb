@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import StatusPill from '@/components/layout/StatusPill.vue'
+import { moduleFormatLabel } from '@/features/boards/format'
 import { Badge } from '@/components/ui/badge'
 import type { ModuleListItem } from '@/shared/types/api'
 
@@ -16,10 +17,7 @@ defineProps<{ module: ModuleListItem }>()
       <StatusPill :status="module.status" />
     </div>
     <div class="mt-2 flex flex-wrap gap-2">
-      <Badge variant="outline" class="rounded-none">{{ module.type }}</Badge>
-      <Badge v-for="taskType in module.allowedTaskTypes" :key="taskType" variant="outline" class="rounded-none">
-        {{ taskType }}
-      </Badge>
+      <Badge variant="outline" class="rounded-none">{{ moduleFormatLabel(module.type, module.allowedTaskTypes) }}</Badge>
     </div>
   </RouterLink>
 </template>

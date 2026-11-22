@@ -26,6 +26,7 @@ import {
   canReadAudit,
   hasBoardPermission,
 } from '@/features/boards/permissions'
+import { accessModeLabel, participationLabel } from '@/features/boards/accessMode'
 import { useSession } from '@/features/auth/session'
 import type { AdminBoard, AdminModule, Audience, BoardPermissionsResponse } from '@/shared/types/api'
 
@@ -186,7 +187,7 @@ void load()
     />
 
     <template v-else-if="board">
-      <PageHeader :title="board.name" :description="`${board.slug} · ${board.visibility} · ${board.participationMode}`">
+      <PageHeader :title="board.name" :description="`${board.slug} · ${accessModeLabel(board.accessMode)} · ${participationLabel(board.participationMode)}`">
         <template #actions>
           <Button v-if="canEditBoard" variant="outline" :disabled="loading" @click="editBoardOpen = true">Edit board</Button>
           <Button v-if="canOpenStaff" as-child variant="outline">
@@ -198,8 +199,16 @@ void load()
 
       <div class="mb-4 flex flex-wrap items-center gap-2">
         <StatusPill :status="board.status" />
-        <span class="text-xs text-muted-foreground">{{ board.registrationMode }} · rating {{ board.rating.visibility }}</span>
+        <span class="text-xs text-muted-foreground">{{ accessModeLabel(board.accessMode) }} · rating {{ board.rating.visibility === 'HIDDEN' ? 'hidden' : 'public' }}</span>
       </div>
+
+      <Alert v-if="board.accessMode === 'LEGACY'" class="mb-4 rounded-none border-gold/60 bg-black">
+        <AlertTitle>Legacy access</AlertTitle>
+        <AlertDescription>
+          This board uses an old access combination. Its current behaviour is unchanged. Open <strong>Edit board</strong>
+          and choose Public, Selected audiences or Invite code to update it.
+        </AlertDescription>
+      </Alert>
 
       <ErrorAlert v-if="actionError" :error="actionError" title="Board action failed" class="mb-4" />
 
@@ -251,7 +260,7 @@ void load()
       </section>
 
       <InviteCodePanel
-        v-if="board.registrationMode === 'INVITE_ONLY'"
+        v-if="board.accessMode === 'INVITE'"
         :board-uuid="boardUuid"
         class="mb-6"
       />

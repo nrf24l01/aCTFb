@@ -29,6 +29,17 @@ const (
 	VisibilityPublic  = "PUBLIC"
 	VisibilityPrivate = "PRIVATE"
 
+	// AccessMode is the canonical, additive board access projection. It is
+	// derived from the legacy visibility/registration/access-group triple and
+	// accepted on create/update so the UI has one three-option control.
+	AccessModePublic   = "PUBLIC"
+	AccessModeAudience = "AUDIENCE"
+	AccessModeInvite   = "INVITE"
+	// AccessModeLegacy marks an old ambiguous combination that must keep its
+	// current read behaviour and cannot be edited until an organizer picks an
+	// explicit mode.
+	AccessModeLegacy = "LEGACY"
+
 	ParticipationIndividual = "INDIVIDUAL"
 	ParticipationTeam       = "TEAM"
 
@@ -141,6 +152,23 @@ func (b Board) EffectiveStatus(now time.Time) BoardStatus {
 		status = BoardStatusFinished
 	}
 	return status
+}
+
+// AccessMode projects the legacy triple onto the canonical three-option mode.
+// Only unambiguous combinations map to PUBLIC/AUDIENCE/INVITE. Everything else
+// is LEGACY so old boards keep their existing read/join behaviour and the UI
+// can ask the organizer for an explicit choice instead of silently converting.
+func (b Board) AccessMode() string {
+	switch {
+	case b.Visibility == VisibilityPublic && b.RegistrationMode == RegistrationOpen && len(b.AccessGroupUUIDs) == 0:
+		return AccessModePublic
+	case b.Visibility == VisibilityPrivate && b.RegistrationMode == RegistrationOpen && len(b.AccessGroupUUIDs) > 0:
+		return AccessModeAudience
+	case b.Visibility == VisibilityPrivate && b.RegistrationMode == RegistrationInviteOnly:
+		return AccessModeInvite
+	default:
+		return AccessModeLegacy
+	}
 }
 
 // Module is the domain view of a board module. Status is derived from enabled,

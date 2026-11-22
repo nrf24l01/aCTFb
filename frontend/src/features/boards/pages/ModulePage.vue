@@ -9,6 +9,7 @@ import LoadingState from '@/components/layout/LoadingState.vue'
 import PageContainer from '@/components/layout/PageContainer.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import StatusPill from '@/components/layout/StatusPill.vue'
+import { moduleFormatLabel } from '@/features/boards/format'
 import TaskCard from '@/features/boards/components/TaskCard.vue'
 import { boardsApi } from '@/features/boards/api/boards'
 import { formatDateTime } from '@/shared/lib/format'
@@ -73,10 +74,7 @@ void load()
 
       <div class="mb-6 flex flex-wrap items-center gap-2">
         <StatusPill :status="module.status" />
-        <Badge variant="outline" class="rounded-none">{{ module.type }}</Badge>
-        <Badge v-for="taskType in module.allowedTaskTypes" :key="taskType" variant="outline" class="rounded-none">
-          {{ taskType }}
-        </Badge>
+        <Badge variant="outline" class="rounded-none">{{ moduleFormatLabel(module.type, module.allowedTaskTypes) }}</Badge>
         <span class="text-xs text-muted-foreground">
           {{ formatDateTime(module.startsAt) }} → {{ formatDateTime(module.endsAt) }}
         </span>

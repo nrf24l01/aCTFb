@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import StatusPill from '@/components/layout/StatusPill.vue'
+import { accessModeLabel, participationLabel } from '@/features/boards/accessMode'
 import { formatDateTime, plural } from '@/shared/lib/format'
 import type { BoardListItem } from '@/shared/types/api'
 
@@ -27,10 +28,10 @@ const schedule = computed(() => {
       <CardContent class="space-y-3 pt-4">
         <div class="flex flex-wrap gap-2">
           <Badge variant="outline" class="rounded-none">
-            {{ board.participationMode }}
+            {{ participationLabel(board.participationMode) }}
           </Badge>
           <Badge variant="outline" class="rounded-none">
-            {{ board.registrationMode }}
+            {{ accessModeLabel(board.accessMode) }}
           </Badge>
           <Badge variant="outline" class="rounded-none">
             {{ board.rating.visibility === 'HIDDEN' ? 'Rating hidden' : 'Rating public' }}

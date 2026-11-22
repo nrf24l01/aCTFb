@@ -54,6 +54,7 @@ type CreateBoardInput struct {
 	ParticipationMode string
 	RegistrationMode  string
 	Visibility        string
+	AccessMode        string
 	RatingVisibility  string
 	StartsAt          *time.Time
 	EndsAt            *time.Time
@@ -70,6 +71,7 @@ type UpdateBoardInput struct {
 	ParticipationMode OptionalString
 	RegistrationMode  OptionalString
 	Visibility        OptionalString
+	AccessMode        OptionalString
 	RatingVisibility  OptionalString
 	StartsAt          OptionalTime
 	EndsAt            OptionalTime

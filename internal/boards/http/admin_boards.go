@@ -69,6 +69,7 @@ func (h *Handler) AdminCreateBoard(c *echo.Context) error {
 		ParticipationMode: string(*request.ParticipationMode),
 		RegistrationMode:  string(*request.RegistrationMode),
 		Visibility:        string(*request.Visibility),
+		AccessMode:        string(request.AccessMode),
 		RatingVisibility:  string(rating),
 		StartsAt:          dateTimePointer(request.StartsAt),
 		EndsAt:            dateTimePointer(request.EndsAt),
@@ -128,6 +129,7 @@ func (h *Handler) AdminUpdateBoard(c *echo.Context) error {
 		ParticipationMode: optionalString(string(request.ParticipationMode), isPresent(raw, "participationMode")),
 		RegistrationMode:  optionalString(string(request.RegistrationMode), isPresent(raw, "registrationMode")),
 		Visibility:        optionalString(string(request.Visibility), isPresent(raw, "visibility")),
+		AccessMode:        optionalString(string(request.AccessMode), isPresent(raw, "accessMode")),
 	}
 	if isPresent(raw, "rating") {
 		if request.Rating == nil || request.Rating.Visibility == nil {

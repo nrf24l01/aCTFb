@@ -126,7 +126,14 @@ func TestSubmissionPolicyAndInstanceTaskRealPostgres(t *testing.T) {
 	}
 	module, err := service.AdminCreateModule(ctx, admin, board.ID, CreateModuleInput{
 		Name: "Policy", Type: ModuleTypeTasks,
-		AllowedTaskTypes: []string{TaskTypeManual, TaskTypeInstance}, Enabled: true,
+		AllowedTaskTypes: []string{TaskTypeManual}, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instanceModule, err := service.AdminCreateModule(ctx, admin, board.ID, CreateModuleInput{
+		Name: "Instance policy", Type: ModuleTypeTasks,
+		AllowedTaskTypes: []string{TaskTypeInstance}, Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +169,7 @@ func TestSubmissionPolicyAndInstanceTaskRealPostgres(t *testing.T) {
 			 submission_mode, submission_checker, instance_enabled, created_by, submission_text_policy)
 		VALUES ($1,$2,$3,'Instance report','web','instance','INSTANCE',20,TRUE,
 		        'TEXT','MANUAL',TRUE,$4,'{"required":true,"minLength":3,"maxLength":20}'::jsonb)
-	`, instanceTaskID, board.ID, module.ID, adminID); err != nil {
+	`, instanceTaskID, board.ID, instanceModule.ID, adminID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.AdminBoardAction(ctx, admin, board.ID, BoardActionPublish); err != nil {
@@ -172,34 +179,34 @@ func TestSubmissionPolicyAndInstanceTaskRealPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	submit := func(taskID uuid.UUID, text, key string) (*Submission, error) {
+	submit := func(moduleID, taskID uuid.UUID, text, key string) (*Submission, error) {
 		t.Helper()
-		return service.SubmitTask(ctx, player, TaskPath{BoardID: board.ID, ModuleID: module.ID, TaskID: taskID},
+		return service.SubmitTask(ctx, player, TaskPath{BoardID: board.ID, ModuleID: moduleID, TaskID: taskID},
 			key, SubmitInput{Text: text})
 	}
 
-	if _, err := submit(manualTask.ID, "abc", "policy-short-00001"); err == nil {
+	if _, err := submit(module.ID, manualTask.ID, "abc", "policy-short-00001"); err == nil {
 		t.Fatal("short text must be rejected by the persisted minimum")
 	}
-	if _, err := submit(manualTask.ID, "abcdefghijk", "policy-long-000001"); err == nil {
+	if _, err := submit(module.ID, manualTask.ID, "abcdefghijk", "policy-long-000001"); err == nil {
 		t.Fatal("long text must be rejected by the persisted maximum")
 	}
-	accepted, err := submit(manualTask.ID, "abcdef", "policy-valid-00001")
+	accepted, err := submit(module.ID, manualTask.ID, "abcdef", "policy-valid-00001")
 	if err != nil {
 		t.Fatalf("valid bounded text: %v", err)
 	}
 	if accepted.Status != SubmissionStatusPendingRev {
 		t.Fatalf("bounded text status = %s, want PENDING_REVIEW", accepted.Status)
 	}
-	if _, err := submit(orTask.ID, "", "policy-empty-or-001"); err == nil {
+	if _, err := submit(module.ID, orTask.ID, "", "policy-empty-or-001"); err == nil {
 		t.Fatal("TEXT_OR_FILES with neither text nor a draft must be rejected")
 	}
-	orSubmission, err := submit(orTask.ID, "text only", "policy-text-or-001")
+	orSubmission, err := submit(module.ID, orTask.ID, "text only", "policy-text-or-001")
 	if err != nil || orSubmission.Status != SubmissionStatusPendingRev {
 		t.Fatalf("TEXT_OR_FILES with text: %v %+v", err, orSubmission)
 	}
 
-	instanceSubmission, err := submit(instanceTaskID, "instance report", "policy-instance-01")
+	instanceSubmission, err := submit(instanceModule.ID, instanceTaskID, "instance report", "policy-instance-01")
 	if err != nil {
 		t.Fatalf("INSTANCE submission must not be silently rejected: %v", err)
 	}
@@ -209,7 +216,7 @@ func TestSubmissionPolicyAndInstanceTaskRealPostgres(t *testing.T) {
 	if instanceSubmission.SubmittedText == nil || *instanceSubmission.SubmittedText != "instance report" {
 		t.Fatalf("INSTANCE durable text = %v", instanceSubmission.SubmittedText)
 	}
-	if _, err := submit(instanceTaskID, "x", "policy-instance-02"); err == nil {
+	if _, err := submit(instanceModule.ID, instanceTaskID, "x", "policy-instance-02"); err == nil {
 		t.Fatal("INSTANCE text below policy minimum must be rejected")
 	}
 	var rejectedRows int
