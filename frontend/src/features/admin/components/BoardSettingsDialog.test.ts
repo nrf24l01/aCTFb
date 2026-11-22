@@ -58,3 +58,59 @@ describe('BoardSettingsDialog', () => {
     wrapper.unmount()
   })
 })
+
+describe('BoardSettingsDialog gate-change confirmation', () => {
+  const legacyWithGroup = {
+    ...boardBase,
+    visibility: 'PRIVATE' as const,
+    registrationMode: 'INVITE_ONLY' as const,
+    accessMode: 'LEGACY' as const,
+    accessGroupUuids: ['99999999-9999-4999-8999-999999999999'],
+  }
+
+  it('asks before converting a LEGACY board with a live gate to Public', async () => {
+    const wrapper = mount(BoardSettingsDialog, {
+      props: { open: true, board: legacyWithGroup },
+      attachTo: document.body,
+    })
+    await Promise.resolve()
+
+    const publicRadio = document.querySelector('input[name="board-access-mode"][value="PUBLIC"]') as HTMLInputElement
+    publicRadio.click()
+    await Promise.resolve()
+    const form = document.querySelector('form')!
+    form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // The explicit conversion must be confirmed, not saved immediately.
+    const dialogText = Array.from(document.querySelectorAll('[role="dialog"]'))
+      .map((node) => node.textContent ?? '')
+      .join(' ')
+    expect(dialogText).toContain('Change board access?')
+    wrapper.unmount()
+  })
+
+  it('does not prompt for a metadata-only save of the same LEGACY board', async () => {
+    const wrapper = mount(BoardSettingsDialog, {
+      props: { open: true, board: legacyWithGroup },
+      attachTo: document.body,
+    })
+    await Promise.resolve()
+
+    const nameInput = document.querySelector('#board-name') as HTMLInputElement
+    nameInput.value = 'Renamed legacy board'
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await Promise.resolve()
+    const form = document.querySelector('form')!
+    form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const dialogText = Array.from(document.querySelectorAll('[role="dialog"]'))
+      .map((node) => node.textContent ?? '')
+      .join(' ')
+    expect(dialogText).not.toContain('Change board access?')
+    wrapper.unmount()
+  })
+})

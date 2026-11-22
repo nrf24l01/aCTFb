@@ -105,9 +105,12 @@ const accessModeChanged = computed(() => form.accessMode !== initialAccessMode.v
 const sendsCanonicalMode = computed(() => form.accessMode !== 'LEGACY')
 // Replacing or clearing a live gate set is the one access change that needs an
 // explicit acknowledgement, so a mode click cannot silently drop a group gate.
+// This applies equally to a LEGACY board being converted: the riskier case must
+// not get the weaker guard. A metadata-only save changes no mode, so it never
+// prompts, and a board with no live gate has nothing to drop.
 const gateChangeNeedsConfirm = computed(() => {
   if (!props.board || !accessModeChanged.value) return false
-  if (initialAccessMode.value === 'LEGACY') return false
+  if (form.accessMode === 'LEGACY') return false
   return props.board.accessGroupUuids.length > 0 && form.accessMode !== 'AUDIENCE'
 })
 const showAudience = computed(() => form.accessMode === 'AUDIENCE')
