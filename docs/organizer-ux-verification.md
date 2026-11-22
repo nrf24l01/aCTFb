@@ -1,8 +1,10 @@
 # Organizer UX verification (2026-11-22)
 
 Status: **implemented and verified** for the local scope, including real-browser acceptance.
-Base commit `79d79f8`; head `9825e4e`. Nothing is pushed; remote CI and published-image checks stay
-pending until the review gate opens.
+Base commit `79d79f8`. The authoritative head, file list and full diff are in
+`/tmp/opencode/organizer-ux-review.diff` (generated after the last code commit `1c63267`; later
+commits touch only this report and the plan). Nothing is pushed; remote CI and published-image
+checks stay pending until the review gate opens.
 
 Spec: `docs/superpowers/specs/2026-11-22-organizer-ux-design.md`.
 Plan: `docs/superpowers/plans/2026-11-22-organizer-ux.md`.
@@ -106,7 +108,7 @@ Schema: 18 migrations; only `018_site_settings.sql` is new. No applied migration
 `renderMarkdown`, `parseParameterPolicy`, `initialParameterValues`, `accessModeLabel`,
 `moduleFormatLabel`, `taskTypeLabel`, `formatBytes`, `useDiscardGuard`.
 
-## Local commits (BASE `79d79f8` → HEAD `9825e4e`, 19 commits)
+## Local commits (BASE `79d79f8`; 19 commits up to the last code commit `1c63267`)
 
 | Commit | Scope |
 |---|---|
@@ -127,8 +129,7 @@ Schema: 18 migrations; only `018_site_settings.sql` is new. No applied migration
 | `25a97c7` | searchable audience/captain pickers + discard guards |
 | `a08e979` | organizer UX browser acceptance spec |
 | `a385ab1` | human labels in board views |
-| `1c63267` | browser-found fixes and full-suite pass |
-| `9825e4e` | verification report reconciled with the actual head |
+| `1c63267` | browser-found fixes and full-suite pass (last code commit) |
 
 ## Concerns / preserved limits
 
