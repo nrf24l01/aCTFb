@@ -354,10 +354,18 @@ func (s *Service) publishBoard(ctx context.Context, principal authorization.Prin
 		if !module.Enabled {
 			continue
 		}
-		if !isTaskModuleType(module.Type) || !containsString(module.AllowedTaskTypes, TaskTypeExtension) && !containsString(module.AllowedTaskTypes, TaskTypeFlag) && !containsString(module.AllowedTaskTypes, TaskTypeInstance) {
+		if !isTaskModuleType(module.Type) {
 			continue
 		}
-		validEnabledModule = true
+		// Every native single-format task type is publishable: FLAG, MANUAL,
+		// INSTANCE and EXTENSION. Requiring FLAG/INSTANCE/EXTENSION only made a
+		// manual-review-only module impossible to publish.
+		if containsString(module.AllowedTaskTypes, TaskTypeFlag) ||
+			containsString(module.AllowedTaskTypes, TaskTypeManual) ||
+			containsString(module.AllowedTaskTypes, TaskTypeInstance) ||
+			containsString(module.AllowedTaskTypes, TaskTypeExtension) {
+			validEnabledModule = true
+		}
 	}
 	if !validEnabledModule {
 		return nil, ErrBoardStateConflict

@@ -11,8 +11,6 @@ const pgContainer = process.env.E2E_DB_CONTAINER || ''
 const pgUser = process.env.E2E_PG_USER || ''
 const pgDatabase = process.env.E2E_PG_DB || ''
 
-test.describe.configure({ mode: 'serial' })
-
 /**
  * Organizer UX acceptance. Everything here drives the real Vue app against the
  * real backend; no route is intercepted and no response is stubbed.
@@ -24,9 +22,12 @@ test.describe('organizer UX acceptance', () => {
     // 1. Anonymous first visit: the seeded intro must render as real block
     //    elements, not a flat text blob.
     await page.goto('/')
+    // The landing document title is the single page-level heading.
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Browse boards' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible()
+    const main = page.getByRole('main')
+    await expect(main.getByRole('link', { name: 'Browse boards' })).toBeVisible()
+    await expect(main.getByRole('link', { name: 'Sign in' })).toBeVisible()
     // The landing page is not an auth redirect.
     await expect(page).toHaveURL(/\/$/)
 
@@ -65,7 +66,7 @@ test.describe('organizer UX acceptance', () => {
     try {
       const anonPage = await anonContext.newPage()
       await anonPage.goto('/')
-      await expect(anonPage.getByRole('heading', { level: 1 })).toHaveText(title)
+      await expect(anonPage.getByRole('heading', { level: 1, name: title })).toBeVisible()
       await expect(anonPage.getByRole('heading', { name: 'Rendered heading' })).toBeVisible()
       await expect(anonPage.locator('article strong')).toContainText('bold')
       await expect(anonPage.locator('article a[href="/boards"]')).toHaveCount(1)
@@ -146,7 +147,7 @@ test.describe('organizer UX acceptance', () => {
 
     // The create modal exposes exactly one three-option access control.
     await page.goto('/admin/boards')
-    await page.getByRole('button', { name: 'Create board' }).click()
+    await page.getByRole('button', { name: 'Create board' }).first().click()
     const dialog = page.getByRole('dialog')
     const radios = dialog.locator('input[name="board-access-mode"]')
     await expect(radios).toHaveCount(3)
@@ -197,6 +198,15 @@ test.describe('organizer UX acceptance', () => {
     expect(audienceBoard.accessMode).toBe('AUDIENCE')
     expect(inviteBoard.accessMode).toBe('INVITE')
 
+    // Publish both private boards so a join attempt exercises the access gate
+    // itself rather than the draft-state guard.
+    for (const uuid of [audienceBoard.uuid as string, inviteBoard.uuid as string]) {
+      await api(page, token, 'POST', `/api/v2/admin/boards/${uuid}/modules`, {
+        name: 'Manual module', type: 'TASKS', allowedTaskTypes: ['MANUAL'], enabled: true,
+      })
+      await api(page, token, 'POST', `/api/v2/admin/boards/${uuid}/actions`, { action: 'PUBLISH' })
+    }
+
     // Anonymous browsing: the public board is readable, private metadata 404s.
     const anonContext = await browser.newContext()
     try {
@@ -206,9 +216,12 @@ test.describe('organizer UX acceptance', () => {
       await expect(anon.getByText(`Audience Board ${suffix}`)).toHaveCount(0)
       await expect(anon.getByText(`Invite Board ${suffix}`)).toHaveCount(0)
       await anon.goto(`/boards/${publicUuid}`)
-      await expect(anon.getByRole('heading', { level: 1 })).toHaveText(publicName)
-      // Participation still needs a session.
-      await expect(anon.getByRole('link', { name: 'Sign in to join' })).toBeVisible()
+      await expect(anon.getByRole('heading', { level: 1, name: publicName })).toBeVisible()
+      // Participation still needs a session: the anonymous participant panel
+      // offers sign-in and the modules stay hidden.
+      const participantPanel = anon.getByRole('complementary').filter({ hasText: 'Participate' })
+      await expect(participantPanel.getByRole('link', { name: 'Sign in' })).toBeVisible()
+      await expect(anon.getByText("Sign in to see this board's modules and submit answers.")).toBeVisible()
 
       const anonDetail = await anon.request.get(`${base}/api/v2/boards/${audienceBoard.uuid as string}`)
       expect(anonDetail.status()).toBe(404)
@@ -224,11 +237,18 @@ test.describe('organizer UX acceptance', () => {
       const student = await studentContext.newPage()
       await signIn(student, studentUser, studentPass)
       const studentToken = await freshToken(student)
+      // Not in the selected access group: the live group gate denies the join.
       const denied = await student.request.post(`${base}/api/v2/boards/${audienceBoard.uuid as string}/join`, {
         headers: { Authorization: `Bearer ${studentToken}`, 'Content-Type': 'application/json' },
         data: '{}',
       })
       expect([403, 404]).toContain(denied.status())
+      // The invite board requires a valid code; a bare join is refused.
+      const noCode = await student.request.post(`${base}/api/v2/boards/${inviteBoard.uuid as string}/join`, {
+        headers: { Authorization: `Bearer ${studentToken}`, 'Content-Type': 'application/json' },
+        data: '{}',
+      })
+      expect(noCode.status()).toBeGreaterThanOrEqual(400)
       const allowed = await student.request.post(`${base}/api/v2/boards/${publicUuid}/join`, {
         headers: { Authorization: `Bearer ${studentToken}`, 'Content-Type': 'application/json' },
         data: '{}',
@@ -250,7 +270,7 @@ test.describe('organizer UX acceptance', () => {
     const boardUuid = board.uuid as string
 
     await page.goto(`/admin/boards/${boardUuid}`)
-    await page.getByRole('button', { name: 'Create module' }).click()
+    await page.getByRole('button', { name: 'Create module' }).first().click()
     const dialog = page.getByRole('dialog')
     const format = dialog.locator('#module-format')
     await expect(format).toBeVisible()
@@ -350,46 +370,47 @@ test.describe('organizer UX acceptance', () => {
       registrationMode: 'OPEN', visibility: 'PRIVATE', rating: { visibility: 'PUBLIC' },
     })
     const boardUuid = board.uuid as string
-    const module = await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/modules`, {
+    await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/modules`, {
       name: 'Flag module', type: 'TASKS', allowedTaskTypes: ['FLAG'], enabled: true,
     })
 
-    // 1. Board editor: Escape on a dirty form asks first, keeps the value on
-    //    "Keep editing", and closes only after an explicit discard.
+    const discard = (label: string) =>
+      page.getByRole('dialog').filter({ hasText: label })
+    const keepEditing = (label: string) => discard(label).getByRole('button', { name: 'Cancel' })
+    const confirmDiscard = (label: string) => discard(label).getByRole('button', { name: 'Discard changes' })
+
+    // 1. Board editor: Escape on a dirty form asks first, keeps the value while
+    //    editing continues, and closes only after an explicit discard.
     await page.goto(`/admin/boards/${boardUuid}`)
-    await page.getByRole('button', { name: 'Edit board' }).click()
-    let dialog = page.getByRole('dialog').first()
-    await dialog.locator('#board-name').fill('Changed but unsaved')
+    await page.getByRole('button', { name: 'Edit board' }).first().click()
+    await page.locator('#board-name').fill('Changed but unsaved')
     await page.keyboard.press('Escape')
-    await expect(page.getByText('Discard board changes?')).toBeVisible()
-    await page.getByRole('dialog').filter({ hasText: 'Discard board changes?' }).getByRole('button', { name: 'Cancel' }).click()
-    await expect(dialog.locator('#board-name')).toHaveValue('Changed but unsaved')
+    await expect(discard('Discard board changes?')).toBeVisible()
+    await keepEditing('Discard board changes?').click()
+    await expect(page.locator('#board-name')).toHaveValue('Changed but unsaved')
     await page.keyboard.press('Escape')
-    await page.getByRole('dialog').filter({ hasText: 'Discard board changes?' }).getByRole('button', { name: 'Discard changes' }).click()
-    await expect(dialog).toHaveCount(0)
+    await confirmDiscard('Discard board changes?').click()
+    await expect(page.locator('#board-name')).toHaveCount(0)
 
-    // 2. Module editor: click outside is guarded too.
-    await page.getByRole('button', { name: 'Create module' }).click()
-    dialog = page.getByRole('dialog').first()
-    await dialog.locator('#module-name').fill('Unsaved module')
+    // 2. Module editor: clicking outside is guarded too.
+    await page.getByRole('button', { name: 'Create module' }).first().click()
+    await page.locator('#module-name').fill('Unsaved module')
     await page.mouse.click(5, 5)
-    await expect(page.getByText('Discard module changes?')).toBeVisible()
-    await page.getByRole('dialog').filter({ hasText: 'Discard module changes?' }).getByRole('button', { name: 'Discard changes' }).click()
-    await expect(dialog).toHaveCount(0)
+    await expect(discard('Discard module changes?')).toBeVisible()
+    await confirmDiscard('Discard module changes?').click()
+    await expect(page.locator('#module-name')).toHaveCount(0)
 
-    // 3. Task editor: a typed secret must survive "Keep editing".
+    // 3. Task editor: a typed answer must survive "Keep editing".
     await page.getByRole('button', { name: 'Create task' }).first().click()
-    dialog = page.getByRole('dialog').first()
-    await dialog.locator('#task-title').fill('Unsaved task')
-    await dialog.locator('#task-answers').fill('flag{never_lose_me}')
+    await page.locator('#task-title').fill('Unsaved task')
+    await page.locator('#task-answers').fill('flag{never_lose_me}')
     await page.keyboard.press('Escape')
-    await expect(page.getByText('Discard task changes?')).toBeVisible()
-    await page.getByRole('dialog').filter({ hasText: 'Discard task changes?' }).getByRole('button', { name: 'Cancel' }).click()
-    await expect(dialog.locator('#task-answers')).toHaveValue('flag{never_lose_me}')
+    await expect(discard('Discard task changes?')).toBeVisible()
+    await keepEditing('Discard task changes?').click()
+    await expect(page.locator('#task-answers')).toHaveValue('flag{never_lose_me}')
     await page.keyboard.press('Escape')
-    await page.getByRole('dialog').filter({ hasText: 'Discard task changes?' }).getByRole('button', { name: 'Discard changes' }).click()
-    await expect(dialog).toHaveCount(0)
-    expect(module.uuid).toBeTruthy()
+    await confirmDiscard('Discard task changes?').click()
+    await expect(page.locator('#task-answers')).toHaveCount(0)
   })
 
   test('instance task editor offers typed template parameters, not raw JSON', async ({ page }) => {

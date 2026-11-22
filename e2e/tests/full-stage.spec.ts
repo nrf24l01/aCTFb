@@ -520,11 +520,6 @@ lifecycle:
       name: 'Instance Module', type: 'TASKS', allowedTaskTypes: ['INSTANCE'], enabled: true,
     })
     const moduleUuid = module.uuid as string
-    await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/modules/${moduleUuid}/tasks`, {
-      title: 'Publishable flag', type: 'FLAG', category: 'web', description: 'keeps the board publishable',
-      points: 10, visible: true, submission: { mode: 'TEXT', checker: 'AUTOMATIC' },
-      acceptedAnswers: ['flag{publish}'], instance: { enabled: false },
-    })
 
     // Real admin UI: create draft, validate, preview and publish the immutable version.
     await page.goto('/admin/templates')

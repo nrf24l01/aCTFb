@@ -20,9 +20,7 @@ INSERT INTO site_settings (id, title, intro_markdown, published)
 VALUES (
     true,
     'Welcome',
-    '# Welcome
-
-This is the challenge board. Browse the open boards to get started.
+    'This is the challenge board. Browse the open boards to get started.
 
 - Sign in to join a board and submit answers.
 - Organizers can edit this introduction under **Admin → Site**.',

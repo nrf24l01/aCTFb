@@ -45,6 +45,8 @@ const filesTarget = ref<AdminTask | null>(null)
 const deleteTarget = ref<AdminTask | null>(null)
 const deleting = ref(false)
 const deleteError = ref<unknown>(null)
+const visibilityPending = ref<string | null>(null)
+const visibilityError = ref<unknown>(null)
 
 async function load() {
   loading.value = true
@@ -76,6 +78,21 @@ async function removeTask() {
     deleteError.value = caught
   } finally {
     deleting.value = false
+  }
+}
+
+/** Publishing a task is a separate, explicit action from saving the draft. */
+async function setVisible(task: AdminTask, visible: boolean) {
+  visibilityPending.value = task.uuid
+  visibilityError.value = null
+  try {
+    await boardsApi.updateTask(props.boardUuid, props.module.uuid, task.uuid, { visible })
+    await load()
+    emit('changed')
+  } catch (caught) {
+    visibilityError.value = caught
+  } finally {
+    visibilityPending.value = null
   }
 }
 
@@ -127,6 +144,7 @@ void load()
         title="No tasks in this module"
         description="Add a task to this module. Participants only see it once the task and module are available."
       />
+      <ErrorAlert v-if="visibilityError" :error="visibilityError" title="Could not change task visibility" class="mb-3" />
       <div v-else class="overflow-x-auto">
         <Table>
           <TableHeader>
@@ -153,6 +171,23 @@ void load()
               </TableCell>
               <TableCell class="text-right">
                 <div v-if="canManageTasks" class="flex justify-end gap-1">
+                  <Button
+                    v-if="!task.visible"
+                    size="sm"
+                    :disabled="visibilityPending === task.uuid"
+                    @click="setVisible(task, true)"
+                  >
+                    {{ visibilityPending === task.uuid ? 'Publishing…' : 'Publish' }}
+                  </Button>
+                  <Button
+                    v-else
+                    variant="outline"
+                    size="sm"
+                    :disabled="visibilityPending === task.uuid"
+                    @click="setVisible(task, false)"
+                  >
+                    {{ visibilityPending === task.uuid ? 'Hiding…' : 'Unpublish' }}
+                  </Button>
                   <Button variant="outline" size="sm" @click="filesTarget = task">Files</Button>
                   <Button variant="outline" size="sm" @click="editTarget = task">Edit</Button>
                   <Button variant="destructive" size="sm" @click="deleteTarget = task; deleteError = null">Delete</Button>

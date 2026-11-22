@@ -31,12 +31,51 @@ test.describe('P1 board to flag to score', () => {
       const adminPage = await adminContext.newPage()
       await signIn(adminPage, adminUser, adminPass)
 
+      // A private board that an outsider cannot read. Under the canonical model
+      // that is "Selected audiences" with a group the outsider is not in, so
+      // create the group and add only the solver first.
+      const adminToken = await freshToken(adminPage)
+      const group = await apiCall(adminPage, adminToken, 'POST', '/api/v2/admin/access-groups', {
+        name: `P1 Group ${slug}`,
+      })
+      const solverUser = await apiCall(
+        adminPage,
+        adminToken,
+        'GET',
+        `/api/v2/admin/user-search?query=${encodeURIComponent(studentUser)}&limit=5&offset=0`,
+      )
+      const solverEntry = (solverUser.items as Array<Record<string, unknown>>)[0]
+      const scorerLookup = await apiCall(
+        adminPage,
+        adminToken,
+        'GET',
+        `/api/v2/admin/user-search?query=${encodeURIComponent(scorerUser)}&limit=5&offset=0`,
+      )
+      const scorerEntry = (scorerLookup.items as Array<Record<string, unknown>>)[0]
+      for (const entry of [solverEntry, scorerEntry]) {
+        await apiCall(adminPage, adminToken, 'POST', `/api/v2/admin/access-groups/${group.uuid as string}/members`, {
+          userUuid: entry.uuid,
+        })
+      }
+
       await adminPage.goto('/admin/boards')
       await adminPage.getByRole('button', { name: 'Create board' }).first().click()
       const boardDialog = adminPage.getByRole('dialog')
-      await boardDialog.locator('#board-slug').fill(slug)
       await boardDialog.locator('#board-name').fill(boardName)
+      // The slug lives in the Advanced section and is auto-generated from the
+      // name until the organizer edits it.
+      await boardDialog.getByText('Advanced', { exact: true }).click()
+      await boardDialog.locator('#board-slug').fill(slug)
+      // The description lives in the Write tab of the Markdown editor.
+      await boardDialog.getByRole('tab', { name: 'Write' }).click()
       await boardDialog.locator('#board-description').fill('Private individual board created by real-browser E2E.')
+      // Exactly one access control: choose the audience mode and its group.
+      await boardDialog.getByRole('radio', { name: /Selected audiences/ }).check()
+      await boardDialog
+        .locator('label')
+        .filter({ hasText: `P1 Group ${slug}` })
+        .getByRole('checkbox')
+        .check()
       await boardDialog.getByRole('button', { name: 'Create board' }).click()
       await expect(boardDialog).toBeHidden()
 
@@ -61,11 +100,18 @@ test.describe('P1 board to flag to score', () => {
       await taskDialog.locator('#task-category').fill('web')
       await taskDialog.locator('#task-description').fill('Real-browser E2E flag task.')
       await taskDialog.locator('#task-answers').fill(flag)
-      await taskDialog.getByRole('button', { name: 'Create task' }).click()
+      // A new task is saved as a hidden draft first.
+      await taskDialog.getByRole('button', { name: 'Save draft' }).click()
       await expect(taskDialog).toBeHidden()
       await expect(adminPage.getByText(taskTitle, { exact: true })).toBeVisible()
 
-      await adminPage.getByRole('button', { name: 'Publish' }).click()
+      // Publishing the task is the separate, explicit step.
+      const taskRow = adminPage.getByRole('row', { name: new RegExp(taskTitle) })
+      await expect(taskRow).toContainText('No')
+      await taskRow.getByRole('button', { name: 'Publish' }).click()
+      await expect(taskRow).toContainText('Yes')
+
+      await adminPage.getByRole('button', { name: 'Publish' }).first().click()
       await expect(adminPage.getByText('Active', { exact: true }).first()).toBeVisible()
 
       let solverPage: Page | undefined
@@ -112,7 +158,7 @@ test.describe('P1 board to flag to score', () => {
       const outsiderPage = await outsiderContext.newPage()
       await signIn(outsiderPage, outsiderUser, outsiderPass)
       await outsiderPage.goto(`/boards/${boardUuid}`)
-      await expect(outsiderPage.getByText('This board is private')).toBeVisible()
+      await expect(outsiderPage.getByText('This board requires access')).toBeVisible()
       await expect(outsiderPage.getByText(taskTitle, { exact: true })).toHaveCount(0)
       await expect(outsiderPage.getByRole('link', { name: 'Manage board' })).toHaveCount(0)
     } finally {
@@ -123,6 +169,39 @@ test.describe('P1 board to flag to score', () => {
     }
   })
 })
+
+async function freshToken(page: Page): Promise<string> {
+  const response = await page.request.post(`${baseUrl()}/api/v2/auth/refresh`, {
+    headers: { Origin: baseUrl() },
+  })
+  expect(response.ok()).toBeTruthy()
+  return ((await response.json()) as { accessToken: string }).accessToken
+}
+
+async function apiCall(
+  page: Page,
+  token: string,
+  method: string,
+  path: string,
+  data?: unknown,
+): Promise<Record<string, unknown>> {
+  const response = await page.request.fetch(`${baseUrl()}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    data: data === undefined ? undefined : JSON.stringify(data),
+  })
+  if (!response.ok()) {
+    throw new Error(`${method} ${path} -> ${response.status()} ${await response.text()}`)
+  }
+  if (response.status() === 204) return {}
+  const raw = await response.text()
+  if (raw.trim() === '') return {}
+  return JSON.parse(raw) as Record<string, unknown>
+}
+
+function baseUrl(): string {
+  return process.env.E2E_BASE_URL || 'http://127.0.0.1:5173'
+}
 
 async function signIn(page: Page, username: string, password: string) {
   for (let attempt = 0; attempt < 2; attempt += 1) {

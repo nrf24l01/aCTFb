@@ -105,3 +105,14 @@ func TestValidateAccessModeConflict(t *testing.T) {
 		t.Fatal("audience without groups must conflict")
 	}
 }
+
+func TestManualOnlyModuleIsPublishable(t *testing.T) {
+	// A single-format MANUAL module must count as a publishable task module.
+	module := Module{Type: ModuleTypeTasks, AllowedTaskTypes: []string{TaskTypeManual}, Enabled: true}
+	if err := validateNewModuleFormat(module); err != nil {
+		t.Fatalf("manual-only module rejected: %v", err)
+	}
+	if !containsString(module.AllowedTaskTypes, TaskTypeManual) {
+		t.Fatal("manual task type missing")
+	}
+}

@@ -140,3 +140,14 @@ describe('api client token handling', () => {
     expect(fetchMock.mock.calls[0][1].headers['Idempotency-Key']).toBe('fixed-key-for-retry-1234')
   })
 })
+describe('apiRequest empty-body handling', () => {
+  it('treats a 201 with no body as success', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 201 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const client = await loadClient()
+    client.setAccessToken('access-token-value-123456')
+    await expect(
+      client.apiPost<void>('/admin/access-groups/x/members', { userUuid: 'y' }),
+    ).resolves.toBeUndefined()
+  })
+})

@@ -154,7 +154,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (response.status === 204) return undefined as T
-  return (await response.json()) as T
+  // A successful response is allowed to have no body (for example 201 Created
+  // without a representation). Parsing that as JSON would surface a fake
+  // "Unexpected end of JSON input" error for a request that actually succeeded.
+  const raw = await response.text()
+  if (raw.trim() === '') return undefined as T
+  return JSON.parse(raw) as T
 }
 
 export function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {

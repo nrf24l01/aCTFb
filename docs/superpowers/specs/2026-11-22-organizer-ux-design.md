@@ -49,9 +49,16 @@ provider infrastructure, no architecture rewrite.
   is audited and paginated. Participants never get a directory.
 - Group membership gets real server endpoints: list/add/remove members, so the access-group
   page and editor can manage membership without client-only fake roles.
-- UI: reusable combobox built on existing `reka-ui`/shadcn-vue primitives (Popover + Command
-  style). Debounce 250 ms, `AbortController`, loading/no-results/error+retry, Arrow/Enter/Esc,
-  focus return, removable chips for batch flows, already-added entries disabled.
+- UI: one reusable searchable picker (`SearchPicker`) with `UserPicker` and `TeamPicker`
+  adapters, built on the existing shadcn-vue primitives. Debounce 250 ms, `AbortController`
+  stale-request cancellation, loading/no-results/error+retry, Arrow/Enter/Esc, focus return,
+  already-added entries disabled. No duplicate widget per flow.
+- Audience membership uses the board-scoped pickers: users by username/email/UUID and teams by
+  name/UUID. Both are board-scoped, permission-checked and never a global directory.
+- Team captains get a captain-scoped eligible roster search. It requires a live captain of an
+  open TEAM board with live group access, needs no staff permission, matches username, email and
+  UUID, and returns names only: an email can match but is never disclosed, so no stranger email
+  oracle is created. The read is audited without storing the term.
 - Never ask the user to type a raw UUID.
 
 ## 4. Board access UI (one three-option control)
@@ -86,6 +93,13 @@ provider infrastructure, no architecture rewrite.
 - Module `type` is still derived from the format; existing domain contracts and extension
   metadata are retained.
 
+### Editor dismissal
+
+Board, module and task editors guard every dismissal path (Cancel, close button, Escape, click
+outside) with a discard confirmation. A dirty form is never discarded without an explicit choice,
+and typed answers or secrets survive "Keep editing". Editors are full height on mobile with a
+footer that stays visible.
+
 ## 6. Task create (wider conditional modal, not a wizard)
 
 - No task-type selector for a normal new module; the type is inherited from the single module
@@ -111,6 +125,9 @@ provider infrastructure, no architecture rewrite.
   policy allows it; no "unsupported mechanic" dead end.
 - State-specific actions: sign in, not started, ended, already solved, waiting review, rejected,
   accepted. Keep input on 400/timeout; clear the secret answer once accepted.
+- Staff-only team management: members are listed by name, removal is per member, captain transfer
+  picks from current members, and adding a member uses the captain invite-key flow plus the
+  captain-scoped eligible roster search. No raw UUID entry in any team flow.
 - Submission history is below the main content. Staff get an `Edit` link only with the real
   permission. No raw enum/`P1R`/contract explanations in the UI.
 
