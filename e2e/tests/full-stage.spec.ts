@@ -150,7 +150,7 @@ test('P1R TEAM manual text reload, clean file scan, and reviewer accept', async 
     })
     const boardUuid = board.uuid as string
     const module = await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/modules`, {
-      name: 'Manual Module', type: 'TASKS', allowedTaskTypes: ['FLAG', 'MANUAL'], enabled: true,
+      name: 'Manual Module', type: 'TASKS', allowedTaskTypes: ['MANUAL'], enabled: true,
     })
     const moduleUuid = module.uuid as string
     const task = await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/modules/${moduleUuid}/tasks`, {
@@ -517,7 +517,7 @@ lifecycle:
     })
     const boardUuid = board.uuid as string
     const module = await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/modules`, {
-      name: 'Instance Module', type: 'TASKS', allowedTaskTypes: ['FLAG', 'INSTANCE'], enabled: true,
+      name: 'Instance Module', type: 'TASKS', allowedTaskTypes: ['INSTANCE'], enabled: true,
     })
     const moduleUuid = module.uuid as string
     await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/modules/${moduleUuid}/tasks`, {
