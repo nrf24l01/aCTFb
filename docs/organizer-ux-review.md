@@ -324,3 +324,98 @@ Cross-cutting checks that passed:
    "8 operations" count, and reconcile the verification report with the remaining limits above.
 
 _No product code was changed by this review._
+
+---
+
+# Scoped re-review round 1 (fixes `d3bba35..d90a386`)
+
+Read-only. Scope: the 7 Important findings above plus the security-relevant Minors. No product
+change, no git write, no tests/build/servers/Docker re-run by this reviewer. Sources: current code at
+`d90a386`, `/tmp/opencode/organizer-ux-fixes.diff`, `docs/organizer-ux-review-fixes.md`, and the
+retained log `/tmp/opencode/actfb-organizer-ux-fixes-run.log` (read, not re-run).
+
+## Verdict
+
+**Approve with two small remaining Important regressions to fix first.** All seven original Important
+findings are genuinely fixed in code, not merely asserted by a test that skips: each has a real
+assertion (real PostgreSQL, real HTTP, or a mounted-component payload assertion), and the browser log
+shows 17/17 passing with `0 new containers, 0 new volumes`.
+
+Counts: **Critical 0 · Important 2 (both regressions from the I3 change) · Minor 2.**
+
+## Original findings — confirmed fixed
+
+| ID | Confirmation (file:line at `d90a386`) |
+|---|---|
+| I1 | `boardColumns` and the list/`GetBoard`/create/update/status `RETURNING` now project a group **count**; `Board.HasAccessGroups()` accepts the count, and `AccessMode()` derives AUDIENCE on every read without loading IDs. `TestAudienceAccessModeProjectsOnEveryRead` (PG: participant list/detail, admin list/detail) and `TestAccessModeProjectionOnListAndDetail` (wire JSON, and asserts the participant body has no `accessGroupUuids`) are real assertions. Public projection still maps only `AccessMode` (`internal/boards/http/mappers.go:62,82`), so no ID leak. |
+| I2 | `internal/boards/service_admin_boards.go:197-205` decides replacement by comparing the merged set to the current set (`sameUUIDSet`), not a client flag, so `{"accessMode":"PUBLIC"}` clears the rows. `TestAccessModeOnlyPatchPersistsGateNormalization` reloads and counts `board_access_groups` rows = 0. Audit still written in the same transaction. |
+| I3 | `internal/boards/types.go:161-190` mapping is exact: INVITE now requires **no** groups, so `PRIVATE+INVITE_ONLY+groups` is LEGACY. The dialog sends no canonical mode for a legacy board (`sendsCanonicalMode`), so a rename preserves the gate; `TestLegacyInviteWithGroupsSurvivesUnrelatedSave` and the browser test prove the gate and invite hash survive. The join gate itself is still enforced for hybrid boards by `CanJoinBoard` (`internal/access/postgres.go:396-400`), so the original authorization weakening is closed. |
+| I4 | `ModuleEditorDialog.vue:52-57,154-163` maps EXTENSION to a read-only identity, preserves stored `allowedTaskTypes`, and sends neither `type` nor `extensionKey`; the component test asserts the captured payload. |
+| I5 | `ModuleEditorDialog.vue:109-113` always initializes `legacyTaskType = ''`; `allowedTaskTypes()` returns the original array for a metadata-only save; component test asserts the select value is `''`. |
+| I6 | The form now reads a safe projection of the published manifest (`internal/instances/binding.go:94-138`) instead of `parametersPolicy`; secret defaults are blanked; the binder still fails closed on a non-empty policy but with an actionable message, and the dialog shows an "unsupported restriction" panel (`TaskEditorDialog.vue:501-509`). `TestTypedTemplateParametersEndToEnd` binds with an **empty** allowlist policy, proves the secret is sealed and absent from the public column, and rejects an invalid choice and an undeclared key; the browser test drives the real UI and asserts `marker-value`/`large` persisted and the secret never echoed. String coercion (`toStringMap`) is present. |
+| I7 | `SearchBoardUsers` takes an explicit `scope`; `PARTICIPANTS` (default) queries only `board_participants`, `DIRECTORY` requires `participants.manage` or `staff.manage` (`internal/access/usersearch.go:92-200`); empty teams are excluded. Call sites match purpose (audience/team-add = PARTICIPANTS; participant-add/staff-grant = DIRECTORY). `TestBoardUserSearchScopeIsExplicit`, `TestAudienceOnlyManagerCannotUseDirectoryScope`, `TestBoardTeamSearchExcludesEmptyTeams`, and the browser test are real. |
+
+Security-relevant Minors confirmed fixed: M1 (`security: []` on `/site`, pinned by a source-YAML
+contract test), M4 (unpublished returns the fallback title+intro; `TestSiteUnpublishedNeverLeaksDraftIdentity`),
+M5 (`FOR UPDATE` on the singleton + `FOR SHARE` on the admin row; concurrency test + SQL-shape test),
+M6 (meaningful fallback intro), M11 (`MyTeamMembers` re-checks `CanReadBoard`; revocation test) and
+captain-roster revocation immediacy. Also M7 (picker clears on `search` prop change), M8 (legacy board
+saves metadata), M9 (server-side group search), M12 (real `PUBLISH` HTTP action for MANUAL-only).
+M2/M3 documentation corrections are present (11 operations; plan/verification reconciled).
+
+## Remaining Important (fix before publishing)
+
+**R1 — legacy `INVITE_ONLY` boards lost their invite-code affordances (regression from the I3
+re-mapping).** Both gates use the derived mode instead of the authoritative registration field:
+- `frontend/src/features/boards/pages/BoardPage.vue:264` — `v-if="isInviteBoard(board.accessMode)"`
+  hides the invite-code input on the inline join form for a LEGACY board, while
+  `canJoinFromPage` (`:261`, `registrationMode !== 'CLOSED'`) still renders the form. A participant on
+  a legacy `PUBLIC+INVITE_ONLY` board (or staff not yet joined on a legacy `PRIVATE+INVITE_ONLY`
+  board) sees "Join this board" with no code field, and the server rejects the code-less join with
+  `ErrInvalidInviteCode`.
+- `frontend/src/features/admin/pages/AdminBoardPage.vue:263` — `v-if="board.accessMode === 'INVITE'"`
+  hides `InviteCodePanel`, so staff cannot reveal/rotate the code for a legacy `INVITE_ONLY` board.
+- This contradicts the frozen invariant "old ambiguous combinations keep their legacy read **and
+  join** behaviour" that the fix itself documents in `docs/organizer-ux-verification.md`.
+- Minimal fix: gate both on `board.registrationMode === 'INVITE_ONLY'` (`Board`/`AdminBoard` already
+  carry it). Add a component or browser assertion for a LEGACY `INVITE_ONLY` board.
+
+**R2 — no explicit-conversion confirmation on a LEGACY board (unresolved part of the I3 requirement).**
+`frontend/src/features/admin/components/BoardSettingsDialog.vue:108-112` returns `false` from
+`gateChangeNeedsConfirm` whenever `initialAccessMode === 'LEGACY'`, so switching a legacy board that
+holds a live group gate to `Public`/`Invite code` saves immediately. The non-legacy path does ask
+(`:226-229`). The fixes report and `docs/implementation-plan.md` claim "an explicit mode change asks
+for confirmation first", so this is a claim/code mismatch and the riskier case has the weaker guard.
+The inline legacy alert does warn that choosing a mode replaces the old rules, so nothing is silent.
+- Minimal fix: drop the `initialAccessMode === 'LEGACY'` early return (keep the
+  `accessGroupUuids.length > 0 && mode !== 'AUDIENCE'` condition); add a component test for
+  LEGACY+groups → PUBLIC asking for confirmation.
+
+## Remaining Minor (non-blocking ledger)
+
+**N1 — `ApprovedTemplateParameter.type` enum omits `text`.** The manifest validator accepts
+`text` (`internal/deployment/validator.go:112-116`), but the new closed schema enum
+(`docs/swagger.yaml` `ApprovedTemplateParameter`, generated
+`internal/generated/openapi/models/approved_template_parameter.go:51`) lists
+`string,int,integer,number,bool,boolean,choice,textarea` only. A published template declaring
+`type: text` is projected verbatim (`internal/instances/binding.go:120-136`) and produces a value
+outside the documented enum. One-line fix: add `text`, or map `text`→`textarea` in the projection.
+
+**N2 — residual UUID copy in the admin team panel (original M10 only partially resolved).**
+`frontend/src/features/admin/components/AdminTeamsPanel.vue:155` still says "add participant user
+UUIDs" and `:161` still renders a "Captain UUID" column, although the input flow is now a picker.
+Cosmetic; no UUID input remains.
+
+## Evidence reviewed (not re-run)
+
+`/tmp/opencode/actfb-organizer-ux-fixes-run.log`: 17 passed (4.0m), 1 worker, including the three new
+`organizer-ux` tests and the typed-parameter binding; `owned Docker resources: 0 new containers, 0 new
+volumes`; `core and Vue artifact hashes unchanged`. No `page.route`/`fulfill`/`routeFromHAR` stubs in
+any spec. All new Go tests are real-PG/real-HTTP or deterministic SQL-shape tests; none are skip-only
+guards (`test.skip` only appears for the full-stack/ Docker preconditions that the harness satisfied).
+
+## Disposition
+
+Original Critical/Important: **0 remaining open** (I1–I7 fixed). Two regressions introduced by the I3
+fix (R1, R2) are Important and should be corrected before publishing; both are one-condition changes
+plus a test. N1/N2 are minors and do not block.
