@@ -46,6 +46,8 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 
 	e.GET("/api/v2/admin/user-search", h.SearchUsers, auth)
 	e.GET("/api/v2/admin/boards/:boardUuid/user-search", h.SearchBoardUsers, auth)
+	e.GET("/api/v2/admin/boards/:boardUuid/team-search", h.SearchBoardTeams, auth)
+	e.GET("/api/v2/boards/:boardUuid/team/roster-search", h.SearchCaptainRoster, auth)
 }
 
 func (h *Handler) ListAccessGroups(c *echo.Context) error {
@@ -373,4 +375,53 @@ func (h *Handler) RemoveGroupMember(c *echo.Context) error {
 		return h.writeServiceError(c, err)
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// SearchBoardTeams is the board-scoped team picker used by team audiences.
+func (h *Handler) SearchBoardTeams(c *echo.Context) error {
+	noStore(c)
+	principal, ok := httpapi.CurrentPrincipal(c)
+	if !ok {
+		return writeProblem(c, http.StatusUnauthorized, errorCodeUnauthorized, "Authentication required")
+	}
+	boardID, problem := pathUUID(c, "boardUuid")
+	if problem != nil {
+		return problem.write(c)
+	}
+	limit, offset, problem := pageParams(c)
+	if problem != nil {
+		return problem.write(c)
+	}
+	page, err := h.service.SearchBoardTeams(c.Request().Context(), principal, boardID, access.ListQuery{
+		Limit: limit, Offset: offset, Query: c.QueryParam("query"),
+	})
+	if err != nil {
+		return h.writeServiceError(c, err)
+	}
+	return c.JSON(http.StatusOK, teamDirectoryResponseFrom(page, limit, offset))
+}
+
+// SearchCaptainRoster is the captain-only eligible-participant search. It never
+// returns email addresses and never requires a staff permission.
+func (h *Handler) SearchCaptainRoster(c *echo.Context) error {
+	noStore(c)
+	principal, ok := httpapi.CurrentPrincipal(c)
+	if !ok {
+		return writeProblem(c, http.StatusUnauthorized, errorCodeUnauthorized, "Authentication required")
+	}
+	boardID, problem := pathUUID(c, "boardUuid")
+	if problem != nil {
+		return problem.write(c)
+	}
+	limit, offset, problem := pageParams(c)
+	if problem != nil {
+		return problem.write(c)
+	}
+	page, err := h.service.SearchCaptainRoster(c.Request().Context(), principal, boardID, access.ListQuery{
+		Limit: limit, Offset: offset, Query: c.QueryParam("query"),
+	})
+	if err != nil {
+		return h.writeServiceError(c, err)
+	}
+	return c.JSON(http.StatusOK, captainRosterResponseFrom(page, limit, offset))
 }

@@ -118,6 +118,7 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 
 	// P1R teams
 	e.GET("/api/v2/boards/:boardUuid/team", h.GetMyTeam, requireUser)
+	e.GET("/api/v2/boards/:boardUuid/team/members", h.MyTeamMembers, requireUser)
 	e.PATCH("/api/v2/boards/:boardUuid/team", h.UpdateMyTeam, requireUser)
 	e.POST("/api/v2/boards/:boardUuid/teams", h.CreateTeam, requireUser)
 	e.POST("/api/v2/boards/:boardUuid/teams/join", h.JoinTeam, requireUser)

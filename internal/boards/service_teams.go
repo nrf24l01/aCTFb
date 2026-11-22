@@ -245,6 +245,28 @@ func (s *Service) TransferCaptain(ctx context.Context, principal authorization.P
 		auditEvent(principal, &boardID, nil, "team.captain.transfer", "team", &team.ID, map[string]any{"userId": userID.String()}))
 }
 
+// MyTeamMembers lists the caller's own team roster. It never exposes another
+// team and never includes email addresses.
+func (s *Service) MyTeamMembers(ctx context.Context, principal authorization.Principal, boardID uuid.UUID) ([]TeamMember, error) {
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
+	if _, err := s.teamBoard(ctx, boardID); err != nil {
+		return nil, err
+	}
+	if err := s.requireTeamParticipant(ctx, principal, boardID); err != nil {
+		return nil, err
+	}
+	team, err := s.store.GetTeamByMember(ctx, boardID, principal.UserID)
+	if err != nil {
+		return nil, err
+	}
+	items, _, err := s.store.ListTeamMembers(ctx, boardID, team.ID, 100, 0)
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func (s *Service) AdminListTeams(ctx context.Context, principal authorization.Principal, boardID uuid.UUID, limit, offset int) (Page[Team], error) {
 	ctx, cancel := s.operationContext(ctx)
 	defer cancel()

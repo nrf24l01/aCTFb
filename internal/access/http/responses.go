@@ -118,3 +118,59 @@ func groupMemberResponseFrom(page access.GroupMemberPage, limit, offset int) use
 	}
 	return response
 }
+
+type teamDirectoryEntryResponse struct {
+	UUID string `json:"uuid"`
+	Name string `json:"name"`
+}
+
+type teamDirectoryResponse struct {
+	Items  []teamDirectoryEntryResponse `json:"items"`
+	Limit  int64                        `json:"limit"`
+	Offset int64                        `json:"offset"`
+	Total  int64                        `json:"total"`
+}
+
+func teamDirectoryResponseFrom(page access.TeamDirectoryPage, limit, offset int) teamDirectoryResponse {
+	response := teamDirectoryResponse{
+		Items:  make([]teamDirectoryEntryResponse, 0, len(page.Items)),
+		Limit:  int64(limit),
+		Offset: int64(offset),
+		Total:  int64(page.Total),
+	}
+	for _, entry := range page.Items {
+		response.Items = append(response.Items, teamDirectoryEntryResponse{
+			UUID: entry.TeamID.String(),
+			Name: entry.Name,
+		})
+	}
+	return response
+}
+
+type captainRosterEntryResponse struct {
+	UUID     string `json:"uuid"`
+	Username string `json:"username"`
+}
+
+type captainRosterResponse struct {
+	Items  []captainRosterEntryResponse `json:"items"`
+	Limit  int64                        `json:"limit"`
+	Offset int64                        `json:"offset"`
+	Total  int64                        `json:"total"`
+}
+
+func captainRosterResponseFrom(page access.CaptainRosterPage, limit, offset int) captainRosterResponse {
+	response := captainRosterResponse{
+		Items:  make([]captainRosterEntryResponse, 0, len(page.Items)),
+		Limit:  int64(limit),
+		Offset: int64(offset),
+		Total:  int64(page.Total),
+	}
+	for _, entry := range page.Items {
+		response.Items = append(response.Items, captainRosterEntryResponse{
+			UUID:     entry.UserID.String(),
+			Username: entry.Username,
+		})
+	}
+	return response
+}

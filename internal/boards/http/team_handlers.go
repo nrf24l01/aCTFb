@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
@@ -369,4 +370,30 @@ type teamListResponse struct {
 	Limit  *int64             `json:"limit"`
 	Offset *int64             `json:"offset"`
 	Total  *int64             `json:"total"`
+}
+
+// MyTeamMembers lists the caller's own team roster with names only.
+func (h *Handler) MyTeamMembers(c *echo.Context) error {
+	principal, ok := httpapi.CurrentPrincipal(c)
+	if !ok {
+		return writeError(c, boards.ErrUnauthorized)
+	}
+	boardID, problem := pathUUID(c, "boardUuid")
+	if problem != nil {
+		return problem.write(c)
+	}
+	members, err := h.service.MyTeamMembers(c.Request().Context(), principal, boardID)
+	if err != nil {
+		return writeError(c, err)
+	}
+	items := make([]*oapimodels.TeamMember, 0, len(members))
+	for _, member := range members {
+		userUUID := oapimodels.UUID(member.UserID.String())
+		username := member.Username
+		joinedAt := strfmt.DateTime(member.JoinedAt.UTC())
+		items = append(items, &oapimodels.TeamMember{
+			UserUUID: &userUUID, Username: &username, JoinedAt: &joinedAt,
+		})
+	}
+	return c.JSON(http.StatusOK, &oapimodels.TeamMemberListResponse{Items: items})
 }

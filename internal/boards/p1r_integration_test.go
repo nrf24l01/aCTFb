@@ -128,6 +128,22 @@ func TestP1RTeamsManualAudienceGroupsAdjustments(t *testing.T) {
 	if _, err := service.JoinTeam(ctx, pp2, teamBoard.ID, invite.InviteKey); err != nil {
 		t.Fatalf("join team: %v", err)
 	}
+	members, err := service.MyTeamMembers(ctx, pp1, teamBoard.ID)
+	if err != nil {
+		t.Fatalf("own team members: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("own team members = %d, want 2", len(members))
+	}
+	for _, member := range members {
+		if member.Username == "" {
+			t.Fatal("own team member is missing a username")
+		}
+	}
+	// A participant outside the team must not read this roster.
+	if _, err := service.MyTeamMembers(ctx, pp3, teamBoard.ID); err == nil {
+		t.Fatal("non-member read another team roster")
+	}
 	if _, err := service.JoinTeam(ctx, pp3, teamBoard.ID, invite.InviteKey); !errors.Is(err, ErrTeamFull) {
 		t.Fatalf("team full error = %v", err)
 	}

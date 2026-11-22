@@ -25236,6 +25236,145 @@ paths:
           description: '404 Not Found. Code: ACCESS_GROUP_MEMBER_NOT_FOUND.'
           schema:
             $ref: '#/definitions/ApiError'
+  /admin/boards/{boardUuid}/team-search:
+    get:
+      x-error-codes:
+        '401':
+        - UNAUTHORIZED
+        '403':
+        - FORBIDDEN
+        '404':
+        - BOARD_NOT_FOUND
+        '422':
+        - VALIDATION_FAILED
+      tags:
+      - Admin Audiences
+      summary: Search board teams for a team audience picker
+      description: Board-scoped team search. Requires one live board roster permission (participants, staff
+        or audiences manage) on the exact board. Returns only team name and UUID from that board.
+      operationId: adminSearchBoardTeams
+      parameters:
+      - name: boardUuid
+        in: path
+        required: true
+        type: string
+        format: uuid
+      - $ref: '#/parameters/LimitParam'
+      - $ref: '#/parameters/OffsetParam'
+      - name: query
+        in: query
+        required: false
+        type: string
+        maxLength: 128
+      responses:
+        '200':
+          description: Bounded board team page.
+          schema:
+            $ref: '#/definitions/TeamDirectoryResponse'
+        '401':
+          description: '401 Unauthorized. Code: UNAUTHORIZED.'
+          schema:
+            $ref: '#/definitions/Http401_Unauthorized_Error'
+        '403':
+          description: '403 Forbidden. Code: FORBIDDEN.'
+          schema:
+            $ref: '#/definitions/Http403_Forbidden_Error'
+        '404':
+          description: '404 Not Found. Code: BOARD_NOT_FOUND.'
+          schema:
+            $ref: '#/definitions/Http404_BoardNotFound_Error'
+        '422':
+          description: '422 Unprocessable Entity. Code: VALIDATION_FAILED.'
+          schema:
+            $ref: '#/definitions/Http422_ValidationFailed_Error'
+      produces:
+      - application/json
+  /boards/{boardUuid}/team/roster-search:
+    get:
+      x-error-codes:
+        '401':
+        - UNAUTHORIZED
+        '403':
+        - FORBIDDEN
+        '404':
+        - BOARD_NOT_FOUND
+        '422':
+          - VALIDATION_FAILED
+      tags:
+      - Teams
+      summary: Search eligible participants as the team captain
+      description: Captain-scoped eligible roster search. Requires a live captain of this TEAM board with an
+        open window and live group access; no staff permission is required or granted. Matches username, email
+        and UUID, but the response never contains an email address, and the read is audited.
+      operationId: searchCaptainRoster
+      parameters:
+      - $ref: '#/parameters/BoardUuidParam'
+      - $ref: '#/parameters/LimitParam'
+      - $ref: '#/parameters/OffsetParam'
+      - name: query
+        in: query
+        required: false
+        type: string
+        maxLength: 128
+      responses:
+        '200':
+          description: Bounded eligible-participant page.
+          schema:
+            $ref: '#/definitions/CaptainRosterResponse'
+        '401':
+          description: '401 Unauthorized. Code: UNAUTHORIZED.'
+          schema:
+            $ref: '#/definitions/Http401_Unauthorized_Error'
+        '403':
+          description: '403 Forbidden. Code: FORBIDDEN.'
+          schema:
+            $ref: '#/definitions/Http403_Forbidden_Error'
+        '404':
+          description: '404 Not Found. Code: BOARD_NOT_FOUND.'
+          schema:
+            $ref: '#/definitions/Http404_BoardNotFound_Error'
+        '422':
+          description: '422 Unprocessable Entity. Code: VALIDATION_FAILED.'
+          schema:
+            $ref: '#/definitions/Http422_ValidationFailed_Error'
+      produces:
+      - application/json
+  /boards/{boardUuid}/team/members:
+    get:
+      x-error-codes:
+        '401':
+        - UNAUTHORIZED
+        '403':
+        - FORBIDDEN
+        '404':
+        - TEAM_NOT_FOUND
+        - BOARD_NOT_FOUND
+      tags:
+      - Teams
+      summary: List the caller's own team members
+      description: Returns names for the caller's own team only. Never another team and never email addresses.
+      operationId: listMyTeamMembers
+      parameters:
+      - $ref: '#/parameters/BoardUuidParam'
+      responses:
+        '200':
+          description: Own team membership.
+          schema:
+            $ref: '#/definitions/TeamMemberListResponse'
+        '401':
+          description: '401 Unauthorized. Code: UNAUTHORIZED.'
+          schema:
+            $ref: '#/definitions/Http401_Unauthorized_Error'
+        '403':
+          description: '403 Forbidden. Code: FORBIDDEN.'
+          schema:
+            $ref: '#/definitions/Http403_Forbidden_Error'
+        '404':
+          description: '404 Not Found. Code: TEAM_NOT_FOUND or BOARD_NOT_FOUND.'
+          schema:
+            $ref: '#/definitions/ApiError'
+      produces:
+      - application/json
 securityDefinitions:
   bearerAuth:
     type: apiKey
@@ -25525,6 +25664,107 @@ definitions:
     - LEGACY
     description: Canonical board access projection. LEGACY marks an old ambiguous visibility/registration
       combination that keeps its existing behaviour until an organizer selects an explicit mode.
+  TeamDirectoryEntry:
+    type: object
+    additionalProperties: false
+    required:
+    - uuid
+    - name
+    properties:
+      uuid:
+        $ref: '#/definitions/UUID'
+      name:
+        $ref: '#/definitions/TeamName'
+    description: Minimal team projection for the audience picker. No captain or membership identity.
+  TeamDirectoryResponse:
+    type: object
+    additionalProperties: false
+    required:
+    - items
+    - limit
+    - offset
+    - total
+    properties:
+      items:
+        type: array
+        items:
+          $ref: '#/definitions/TeamDirectoryEntry'
+      limit:
+        type: integer
+        minimum: 1
+        maximum: 100
+      offset:
+        type: integer
+        minimum: 0
+      total:
+        type: integer
+        minimum: 0
+  CaptainRosterEntry:
+    type: object
+    additionalProperties: false
+    required:
+    - uuid
+    - username
+    properties:
+      uuid:
+        $ref: '#/definitions/UUID'
+      username:
+        type: string
+        minLength: 1
+        maxLength: 128
+    description: Eligible board participant projection for a team captain. Email is deliberately absent; a
+      captain can match on it but never receives it back.
+  CaptainRosterResponse:
+    type: object
+    additionalProperties: false
+    required:
+    - items
+    - limit
+    - offset
+    - total
+    properties:
+      items:
+        type: array
+        items:
+          $ref: '#/definitions/CaptainRosterEntry'
+      limit:
+        type: integer
+        minimum: 1
+        maximum: 20
+      offset:
+        type: integer
+        minimum: 0
+      total:
+        type: integer
+        minimum: 0
+  TeamMember:
+    type: object
+    additionalProperties: false
+    required:
+    - userUuid
+    - username
+    - joinedAt
+    properties:
+      userUuid:
+        $ref: '#/definitions/UUID'
+      username:
+        type: string
+        minLength: 1
+        maxLength: 128
+      joinedAt:
+        type: string
+        format: date-time
+    description: One membership row of the caller's own team. Names only; no email addresses.
+  TeamMemberListResponse:
+    type: object
+    additionalProperties: false
+    required:
+    - items
+    properties:
+      items:
+        type: array
+        items:
+          $ref: '#/definitions/TeamMember'
   SitePublic:
     type: object
     additionalProperties: false

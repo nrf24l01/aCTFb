@@ -26,6 +26,33 @@ type UserDirectoryPage struct {
 	Total int
 }
 
+// TeamDirectoryEntry is the minimal team projection for the audience picker.
+// It exposes only the team name and UUID; no captain or membership identity.
+type TeamDirectoryEntry struct {
+	TeamID uuid.UUID
+	Name   string
+}
+
+// TeamDirectoryPage is a bounded server-side team search page.
+type TeamDirectoryPage struct {
+	Items []TeamDirectoryEntry
+	Total int
+}
+
+// CaptainRosterEntry is the minimal projection a team captain may see while
+// searching for an eligible board participant. Email is deliberately absent:
+// captains can match on it but the response never discloses it.
+type CaptainRosterEntry struct {
+	UserID   uuid.UUID
+	Username string
+}
+
+// CaptainRosterPage is a bounded captain-scoped roster search page.
+type CaptainRosterPage struct {
+	Items []CaptainRosterEntry
+	Total int
+}
+
 // escapeLike makes user input a literal substring/prefix match. The caller must
 // use ESCAPE '\' in the SQL so backslash, percent and underscore stay literal.
 func escapeLike(value string) string {
@@ -62,9 +89,32 @@ func (s *AccessService) SearchUsers(ctx context.Context, principal authorization
 	return s.searchUsers(ctx, s.db.Pool, q)
 }
 
-// SearchBoardUsers is the board-scoped picker. It requires live
-// board.participants.manage on the exact board and returns only the minimal
-// identity fields. It is paginated and never an anonymous directory.
+// authorizeBoardRoster requires one live board-scoped permission that justifies
+// reading a board's identity roster. It never grants a global directory.
+func (s *AccessService) authorizeBoardRoster(ctx context.Context, principal authorization.Principal, boardID uuid.UUID) error {
+	if s.auth == nil {
+		return ErrNoAuthorizer
+	}
+	permissions := []authorization.Permission{
+		authorization.PermissionBoardParticipantsManage,
+		authorization.PermissionBoardStaffManage,
+		authorization.PermissionBoardAudiencesManage,
+	}
+	for _, permission := range permissions {
+		decision, err := s.auth.Authorize(ctx, principal, permission, authorization.Scope{BoardID: boardID})
+		if err != nil {
+			return err
+		}
+		if decision.Allowed {
+			return nil
+		}
+	}
+	return ErrForbidden
+}
+
+// SearchBoardUsers is the board-scoped picker. It requires a live board roster
+// permission on the exact board and returns only minimal identity fields. It is
+// paginated, requires a non-empty term and is never an anonymous directory.
 func (s *AccessService) SearchBoardUsers(ctx context.Context, principal authorization.Principal, boardID uuid.UUID, q ListQuery) (UserDirectoryPage, error) {
 	if err := s.ready(); err != nil {
 		return UserDirectoryPage{}, err
@@ -72,23 +122,8 @@ func (s *AccessService) SearchBoardUsers(ctx context.Context, principal authoriz
 	if boardID == uuid.Nil {
 		return UserDirectoryPage{}, ErrBoardNotFound
 	}
-	if s.auth == nil {
-		return UserDirectoryPage{}, ErrNoAuthorizer
-	}
-	decision, err := s.auth.Authorize(ctx, principal, authorization.PermissionBoardParticipantsManage, authorization.Scope{BoardID: boardID})
-	if err != nil {
+	if err := s.authorizeBoardRoster(ctx, principal, boardID); err != nil {
 		return UserDirectoryPage{}, err
-	}
-	allowed := decision.Allowed
-	if !allowed {
-		staffDecision, staffErr := s.auth.Authorize(ctx, principal, authorization.PermissionBoardStaffManage, authorization.Scope{BoardID: boardID})
-		if staffErr != nil {
-			return UserDirectoryPage{}, staffErr
-		}
-		allowed = staffDecision.Allowed
-	}
-	if !allowed {
-		return UserDirectoryPage{}, ErrForbidden
 	}
 	if strings.TrimSpace(q.Query) == "" {
 		// Never allow an empty board-scoped query to dump the global directory.
@@ -98,15 +133,184 @@ func (s *AccessService) SearchBoardUsers(ctx context.Context, principal authoriz
 	if err != nil {
 		return UserDirectoryPage{}, err
 	}
-	// Board-scoped directory reads are sensitive. Record a bounded audit row
-	// that never stores the search term's raw email value.
-	if strings.TrimSpace(q.Query) != "" {
-		if _, auditErr := s.db.Pool.Exec(ctx, `
-			INSERT INTO audit_events (actor_user_id, board_id, action, resource_type, resource_id, details)
-			VALUES ($1, $2, 'user_search.board', 'board', $2, $3)
-		`, principal.UserID, boardID, []byte(`{"scope":"board"}`)); auditErr != nil {
-			return UserDirectoryPage{}, fmt.Errorf("access: audit board user search: %w", auditErr)
+	if err := s.auditBoardSearch(ctx, principal.UserID, boardID, "user_search.board"); err != nil {
+		return UserDirectoryPage{}, err
+	}
+	return page, nil
+}
+
+// SearchBoardTeams is the board-scoped team picker used by team audiences. It
+// returns only team name and UUID for teams in the exact board.
+func (s *AccessService) SearchBoardTeams(ctx context.Context, principal authorization.Principal, boardID uuid.UUID, q ListQuery) (TeamDirectoryPage, error) {
+	if err := s.ready(); err != nil {
+		return TeamDirectoryPage{}, err
+	}
+	if boardID == uuid.Nil {
+		return TeamDirectoryPage{}, ErrBoardNotFound
+	}
+	if err := s.authorizeBoardRoster(ctx, principal, boardID); err != nil {
+		return TeamDirectoryPage{}, err
+	}
+	if strings.TrimSpace(q.Query) == "" {
+		return TeamDirectoryPage{Items: []TeamDirectoryEntry{}}, nil
+	}
+	limit, offset := clampPage(q.Limit, q.Offset)
+	query := strings.TrimSpace(q.Query)
+	escaped := escapeLike(query)
+	var exact uuid.UUID
+	if parsed, err := uuid.Parse(query); err == nil {
+		exact = parsed
+	}
+	prefix, _ := uuidPrefix(query)
+
+	predicate := `
+		WHERE t.board_id = $1 AND (
+			t.id = $2
+			OR ($3 <> '' AND replace(t.id::text, '-', '') LIKE $3 || '%')
+			OR t.name ILIKE '%' || $4 || '%' ESCAPE '\'
+		)
+	`
+	rows, err := s.db.Pool.Query(ctx, `
+		SELECT t.id, t.name FROM teams t
+	`+predicate+`
+		ORDER BY (t.id = $2) DESC, t.name, t.id
+		LIMIT $5 OFFSET $6
+	`, boardID, exact, prefix, escaped, limit, offset)
+	if err != nil {
+		return TeamDirectoryPage{}, fmt.Errorf("access: search board teams: %w", err)
+	}
+	defer rows.Close()
+	page := TeamDirectoryPage{Items: make([]TeamDirectoryEntry, 0)}
+	for rows.Next() {
+		var entry TeamDirectoryEntry
+		if err := rows.Scan(&entry.TeamID, &entry.Name); err != nil {
+			return TeamDirectoryPage{}, fmt.Errorf("access: scan team search row: %w", err)
 		}
+		page.Items = append(page.Items, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return TeamDirectoryPage{}, fmt.Errorf("access: iterate team search: %w", err)
+	}
+	if err := s.db.Pool.QueryRow(ctx, `
+		SELECT count(*) FROM teams t
+	`+predicate, boardID, exact, prefix, escaped).Scan(&page.Total); err != nil {
+		return TeamDirectoryPage{}, fmt.Errorf("access: count team search: %w", err)
+	}
+	if err := s.auditBoardSearch(ctx, principal.UserID, boardID, "team_search.board"); err != nil {
+		return TeamDirectoryPage{}, err
+	}
+	return page, nil
+}
+
+// SearchCaptainRoster lets a live team captain find an eligible board
+// participant to invite. It requires the caller to be a joined captain of a
+// TEAM board whose window is open and whose own group access is live; no staff
+// permission is required or granted. Matching covers username, email and UUID,
+// but the response never contains an email address.
+func (s *AccessService) SearchCaptainRoster(ctx context.Context, principal authorization.Principal, boardID uuid.UUID, q ListQuery) (CaptainRosterPage, error) {
+	if err := s.ready(); err != nil {
+		return CaptainRosterPage{}, err
+	}
+	if boardID == uuid.Nil {
+		return CaptainRosterPage{}, ErrBoardNotFound
+	}
+	user, err := loadLiveUser(ctx, s.db.Pool, principal.UserID)
+	if err != nil {
+		return CaptainRosterPage{}, err
+	}
+	board, err := loadBoard(ctx, s.db.Pool, boardID)
+	if err != nil {
+		return CaptainRosterPage{}, err
+	}
+	if board.ParticipationMode != "TEAM" {
+		return CaptainRosterPage{}, ErrInvalidSubject
+	}
+	open, err := boardWindowOpen(ctx, s.db.Pool, board)
+	if err != nil {
+		return CaptainRosterPage{}, err
+	}
+	if !open {
+		return CaptainRosterPage{}, ErrForbidden
+	}
+	joined, err := isBoardParticipant(ctx, s.db.Pool, boardID, user.ID)
+	if err != nil {
+		return CaptainRosterPage{}, err
+	}
+	if !joined {
+		return CaptainRosterPage{}, ErrForbidden
+	}
+	groupAllowed, err := participantGroupAllowed(ctx, s.db.Pool, board, user.ID)
+	if err != nil {
+		return CaptainRosterPage{}, err
+	}
+	if !groupAllowed {
+		return CaptainRosterPage{}, ErrForbidden
+	}
+	captain, err := isTeamCaptain(ctx, s.db.Pool, boardID, user.ID)
+	if err != nil {
+		return CaptainRosterPage{}, err
+	}
+	if !captain {
+		return CaptainRosterPage{}, ErrForbidden
+	}
+	if strings.TrimSpace(q.Query) == "" {
+		return CaptainRosterPage{Items: []CaptainRosterEntry{}}, nil
+	}
+
+	limit, offset := clampPage(q.Limit, q.Offset)
+	if limit > 20 {
+		limit = 20
+	}
+	query := strings.TrimSpace(q.Query)
+	escaped := escapeLike(query)
+	var exact uuid.UUID
+	if parsed, err := uuid.Parse(query); err == nil {
+		exact = parsed
+	}
+	prefix, _ := uuidPrefix(query)
+
+	predicate := `
+		WHERE bp.board_id = $1
+		  AND NOT EXISTS (
+			SELECT 1 FROM team_members tm WHERE tm.board_id = bp.board_id AND tm.user_id = bp.user_id
+		  )
+		  AND (
+			u.id = $2
+			OR ($3 <> '' AND replace(u.id::text, '-', '') LIKE $3 || '%')
+			OR u.username ILIKE '%' || $4 || '%' ESCAPE '\'
+			OR u.email ILIKE '%' || $4 || '%' ESCAPE '\'
+		  )
+	`
+	rows, err := s.db.Pool.Query(ctx, `
+		SELECT u.id, u.username
+		FROM board_participants bp JOIN users u ON u.id = bp.user_id
+	`+predicate+`
+		ORDER BY (u.id = $2) DESC, u.username, u.id
+		LIMIT $5 OFFSET $6
+	`, boardID, exact, prefix, escaped, limit, offset)
+	if err != nil {
+		return CaptainRosterPage{}, fmt.Errorf("access: search captain roster: %w", err)
+	}
+	defer rows.Close()
+	page := CaptainRosterPage{Items: make([]CaptainRosterEntry, 0)}
+	for rows.Next() {
+		var entry CaptainRosterEntry
+		if err := rows.Scan(&entry.UserID, &entry.Username); err != nil {
+			return CaptainRosterPage{}, fmt.Errorf("access: scan captain roster row: %w", err)
+		}
+		page.Items = append(page.Items, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return CaptainRosterPage{}, fmt.Errorf("access: iterate captain roster: %w", err)
+	}
+	if err := s.db.Pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM board_participants bp JOIN users u ON u.id = bp.user_id
+	`+predicate, boardID, exact, prefix, escaped).Scan(&page.Total); err != nil {
+		return CaptainRosterPage{}, fmt.Errorf("access: count captain roster: %w", err)
+	}
+	if err := s.auditBoardSearch(ctx, principal.UserID, boardID, "user_search.captain_roster"); err != nil {
+		return CaptainRosterPage{}, err
 	}
 	return page, nil
 }
@@ -159,6 +363,18 @@ func (s *AccessService) searchUsers(ctx context.Context, q rowsQuerier, in ListQ
 		return UserDirectoryPage{}, fmt.Errorf("access: count user search: %w", err)
 	}
 	return page, nil
+}
+
+// auditBoardSearch records a bounded board-scoped directory read. It never
+// stores the search term, so an email probe is not re-readable from the audit.
+func (s *AccessService) auditBoardSearch(ctx context.Context, actorID, boardID uuid.UUID, action string) error {
+	if _, err := s.db.Pool.Exec(ctx, `
+		INSERT INTO audit_events (actor_user_id, board_id, action, resource_type, resource_id, details)
+		VALUES ($1, $2, $3, 'board', $2, $4)
+	`, actorID, boardID, action, []byte(`{"scope":"board"}`)); err != nil {
+		return fmt.Errorf("access: audit board search: %w", err)
+	}
+	return nil
 }
 
 var (
