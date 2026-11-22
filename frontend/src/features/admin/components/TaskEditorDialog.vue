@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import ErrorAlert from '@/components/layout/ErrorAlert.vue'
+import ConfirmDialog from '@/components/layout/ConfirmDialog.vue'
 import FormField from '@/components/layout/FormField.vue'
 import { boardsApi } from '@/features/boards/api/boards'
 import { instancesApi, type ApprovedInstanceTemplate } from '@/features/instances/api'
@@ -30,6 +31,7 @@ import {
   type TemplateParameterField,
 } from '@/features/admin/taskParameters'
 import { isApiError } from '@/shared/api/errors'
+import { useDiscardGuard } from '@/features/admin/useDiscardGuard'
 import { renderMarkdown } from '@/shared/lib/markdown'
 import { taskTypeLabel } from '@/features/boards/format'
 import type { AdminTask, SubmissionMode, TaskInstanceConfig, TaskType } from '@/shared/types/api'
@@ -90,6 +92,18 @@ const form = reactive({
   parameters: {} as Record<string, string>,
   secretParameters: {} as Record<string, string>,
 })
+const {
+  discardOpen: discardConfirmOpen,
+  reset: resetGuard,
+  attemptClose,
+  keepEditing,
+  discardAndClose,
+} = useDiscardGuard({
+  // Secrets are part of the dirty check so a typed secret is never lost
+  // silently. The snapshot is in memory only and never persisted.
+  snapshot: () => ({ ...form, parameterFields: parameterFields.value }),
+  close: () => emit('update:open', false),
+})
 const problems = ref<Record<string, string | undefined>>({})
 const error = ref<unknown>(null)
 const pending = ref(false)
@@ -130,6 +144,7 @@ watch(
     error.value = null
     templatesError.value = null
     if (form.type === 'INSTANCE' && !isEdit.value) void loadApprovedTemplates()
+    resetGuard()
   },
   { immediate: true },
 )
@@ -293,8 +308,8 @@ async function submit() {
 </script>
 
 <template>
-  <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="flex max-h-[92dvh] flex-col rounded-none border-border bg-black sm:max-w-2xl">
+  <Dialog :open="open" @update:open="(value) => { if (!value) attemptClose() }">
+    <DialogContent class="flex max-h-[92dvh] flex-col rounded-none border-border bg-black max-md:h-dvh max-md:max-h-dvh max-md:max-w-none sm:max-w-2xl">
       <DialogHeader>
         <DialogTitle>{{ isEdit ? 'Edit task' : 'Create task' }}</DialogTitle>
         <DialogDescription>
@@ -521,7 +536,7 @@ async function submit() {
         </div>
 
         <DialogFooter class="mt-4 border-t border-border pt-4">
-          <Button type="button" variant="ghost" :disabled="pending" @click="emit('update:open', false)">Cancel</Button>
+          <Button type="button" variant="ghost" :disabled="pending" @click="attemptClose()">Cancel</Button>
           <Button type="submit" :disabled="pending">
             {{ pending ? 'Saving…' : isEdit ? 'Save changes' : 'Save draft' }}
           </Button>
@@ -529,4 +544,14 @@ async function submit() {
       </form>
     </DialogContent>
   </Dialog>
+
+  <ConfirmDialog
+    :open="discardConfirmOpen"
+    title="Discard task changes?"
+    description="Your unsaved edits, including any typed answers or secrets, will be lost. This cannot be undone."
+    confirm-label="Discard changes"
+    destructive
+    @update:open="(value) => { if (!value) keepEditing() }"
+    @confirm="discardAndClose()"
+  />
 </template>

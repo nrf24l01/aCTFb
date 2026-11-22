@@ -125,7 +125,7 @@ void load()
       <EmptyState
         v-else-if="tasks.length === 0"
         title="No tasks in this module"
-        description="Create a FLAG task. Tasks stay visible only when the task and module are available to participants."
+        description="Add a task to this module. Participants only see it once the task and module are available."
       />
       <div v-else class="overflow-x-auto">
         <Table>

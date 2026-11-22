@@ -3,7 +3,6 @@ import { computed, ref } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import EmptyState from '@/components/layout/EmptyState.vue'
@@ -11,10 +10,18 @@ import ErrorAlert from '@/components/layout/ErrorAlert.vue'
 import FormField from '@/components/layout/FormField.vue'
 import LoadingState from '@/components/layout/LoadingState.vue'
 import ConfirmDialog from '@/components/layout/ConfirmDialog.vue'
+import UserPicker from '@/features/access/components/UserPicker.vue'
+import TeamPicker from '@/features/access/components/TeamPicker.vue'
+import { accessApi } from '@/features/access/api'
 import { audiencesApi } from '@/features/audiences/api'
-import { boardsApi } from '@/features/boards/api/boards'
-import { teamsApi } from '@/features/teams/api'
-import type { Audience, AudienceMember, ParticipationMode, SubjectType, Team, UserSummary } from '@/shared/types/api'
+import type {
+  Audience,
+  AudienceMember,
+  ParticipationMode,
+  SubjectType,
+  TeamDirectoryEntry,
+  UserDirectoryEntry,
+} from '@/shared/types/api'
 
 const props = defineProps<{
   boardUuid: string
@@ -24,12 +31,11 @@ const props = defineProps<{
 const items = ref<Audience[]>([])
 const members = ref<AudienceMember[]>([])
 const selected = ref<Audience | null>(null)
-const participants = ref<UserSummary[]>([])
-const teams = ref<Team[]>([])
 const loading = ref(true)
 const membersLoading = ref(false)
 const error = ref<unknown>(null)
 const membersError = ref<unknown>(null)
+const memberActionError = ref<unknown>(null)
 
 const dialogOpen = ref(false)
 const editTarget = ref<Audience | null>(null)
@@ -40,18 +46,13 @@ const pending = ref(false)
 const deleteTarget = ref<Audience | null>(null)
 const deleting = ref(false)
 const deleteError = ref<unknown>(null)
-const memberType = ref<SubjectType>(props.participationMode === 'TEAM' ? 'TEAM' : 'USER')
-const memberUuid = ref('')
-const memberProblem = ref<string | undefined>()
 const addingMember = ref(false)
 const removeTarget = ref<AudienceMember | null>(null)
 const removingMember = ref(false)
 
-const subjectOptions = computed(() =>
-  memberType.value === 'TEAM'
-    ? teams.value.map((team) => ({ uuid: team.uuid, name: team.name }))
-    : participants.value.map((user) => ({ uuid: user.uuid, name: user.username })),
-)
+// Team boards may gate modules by TEAM audiences; individual boards by USER.
+const subjectType = computed<SubjectType>(() => (props.participationMode === 'TEAM' ? 'TEAM' : 'USER'))
+const existingSubjectIds = computed(() => members.value.map((member) => member.subject.uuid))
 
 async function load() {
   loading.value = true
@@ -59,11 +60,6 @@ async function load() {
   try {
     const page = await audiencesApi.adminList(props.boardUuid, 100, 0)
     items.value = page.items
-    if (props.participationMode === 'INDIVIDUAL') {
-      participants.value = (await boardsApi.listParticipants(props.boardUuid, { limit: 100 })).items
-    } else {
-      teams.value = (await teamsApi.adminListTeams(props.boardUuid)).items
-    }
     if (!selected.value && items.value.length > 0) await select(items.value[0])
   } catch (caught) {
     error.value = caught
@@ -142,20 +138,33 @@ async function removeAudience() {
   }
 }
 
-async function addMember() {
-  memberProblem.value = undefined
+async function searchUsers(query: string, signal: AbortSignal): Promise<UserDirectoryEntry[]> {
+  if (signal.aborted) return []
+  return (await accessApi.searchBoardUsers(props.boardUuid, query, 20, 0)).items
+}
+
+async function searchTeams(query: string, signal: AbortSignal): Promise<TeamDirectoryEntry[]> {
+  if (signal.aborted) return []
+  return (await accessApi.searchBoardTeams(props.boardUuid, query, 20, 0)).items
+}
+
+async function addUser(user: UserDirectoryEntry) {
+  await addSubject('USER', user.uuid)
+}
+
+async function addTeam(team: TeamDirectoryEntry) {
+  await addSubject('TEAM', team.uuid)
+}
+
+async function addSubject(type: SubjectType, subjectUuid: string) {
   if (!selected.value) return
-  if (!memberUuid.value) {
-    memberProblem.value = 'Choose a participant/team.'
-    return
-  }
   addingMember.value = true
+  memberActionError.value = null
   try {
-    await audiencesApi.addMember(props.boardUuid, selected.value.uuid, memberType.value, memberUuid.value)
-    memberUuid.value = ''
+    await audiencesApi.addMember(props.boardUuid, selected.value.uuid, type, subjectUuid)
     await select(selected.value)
   } catch (caught) {
-    membersError.value = caught
+    memberActionError.value = caught
   } finally {
     addingMember.value = false
   }
@@ -164,6 +173,7 @@ async function addMember() {
 async function removeMember() {
   if (!selected.value || !removeTarget.value) return
   removingMember.value = true
+  memberActionError.value = null
   try {
     await audiencesApi.removeMember(
       props.boardUuid,
@@ -174,7 +184,7 @@ async function removeMember() {
     removeTarget.value = null
     await select(selected.value)
   } catch (caught) {
-    membersError.value = caught
+    memberActionError.value = caught
   } finally {
     removingMember.value = false
   }
@@ -188,7 +198,9 @@ void load()
     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
       <div>
         <h2 id="audiences-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Audiences</h2>
-        <p class="mt-1 text-xs text-muted-foreground">Audience membership gates modules with non-empty audience sets.</p>
+        <p class="mt-1 text-xs text-muted-foreground">
+          Board-scoped audiences gate modules. They are different from global access groups, which gate board access.
+        </p>
       </div>
       <div class="flex gap-2">
         <Button variant="outline" size="sm" :disabled="loading" @click="load">Refresh</Button>
@@ -231,37 +243,32 @@ void load()
           <p class="text-sm font-semibold">{{ selected.name }} members</p>
           <LoadingState v-if="membersLoading" :rows="2" />
           <ErrorAlert v-else-if="membersError" :error="membersError" title="Could not load audience members" />
-          <EmptyState v-else-if="members.length === 0" title="No members" description="Add a participant or team from this board." />
+          <EmptyState v-else-if="members.length === 0" title="No members" description="Search this board's participants to add one." />
           <div v-else class="space-y-1">
             <div v-for="member in members" :key="`${member.subject.type}:${member.subject.uuid}`" class="flex flex-wrap items-center justify-between gap-2 border-b border-border py-1 text-sm last:border-0">
-              <span>{{ member.subject.name }} <span class="text-xs text-muted-foreground">{{ member.subject.type }}</span></span>
+              <span>{{ member.subject.name }} <span class="text-xs text-muted-foreground">{{ member.subject.type === 'TEAM' ? 'Team' : 'Participant' }}</span></span>
               <Button variant="destructive" size="sm" @click="removeTarget = member">Remove</Button>
             </div>
           </div>
-          <form class="flex flex-wrap items-end gap-2 border-t border-border pt-3" @submit.prevent="addMember">
-            <div class="min-w-40">
-              <FormField label="Subject type" for-id="audience-subject-type">
-                <Select v-model="memberType" :disabled="participationMode !== 'TEAM'">
-                  <SelectTrigger id="audience-subject-type"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="USER">USER</SelectItem>
-                    <SelectItem value="TEAM">TEAM</SelectItem>
-                  </SelectContent>
-                </Select>
-              </FormField>
-            </div>
-            <div class="min-w-64 flex-1">
-              <FormField label="Participant / team" for-id="audience-subject" :error="memberProblem">
-                <Select v-model="memberUuid">
-                  <SelectTrigger id="audience-subject"><SelectValue placeholder="Choose…" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem v-for="option in subjectOptions" :key="option.uuid" :value="option.uuid">{{ option.name }}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </FormField>
-            </div>
-            <Button type="submit" :disabled="addingMember">{{ addingMember ? 'Adding…' : 'Add member' }}</Button>
-          </form>
+          <div class="space-y-2 border-t border-border pt-3">
+            <ErrorAlert v-if="memberActionError" :error="memberActionError" title="Could not update audience membership" />
+            <UserPicker
+              v-if="subjectType === 'USER'"
+              label="Add a participant"
+              :search="searchUsers"
+              :exclude="existingSubjectIds"
+              :placeholder="addingMember ? 'Adding…' : 'Search by username, email or UUID'"
+              @select="addUser"
+            />
+            <TeamPicker
+              v-else
+              label="Add a team"
+              :search="searchTeams"
+              :exclude="existingSubjectIds"
+              :placeholder="addingMember ? 'Adding…' : 'Search teams by name or UUID'"
+              @select="addTeam"
+            />
+          </div>
         </div>
       </template>
     </div>

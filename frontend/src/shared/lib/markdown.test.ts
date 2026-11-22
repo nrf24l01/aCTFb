@@ -9,6 +9,19 @@ describe('renderMarkdown', () => {
     expect(html).toContain('href="https://example.test"')
   })
 
+  // Block-level tags must survive sanitisation, because a flat text blob is the
+  // regression this guards. happy-dom's serialiser drops the tag of the very
+  // first top-level node (a DOM-fidelity quirk, not DOMPurify behaviour), so the
+  // assertions target nodes after the first. The real-browser acceptance spec
+  // asserts the leading heading as a real element.
+  it('keeps block-level elements as real markup', () => {
+    const html = renderMarkdown('Intro paragraph.\n\n## Section\n\n- one\n- two')
+    expect(html).toContain('Intro paragraph.')
+    expect(html).toContain('<h2>Section</h2>')
+    expect(html).toContain('<li>one</li>')
+    expect(html).toContain('<li>two</li>')
+  })
+
   it('escapes raw HTML instead of executing it', () => {
     const html = renderMarkdown('<script>alert(1)</script>\n\n<img src=x onerror="alert(1)">')
     expect(html).not.toMatch(/<script/i)

@@ -22,6 +22,7 @@ import { parseDateWindow, validateBoardName, validateSlug } from '@/features/adm
 import { formatDateTimeLocal } from '@/shared/lib/format'
 import { renderMarkdown } from '@/shared/lib/markdown'
 import { isApiError } from '@/shared/api/errors'
+import { useDiscardGuard } from '@/features/admin/useDiscardGuard'
 import type {
   AccessGroup,
   AdminBoard,
@@ -80,6 +81,17 @@ const rotateConfirmOpen = ref(false)
 const rotating = ref(false)
 const rotateError = ref<unknown>(null)
 
+const {
+  discardOpen: discardConfirmOpen,
+  reset: resetGuard,
+  attemptClose,
+  keepEditing,
+  discardAndClose,
+} = useDiscardGuard({
+  snapshot: () => ({ ...form, inviteCode: inviteCode.value }),
+  close: () => emit('update:open', false),
+})
+
 const legacyMode = computed(() => form.accessMode === 'LEGACY')
 const showAudience = computed(() => form.accessMode === 'AUDIENCE')
 const showInvite = computed(() => form.accessMode === 'INVITE')
@@ -110,6 +122,7 @@ watch(
     inviteCopied.value = false
     if (props.canManageAccessGroups) void loadAccessGroups()
     if (board && board.accessMode === 'INVITE') void loadInvite()
+    resetGuard()
   },
   { immediate: true },
 )
@@ -266,8 +279,8 @@ async function rotateInvite() {
 </script>
 
 <template>
-  <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="flex max-h-[90dvh] flex-col rounded-none border-border bg-black sm:max-w-xl">
+  <Dialog :open="open" @update:open="(value) => { if (!value) attemptClose() }">
+    <DialogContent class="flex max-h-[90dvh] flex-col rounded-none border-border bg-black max-md:h-dvh max-md:max-h-dvh max-md:max-w-none sm:max-w-xl">
       <DialogHeader>
         <DialogTitle>{{ isEdit ? 'Edit board' : 'Create board' }}</DialogTitle>
         <DialogDescription>
@@ -422,7 +435,7 @@ async function rotateInvite() {
         </div>
 
         <DialogFooter class="mt-4 border-t border-border pt-4">
-          <Button type="button" variant="ghost" :disabled="pending" @click="emit('update:open', false)">Cancel</Button>
+          <Button type="button" variant="ghost" :disabled="pending" @click="attemptClose()">Cancel</Button>
           <Button type="submit" :disabled="pending">
             {{ pending ? 'Saving…' : isEdit ? 'Save changes' : 'Create board' }}
           </Button>
@@ -431,6 +444,15 @@ async function rotateInvite() {
     </DialogContent>
   </Dialog>
 
+  <ConfirmDialog
+    :open="discardConfirmOpen"
+    title="Discard board changes?"
+    description="Your unsaved edits will be lost. This cannot be undone."
+    confirm-label="Discard changes"
+    destructive
+    @update:open="(value) => { if (!value) keepEditing() }"
+    @confirm="discardAndClose()"
+  />
   <ConfirmDialog
     :open="rotateConfirmOpen"
     title="Rotate invite code"

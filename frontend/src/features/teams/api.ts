@@ -7,6 +7,7 @@ import type {
   TeamCreateRequest,
   TeamInviteResponse,
   TeamJoinRequest,
+  TeamMember,
   TeamPatchRequest,
   TransferCaptainRequest,
 } from '@/shared/types/api'
@@ -16,6 +17,10 @@ const boardPath = (boardUuid: string) => `/boards/${boardUuid}`
 export const teamsApi = {
   getMyTeam(boardUuid: string): Promise<Team> {
     return apiRequest<Team>(`${boardPath(boardUuid)}/team`)
+  },
+
+  listMyTeamMembers(boardUuid: string): Promise<{ items: TeamMember[] }> {
+    return apiRequest<{ items: TeamMember[] }>(`${boardPath(boardUuid)}/team/members`)
   },
 
   updateMyTeam(boardUuid: string, name: string): Promise<Team> {

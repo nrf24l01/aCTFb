@@ -145,7 +145,7 @@ async function submit() {
             @select="selectUser"
           />
           <p v-if="selectedUser" class="text-xs text-muted-foreground">
-            Selected: {{ selectedUser.username }} · {{ selectedUser.email }}
+            Selected: {{ selectedUser.username }}<span v-if="selectedUser.email"> · {{ selectedUser.email }}</span>
           </p>
           <p v-if="problem" class="text-xs text-love">{{ problem }}</p>
         </div>

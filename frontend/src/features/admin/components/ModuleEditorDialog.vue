@@ -14,12 +14,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import ErrorAlert from '@/components/layout/ErrorAlert.vue'
+import ConfirmDialog from '@/components/layout/ConfirmDialog.vue'
 import FormField from '@/components/layout/FormField.vue'
 import { boardsApi } from '@/features/boards/api/boards'
 import { parseDateWindow, validateModuleName } from '@/features/admin/validation'
 import { formatDateTimeLocal } from '@/shared/lib/format'
 import { renderMarkdown } from '@/shared/lib/markdown'
 import { isApiError } from '@/shared/api/errors'
+import { useDiscardGuard } from '@/features/admin/useDiscardGuard'
 import type { AdminModule, Audience, ModuleType, TaskType } from '@/shared/types/api'
 
 const props = defineProps<{
@@ -70,6 +72,16 @@ const form = reactive({
   instanceMaxTtlHours: 4,
   instanceResetEnabled: true,
 })
+const {
+  discardOpen: discardConfirmOpen,
+  reset: resetGuard,
+  attemptClose,
+  keepEditing,
+  discardAndClose,
+} = useDiscardGuard({
+  snapshot: () => ({ ...form }),
+  close: () => emit('update:open', false),
+})
 const problems = ref<Record<string, string | undefined>>({})
 const error = ref<unknown>(null)
 const pending = ref(false)
@@ -101,6 +113,7 @@ watch(
     form.endsAt = module?.endsAt ? formatDateTimeLocal(new Date(module.endsAt)) : ''
     problems.value = {}
     error.value = null
+    resetGuard()
   },
   { immediate: true },
 )
@@ -192,8 +205,8 @@ async function submit() {
 </script>
 
 <template>
-  <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="flex max-h-[90dvh] flex-col rounded-none border-border bg-black sm:max-w-xl">
+  <Dialog :open="open" @update:open="(value) => { if (!value) attemptClose() }">
+    <DialogContent class="flex max-h-[90dvh] flex-col rounded-none border-border bg-black max-md:h-dvh max-md:max-h-dvh max-md:max-w-none sm:max-w-xl">
       <DialogHeader>
         <DialogTitle>{{ isEdit ? 'Edit module' : 'Create module' }}</DialogTitle>
         <DialogDescription>
@@ -319,10 +332,20 @@ async function submit() {
         </div>
 
         <DialogFooter class="mt-4 border-t border-border pt-4">
-          <Button type="button" variant="ghost" :disabled="pending" @click="emit('update:open', false)">Cancel</Button>
+          <Button type="button" variant="ghost" :disabled="pending" @click="attemptClose()">Cancel</Button>
           <Button type="submit" :disabled="pending">{{ pending ? 'Saving…' : isEdit ? 'Save changes' : 'Create module' }}</Button>
         </DialogFooter>
       </form>
     </DialogContent>
   </Dialog>
+
+  <ConfirmDialog
+    :open="discardConfirmOpen"
+    title="Discard module changes?"
+    description="Your unsaved edits will be lost. This cannot be undone."
+    confirm-label="Discard changes"
+    destructive
+    @update:open="(value) => { if (!value) keepEditing() }"
+    @confirm="discardAndClose()"
+  />
 </template>

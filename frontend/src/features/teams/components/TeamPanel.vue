@@ -7,35 +7,42 @@ import FormField from '@/components/layout/FormField.vue'
 import LoadingState from '@/components/layout/LoadingState.vue'
 import ConfirmDialog from '@/components/layout/ConfirmDialog.vue'
 import StatusBadge from '@/components/layout/StatusBadge.vue'
+import SearchPicker, { type SearchPickerOption } from '@/features/access/components/SearchPicker.vue'
+import { accessApi } from '@/features/access/api'
 import { teamsApi } from '@/features/teams/api'
 import { isTeamCaptain } from '@/features/teams/permissions'
 import { useSession } from '@/features/auth/session'
 import { isApiError } from '@/shared/api/errors'
 import { formatDateTime } from '@/shared/lib/format'
-import { isUuid } from '@/shared/lib/validate'
-import type { Team } from '@/shared/types/api'
+import type { CaptainRosterEntry, Team, TeamMember } from '@/shared/types/api'
 
 const props = defineProps<{ boardUuid: string }>()
 const { state } = useSession()
 
 const team = ref<Team | null>(null)
+const members = ref<TeamMember[]>([])
 const loading = ref(true)
 const error = ref<unknown>(null)
 const busy = ref(false)
 
 const teamName = ref('')
 const inviteInput = ref('')
-const memberUuid = ref('')
 const formProblem = ref<string | undefined>()
+const rosterError = ref<unknown>(null)
+const selectedMember = ref<TeamMember | null>(null)
 
 const invite = ref<{ inviteKey: string; expiresAt?: string | null } | null>(null)
 const inviteError = ref<unknown>(null)
+const inviteCopied = ref(false)
 const rotateOpen = ref(false)
 const leaveOpen = ref(false)
 const removeOpen = ref(false)
+const transferOpen = ref(false)
 
 const myUuid = computed(() => state.user?.uuid ?? '')
 const isCaptain = computed(() => isTeamCaptain(team.value, myUuid.value))
+const otherMembers = computed(() => members.value.filter((member) => member.userUuid !== myUuid.value))
+const memberIds = computed(() => members.value.map((member) => member.userUuid))
 
 async function load() {
   loading.value = true
@@ -43,9 +50,11 @@ async function load() {
   try {
     team.value = await teamsApi.getMyTeam(props.boardUuid)
     teamName.value = team.value.name
+    members.value = (await teamsApi.listMyTeamMembers(props.boardUuid)).items
   } catch (caught) {
     if (isApiError(caught) && (caught.code === 'TEAM_NOT_FOUND' || caught.status === 404)) {
       team.value = null
+      members.value = []
     } else {
       error.value = caught
     }
@@ -65,6 +74,7 @@ async function createTeam() {
   try {
     team.value = await teamsApi.createTeam(props.boardUuid, teamName.value.trim())
     teamName.value = team.value.name
+    members.value = (await teamsApi.listMyTeamMembers(props.boardUuid)).items
   } catch (caught) {
     error.value = caught
   } finally {
@@ -84,6 +94,7 @@ async function joinTeam() {
     team.value = await teamsApi.joinTeam(props.boardUuid, inviteInput.value.trim())
     inviteInput.value = ''
     teamName.value = team.value.name
+    members.value = (await teamsApi.listMyTeamMembers(props.boardUuid)).items
   } catch (caught) {
     error.value = caught
   } finally {
@@ -106,6 +117,7 @@ async function renameTeam() {
 
 async function revealInvite() {
   inviteError.value = null
+  inviteCopied.value = false
   try {
     invite.value = await teamsApi.getInviteKey(props.boardUuid)
   } catch (caught) {
@@ -113,27 +125,51 @@ async function revealInvite() {
   }
 }
 
+async function copyInvite() {
+  if (!invite.value) return
+  try {
+    await navigator.clipboard.writeText(invite.value.inviteKey)
+    inviteCopied.value = true
+  } catch {
+    inviteCopied.value = false
+  }
+}
+
 async function rotateInvite() {
   inviteError.value = null
   try {
     invite.value = await teamsApi.rotateInviteKey(props.boardUuid)
+    inviteCopied.value = false
     rotateOpen.value = false
   } catch (caught) {
     inviteError.value = caught
   }
 }
 
-async function removeMember() {
-  formProblem.value = undefined
-  if (!isUuid(memberUuid.value)) {
-    formProblem.value = 'Enter the member user UUID.'
-    return
+/** Captain-only: find an eligible board participant to send the invite key to. */
+async function searchRoster(query: string, signal: AbortSignal): Promise<SearchPickerOption[]> {
+  rosterError.value = null
+  try {
+    if (signal.aborted) return []
+    const page = await accessApi.searchCaptainRoster(props.boardUuid, query, 20, 0)
+    return (page.items as CaptainRosterEntry[]).map((entry) => ({
+      uuid: entry.uuid,
+      primary: entry.username,
+      hint: entry.uuid.slice(0, 8),
+    }))
+  } catch (caught) {
+    rosterError.value = caught
+    return []
   }
+}
+
+async function removeMember() {
+  if (!selectedMember.value) return
   busy.value = true
   error.value = null
   try {
-    await teamsApi.removeMember(props.boardUuid, memberUuid.value.trim())
-    memberUuid.value = ''
+    await teamsApi.removeMember(props.boardUuid, selectedMember.value.userUuid)
+    selectedMember.value = null
     removeOpen.value = false
     await load()
   } catch (caught) {
@@ -144,16 +180,14 @@ async function removeMember() {
 }
 
 async function transferCaptain() {
-  formProblem.value = undefined
-  if (!isUuid(memberUuid.value)) {
-    formProblem.value = 'Enter the new captain user UUID.'
-    return
-  }
+  if (!selectedMember.value) return
   busy.value = true
   error.value = null
   try {
-    team.value = await teamsApi.transferCaptain(props.boardUuid, memberUuid.value.trim())
-    memberUuid.value = ''
+    team.value = await teamsApi.transferCaptain(props.boardUuid, selectedMember.value.userUuid)
+    selectedMember.value = null
+    transferOpen.value = false
+    await load()
   } catch (caught) {
     error.value = caught
   } finally {
@@ -178,6 +212,7 @@ async function leaveTeam() {
 
 function hideInvite() {
   invite.value = null
+  inviteCopied.value = false
 }
 
 onUnmounted(hideInvite)
@@ -190,7 +225,7 @@ void load()
     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
       <div>
         <h2 id="team-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Team</h2>
-        <p class="mt-1 text-xs text-muted-foreground">TEAM participation: invites, captain transfer and membership are backend-authoritative.</p>
+        <p class="mt-1 text-xs text-muted-foreground">Create or join a team. The captain manages the roster.</p>
       </div>
       <Button variant="outline" size="sm" :disabled="loading" @click="load">Refresh</Button>
     </div>
@@ -223,7 +258,28 @@ void load()
             <span class="text-xs text-muted-foreground">{{ team.membersCount }}/{{ team.maxMembers }} members</span>
             <span v-if="isCaptain" class="text-xs text-pine">You are captain</span>
           </div>
-          <p class="break-all text-xs text-muted-foreground">Captain UUID: {{ team.captainUuid }}</p>
+
+          <div class="space-y-1">
+            <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Members</p>
+            <ul class="divide-y divide-border border border-border">
+              <li v-for="member in members" :key="member.userUuid" class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
+                <span>
+                  <span class="font-medium">{{ member.username }}</span>
+                  <span v-if="member.userUuid === team.captainUuid" class="ml-2 text-xs text-pine">Captain</span>
+                </span>
+                <Button
+                  v-if="isCaptain && member.userUuid !== myUuid"
+                  variant="destructive"
+                  size="sm"
+                  :disabled="busy"
+                  @click="selectedMember = member; removeOpen = true; error = null"
+                >
+                  Remove
+                </Button>
+              </li>
+            </ul>
+            <p v-if="members.length === 0" class="text-xs text-muted-foreground">Member names appear after the roster loads.</p>
+          </div>
 
           <div v-if="isCaptain" class="space-y-3 border border-border p-3">
             <FormField label="Rename team" for-id="team-rename">
@@ -235,13 +291,14 @@ void load()
           <div v-if="isCaptain" class="space-y-3 border border-border p-3">
             <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Invite key</p>
             <p class="text-xs text-muted-foreground">
-              The key is held only in this component while revealed and is cleared on hide/unmount.
+              Share the key with a board participant so they can join this team. It is held only while revealed.
             </p>
             <ErrorAlert v-if="inviteError" :error="inviteError" title="Could not read invite key" />
             <template v-if="invite">
               <Input :model-value="invite.inviteKey" readonly class="font-mono" aria-label="Team invite key" />
               <p class="text-xs text-muted-foreground">Expires: {{ formatDateTime(invite.expiresAt) }}</p>
               <div class="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" @click="copyInvite">{{ inviteCopied ? 'Copied' : 'Copy key' }}</Button>
                 <Button variant="outline" size="sm" @click="hideInvite">Hide</Button>
                 <Button variant="destructive" size="sm" @click="rotateOpen = true; inviteError = null">Rotate key</Button>
               </div>
@@ -250,17 +307,40 @@ void load()
           </div>
 
           <div v-if="isCaptain" class="space-y-3 border border-border p-3">
-            <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Member actions</p>
+            <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Find a participant</p>
             <p class="text-xs text-muted-foreground">
-              The API does not expose a participant team-member directory. Enter the member UUID from the organizer.
+              Search this board's participants who are not yet on a team. Send them the invite key to join.
             </p>
-            <FormField label="Member user UUID" for-id="team-member-uuid" :error="formProblem">
-              <Input id="team-member-uuid" v-model="memberUuid" autocomplete="off" spellcheck="false" />
-            </FormField>
-            <div class="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" :disabled="busy" @click="transferCaptain">Transfer captain</Button>
-              <Button variant="destructive" size="sm" :disabled="busy" @click="removeOpen = true; error = null">Remove member</Button>
-            </div>
+            <ErrorAlert v-if="rosterError" :error="rosterError" title="Could not search participants" />
+            <SearchPicker
+              label="Eligible participant"
+              :search="searchRoster"
+              :exclude="memberIds"
+              placeholder="Search by username, email or UUID"
+            />
+            <p class="text-xs text-muted-foreground">Only participant names are shown here; email addresses are never disclosed.</p>
+          </div>
+
+          <div v-if="isCaptain && otherMembers.length > 0" class="space-y-3 border border-border p-3">
+            <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Transfer captaincy</p>
+            <label class="block text-sm font-medium" for="team-transfer-member">New captain</label>
+            <select
+              id="team-transfer-member"
+              :value="selectedMember?.userUuid ?? ''"
+              class="h-9 w-full border border-border bg-black px-2 text-sm"
+              @change="selectedMember = otherMembers.find((member) => member.userUuid === ($event.target as HTMLSelectElement).value) ?? null"
+            >
+              <option value="">Choose a current member</option>
+              <option v-for="member in otherMembers" :key="member.userUuid" :value="member.userUuid">{{ member.username }}</option>
+            </select>
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="busy || !selectedMember"
+              @click="transferOpen = true; error = null"
+            >
+              Transfer captain
+            </Button>
           </div>
 
           <div class="flex flex-wrap gap-2 border-t border-border pt-4">
@@ -282,11 +362,20 @@ void load()
     <ConfirmDialog
       v-model:open="removeOpen"
       title="Remove team member"
-      description="The selected user leaves the team. The backend refuses captain removal without a transfer."
+      :description="`Remove ${selectedMember?.username ?? 'this member'} from the team?`"
       confirm-label="Remove member"
       destructive
       :pending="busy"
       @confirm="removeMember"
+    />
+    <ConfirmDialog
+      v-model:open="transferOpen"
+      title="Transfer captaincy"
+      :description="`Make ${selectedMember?.username ?? 'this member'} the captain? You stop being captain immediately.`"
+      confirm-label="Transfer captain"
+      destructive
+      :pending="busy"
+      @confirm="transferCaptain"
     />
     <ConfirmDialog
       v-model:open="leaveOpen"

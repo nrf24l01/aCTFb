@@ -1234,7 +1234,38 @@ export interface AdminSitePatchRequest {
 export interface UserDirectoryEntry {
   uuid: string
   username: string
-  email: string
+  /** Present only when the caller's server-side permission allows disclosure. */
+  email?: string
+}
+
+export interface TeamDirectoryEntry {
+  uuid: string
+  name: string
+}
+
+export interface TeamDirectoryResponse {
+  items: TeamDirectoryEntry[]
+  limit: number
+  offset: number
+  total: number
+}
+
+export interface CaptainRosterEntry {
+  uuid: string
+  username: string
+}
+
+export interface CaptainRosterResponse {
+  items: CaptainRosterEntry[]
+  limit: number
+  offset: number
+  total: number
+}
+
+export interface TeamMember {
+  userUuid: string
+  username: string
+  joinedAt: string
 }
 
 export interface UserDirectoryResponse {

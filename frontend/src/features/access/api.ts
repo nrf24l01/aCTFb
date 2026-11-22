@@ -9,6 +9,8 @@ import type {
   AdminUserCreateRequest,
   AdminUserPatchRequest,
   AdminUsersResponse,
+  CaptainRosterResponse,
+  TeamDirectoryResponse,
   UserDirectoryResponse,
 } from '@/shared/types/api'
 
@@ -60,6 +62,18 @@ export const accessApi = {
   searchBoardUsers(boardUuid: string, query: string, limit = 20, offset = 0): Promise<UserDirectoryResponse> {
     return apiRequest<UserDirectoryResponse>(
       withQuery(`/admin/boards/${boardUuid}/user-search`, pageQuery(limit, offset, query)),
+    )
+  },
+
+  searchBoardTeams(boardUuid: string, query: string, limit = 20, offset = 0): Promise<TeamDirectoryResponse> {
+    return apiRequest<TeamDirectoryResponse>(
+      withQuery(`/admin/boards/${boardUuid}/team-search`, pageQuery(limit, offset, query)),
+    )
+  },
+
+  searchCaptainRoster(boardUuid: string, query: string, limit = 20, offset = 0): Promise<CaptainRosterResponse> {
+    return apiRequest<CaptainRosterResponse>(
+      withQuery(`/boards/${boardUuid}/team/roster-search`, pageQuery(limit, offset, query)),
     )
   },
 
