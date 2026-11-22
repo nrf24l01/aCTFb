@@ -89,16 +89,57 @@ func (s *AccessService) SearchUsers(ctx context.Context, principal authorization
 	return s.searchUsers(ctx, s.db.Pool, q)
 }
 
-// authorizeBoardRoster requires one live board-scoped permission that justifies
-// reading a board's identity roster. It never grants a global directory.
-func (s *AccessService) authorizeBoardRoster(ctx context.Context, principal authorization.Principal, boardID uuid.UUID) error {
-	if s.auth == nil {
-		return ErrNoAuthorizer
+// Board user search scopes. PARTICIPANTS is the default and the safest: it only
+// ever returns users who already belong to the board, which is what audience
+// membership and team membership can actually accept.
+const (
+	UserSearchScopeParticipants = "PARTICIPANTS"
+	UserSearchScopeDirectory    = "DIRECTORY"
+)
+
+// NormalizeUserSearchScope validates the requested scope. An empty value means
+// PARTICIPANTS so a caller that omits the parameter can never enumerate the
+// global user table by accident.
+func NormalizeUserSearchScope(raw string) (string, bool) {
+	switch strings.ToUpper(strings.TrimSpace(raw)) {
+	case "", UserSearchScopeParticipants:
+		return UserSearchScopeParticipants, true
+	case UserSearchScopeDirectory:
+		return UserSearchScopeDirectory, true
+	default:
+		return "", false
 	}
-	permissions := []authorization.Permission{
+}
+
+// authorizeBoardRoster requires one live board-scoped permission that justifies
+// reading a board's participant roster. It never grants a global directory.
+func (s *AccessService) authorizeBoardRoster(ctx context.Context, principal authorization.Principal, boardID uuid.UUID) error {
+	return s.authorizeAnyBoardPermission(ctx, principal, boardID,
 		authorization.PermissionBoardParticipantsManage,
 		authorization.PermissionBoardStaffManage,
 		authorization.PermissionBoardAudiencesManage,
+	)
+}
+
+// authorizeDirectorySearch requires the permission that actually covers adding
+// a participant or staff member. An audience-only manager is deliberately
+// excluded, so the broader directory scope cannot be used to enumerate people
+// outside the board.
+func (s *AccessService) authorizeDirectorySearch(ctx context.Context, principal authorization.Principal, boardID uuid.UUID) error {
+	return s.authorizeAnyBoardPermission(ctx, principal, boardID,
+		authorization.PermissionBoardParticipantsManage,
+		authorization.PermissionBoardStaffManage,
+	)
+}
+
+func (s *AccessService) authorizeAnyBoardPermission(
+	ctx context.Context,
+	principal authorization.Principal,
+	boardID uuid.UUID,
+	permissions ...authorization.Permission,
+) error {
+	if s.auth == nil {
+		return ErrNoAuthorizer
 	}
 	for _, permission := range permissions {
 		decision, err := s.auth.Authorize(ctx, principal, permission, authorization.Scope{BoardID: boardID})
@@ -112,29 +153,106 @@ func (s *AccessService) authorizeBoardRoster(ctx context.Context, principal auth
 	return ErrForbidden
 }
 
-// SearchBoardUsers is the board-scoped picker. It requires a live board roster
-// permission on the exact board and returns only minimal identity fields. It is
-// paginated, requires a non-empty term and is never an anonymous directory.
-func (s *AccessService) SearchBoardUsers(ctx context.Context, principal authorization.Principal, boardID uuid.UUID, q ListQuery) (UserDirectoryPage, error) {
+// SearchBoardUsers is the board-scoped picker. scope=PARTICIPANTS (the default)
+// returns only current board participants; scope=DIRECTORY returns the global
+// directory and therefore requires the participant/staff management permission
+// that covers adding one. Both are paginated, require a non-empty term and are
+// audited; neither is ever an anonymous directory.
+func (s *AccessService) SearchBoardUsers(
+	ctx context.Context,
+	principal authorization.Principal,
+	boardID uuid.UUID,
+	scope string,
+	q ListQuery,
+) (UserDirectoryPage, error) {
 	if err := s.ready(); err != nil {
 		return UserDirectoryPage{}, err
 	}
 	if boardID == uuid.Nil {
 		return UserDirectoryPage{}, ErrBoardNotFound
 	}
+	normalized, ok := NormalizeUserSearchScope(scope)
+	if !ok {
+		return UserDirectoryPage{}, ErrInvalidInput
+	}
+	if strings.TrimSpace(q.Query) == "" {
+		// Never allow an empty board-scoped query to dump the directory.
+		return UserDirectoryPage{Items: []UserDirectoryEntry{}}, nil
+	}
+	if normalized == UserSearchScopeDirectory {
+		if err := s.authorizeDirectorySearch(ctx, principal, boardID); err != nil {
+			return UserDirectoryPage{}, err
+		}
+		page, err := s.searchUsers(ctx, s.db.Pool, q)
+		if err != nil {
+			return UserDirectoryPage{}, err
+		}
+		if err := s.auditBoardSearch(ctx, principal.UserID, boardID, "user_search.board_directory"); err != nil {
+			return UserDirectoryPage{}, err
+		}
+		return page, nil
+	}
+
 	if err := s.authorizeBoardRoster(ctx, principal, boardID); err != nil {
 		return UserDirectoryPage{}, err
 	}
-	if strings.TrimSpace(q.Query) == "" {
-		// Never allow an empty board-scoped query to dump the global directory.
-		return UserDirectoryPage{Items: []UserDirectoryEntry{}}, nil
-	}
-	page, err := s.searchUsers(ctx, s.db.Pool, q)
+	page, err := s.searchBoardParticipants(ctx, boardID, q)
 	if err != nil {
 		return UserDirectoryPage{}, err
 	}
 	if err := s.auditBoardSearch(ctx, principal.UserID, boardID, "user_search.board"); err != nil {
 		return UserDirectoryPage{}, err
+	}
+	return page, nil
+}
+
+// searchBoardParticipants matches only users who are already board
+// participants, so every returned row is an eligible audience/team subject.
+func (s *AccessService) searchBoardParticipants(ctx context.Context, boardID uuid.UUID, in ListQuery) (UserDirectoryPage, error) {
+	limit, offset := clampPage(in.Limit, in.Offset)
+	query := strings.TrimSpace(in.Query)
+	escaped := escapeLike(query)
+	var exact uuid.UUID
+	if parsed, err := uuid.Parse(query); err == nil {
+		exact = parsed
+	}
+	prefix, _ := uuidPrefix(query)
+
+	predicate := `
+		WHERE bp.board_id = $1 AND (
+			u.id = $2
+			OR ($3 <> '' AND replace(u.id::text, '-', '') LIKE $3 || '%')
+			OR u.username ILIKE '%' || $4 || '%' ESCAPE '\'
+			OR u.email ILIKE '%' || $4 || '%' ESCAPE '\'
+		)
+	`
+	rows, err := s.db.Pool.Query(ctx, `
+		SELECT u.id, u.username, u.email
+		FROM board_participants bp JOIN users u ON u.id = bp.user_id
+	`+predicate+`
+		ORDER BY (u.id = $2) DESC, u.username, u.id
+		LIMIT $5 OFFSET $6
+	`, boardID, exact, prefix, escaped, limit, offset)
+	if err != nil {
+		return UserDirectoryPage{}, fmt.Errorf("access: search board participants: %w", err)
+	}
+	defer rows.Close()
+	page := UserDirectoryPage{Items: make([]UserDirectoryEntry, 0)}
+	for rows.Next() {
+		var entry UserDirectoryEntry
+		if err := rows.Scan(&entry.UserID, &entry.Username, &entry.Email); err != nil {
+			return UserDirectoryPage{}, fmt.Errorf("access: scan board participant: %w", err)
+		}
+		page.Items = append(page.Items, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return UserDirectoryPage{}, fmt.Errorf("access: iterate board participants: %w", err)
+	}
+	if err := s.db.Pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM board_participants bp JOIN users u ON u.id = bp.user_id
+	`+predicate, boardID, exact, prefix, escaped).Scan(&page.Total); err != nil {
+		return UserDirectoryPage{}, fmt.Errorf("access: count board participants: %w", err)
 	}
 	return page, nil
 }
@@ -163,12 +281,15 @@ func (s *AccessService) SearchBoardTeams(ctx context.Context, principal authoriz
 	}
 	prefix, _ := uuidPrefix(query)
 
+	// Only teams that already have at least one member are eligible audience
+	// subjects; an empty team would be rejected on add.
 	predicate := `
 		WHERE t.board_id = $1 AND (
 			t.id = $2
 			OR ($3 <> '' AND replace(t.id::text, '-', '') LIKE $3 || '%')
 			OR t.name ILIKE '%' || $4 || '%' ESCAPE '\'
 		)
+		  AND EXISTS (SELECT 1 FROM team_members tm WHERE tm.board_id = t.board_id AND tm.team_id = t.id)
 	`
 	rows, err := s.db.Pool.Query(ctx, `
 		SELECT t.id, t.name FROM teams t

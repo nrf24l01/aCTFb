@@ -71,3 +71,34 @@ describe('TeamPicker', () => {
     expect(wrapper.emitted('select')?.[0]?.[0]).toEqual(teams[0])
   })
 })
+
+describe('SearchPicker context switching', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  it('clears old results and query when the search context changes', async () => {
+    const first = vi.fn().mockResolvedValue(options)
+    const second = vi.fn().mockResolvedValue([
+      { uuid: '99999999-9999-4999-8999-999999999999', primary: 'other-context' },
+    ])
+    const wrapper = mount(SearchPicker, { props: { search: first } })
+    await wrapper.get('input').setValue('alpha')
+    await vi.advanceTimersByTimeAsync(250)
+    await flushPromises()
+    expect(wrapper.text()).toContain('alpha')
+
+    // The parent switches board/context: the previous results must not linger.
+    await wrapper.setProps({ search: second })
+    await flushPromises()
+    expect((wrapper.get('input').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.text()).not.toContain('alpha')
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(false)
+
+    // The new context works normally.
+    await wrapper.get('input').setValue('other')
+    await vi.advanceTimersByTimeAsync(250)
+    await flushPromises()
+    expect(wrapper.text()).toContain('other-context')
+    expect(second).toHaveBeenCalled()
+  })
+})

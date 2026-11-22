@@ -298,7 +298,11 @@ func (h *Handler) SearchBoardUsers(c *echo.Context) error {
 	if problem != nil {
 		return problem.write(c)
 	}
-	page, err := h.service.SearchBoardUsers(c.Request().Context(), principal, boardID, access.ListQuery{
+	scope := c.QueryParam("scope")
+	if _, ok := access.NormalizeUserSearchScope(scope); !ok {
+		return validationProblem("scope", "must be PARTICIPANTS or DIRECTORY", "INVALID_VALUE").write(c)
+	}
+	page, err := h.service.SearchBoardUsers(c.Request().Context(), principal, boardID, scope, access.ListQuery{
 		Limit: limit, Offset: offset, Query: c.QueryParam("query"),
 	})
 	if err != nil {

@@ -101,7 +101,7 @@ func TestBoardUserSearchRequiresLiveParticipantsManage(t *testing.T) {
 
 	// user-one is a board_owner on BoardPrivate, so the scoped permission is live.
 	owner := authorization.Principal{UserID: f.User1}
-	page, err := svc.SearchBoardUsers(ctx, owner, f.BoardPrivate, ListQuery{Query: "user-three"})
+	page, err := svc.SearchBoardUsers(ctx, owner, f.BoardPrivate, "PARTICIPANTS", ListQuery{Query: "user-three"})
 	if err != nil {
 		t.Fatalf("board search as owner: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestBoardUserSearchRequiresLiveParticipantsManage(t *testing.T) {
 	}
 
 	// An empty board-scoped query must not dump the directory.
-	empty, err := svc.SearchBoardUsers(ctx, owner, f.BoardPrivate, ListQuery{})
+	empty, err := svc.SearchBoardUsers(ctx, owner, f.BoardPrivate, "PARTICIPANTS", ListQuery{})
 	if err != nil {
 		t.Fatalf("empty board search: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestBoardUserSearchRequiresLiveParticipantsManage(t *testing.T) {
 	}
 
 	// An outsider participant cannot enumerate users.
-	if _, err := svc.SearchBoardUsers(ctx, authorization.Principal{UserID: f.User3}, f.BoardPrivate, ListQuery{Query: "user"}); !errors.Is(err, ErrForbidden) {
+	if _, err := svc.SearchBoardUsers(ctx, authorization.Principal{UserID: f.User3}, f.BoardPrivate, "PARTICIPANTS", ListQuery{Query: "user"}); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("outsider board search err = %v, want forbidden", err)
 	}
 }

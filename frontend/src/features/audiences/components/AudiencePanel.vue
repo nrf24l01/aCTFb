@@ -140,7 +140,8 @@ async function removeAudience() {
 
 async function searchUsers(query: string, signal: AbortSignal): Promise<UserDirectoryEntry[]> {
   if (signal.aborted) return []
-  return (await accessApi.searchBoardUsers(props.boardUuid, query, 20, 0)).items
+  // Audience membership can only accept current board participants.
+  return (await accessApi.searchBoardUsers(props.boardUuid, query, 'PARTICIPANTS', 20, 0)).items
 }
 
 async function searchTeams(query: string, signal: AbortSignal): Promise<TeamDirectoryEntry[]> {

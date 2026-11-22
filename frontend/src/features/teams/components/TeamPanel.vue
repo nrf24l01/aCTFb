@@ -29,6 +29,10 @@ const teamName = ref('')
 const inviteInput = ref('')
 const formProblem = ref<string | undefined>()
 const rosterError = ref<unknown>(null)
+// A captain cannot add a member directly: the product only exposes invite-key
+// self-join. Selecting an eligible participant therefore reveals the invite key
+// and names who to send it to, which is the single clear next action.
+const inviteTargetName = ref('')
 const selectedMember = ref<TeamMember | null>(null)
 
 const invite = ref<{ inviteKey: string; expiresAt?: string | null } | null>(null)
@@ -146,6 +150,11 @@ async function rotateInvite() {
   }
 }
 
+function onRosterSelect(option: SearchPickerOption) {
+  inviteTargetName.value = option.primary
+  void revealInvite()
+}
+
 /** Captain-only: find an eligible board participant to send the invite key to. */
 async function searchRoster(query: string, signal: AbortSignal): Promise<SearchPickerOption[]> {
   rosterError.value = null
@@ -213,6 +222,7 @@ async function leaveTeam() {
 function hideInvite() {
   invite.value = null
   inviteCopied.value = false
+  inviteTargetName.value = ''
 }
 
 onUnmounted(hideInvite)
@@ -317,7 +327,12 @@ void load()
               :search="searchRoster"
               :exclude="memberIds"
               placeholder="Search by username, email or UUID"
+              @select="onRosterSelect"
             />
+            <p v-if="inviteTargetName" class="text-xs text-pine">
+              Invite key ready. Send it to <strong>{{ inviteTargetName }}</strong> so they can join with
+              “Join team”.
+            </p>
             <p class="text-xs text-muted-foreground">Only participant names are shown here; email addresses are never disclosed.</p>
           </div>
 

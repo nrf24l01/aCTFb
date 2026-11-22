@@ -26,6 +26,7 @@ const query = ref('')
 const loading = ref(false)
 const error = ref<unknown>(null)
 const groups = ref<AccessGroup[]>([])
+const groupQuery = ref('')
 
 const dialogOpen = ref(false)
 const editTarget = ref<AdminUser | null>(null)
@@ -59,7 +60,7 @@ async function load() {
 
 async function loadGroups() {
   try {
-    groups.value = (await accessApi.listGroups(100, 0)).items
+    groups.value = (await accessApi.listGroups(100, 0, groupQuery.value.trim())).items
   } catch {
     groups.value = []
   }
@@ -240,6 +241,12 @@ void loadGroups()
           </label>
           <div class="space-y-2 border border-border p-3">
             <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Access groups</p>
+            <Input
+              v-model="groupQuery"
+              placeholder="Search groups"
+              aria-label="Search access groups"
+              @update:model-value="loadGroups"
+            />
             <label v-for="group in groups" :key="group.uuid" class="flex min-h-10 items-center gap-2 text-sm">
               <Checkbox
                 :model-value="form.accessGroupUuids.includes(group.uuid)"

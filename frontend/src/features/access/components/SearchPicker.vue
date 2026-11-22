@@ -92,6 +92,23 @@ watch(query, (value) => {
   }, 250)
 })
 
+// If the parent swaps the search context (for example the organizer switches
+// board while a request is in flight), the previous context's results and query
+// must not linger. Clearing here means a stale row can never be selected and
+// mistaken for an entry in the new context.
+watch(
+  () => props.search,
+  () => {
+    cancelPending()
+    query.value = ''
+    results.value = []
+    open.value = false
+    loading.value = false
+    error.value = null
+    activeIndex.value = -1
+  },
+)
+
 function onFocus() {
   if (hasQuery.value) open.value = true
 }

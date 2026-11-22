@@ -246,7 +246,9 @@ func (s *Service) TransferCaptain(ctx context.Context, principal authorization.P
 }
 
 // MyTeamMembers lists the caller's own team roster. It never exposes another
-// team and never includes email addresses.
+// team and never includes email addresses. It also re-checks the live board
+// access policy, so a participant whose access-group membership was revoked
+// stops seeing the roster immediately.
 func (s *Service) MyTeamMembers(ctx context.Context, principal authorization.Principal, boardID uuid.UUID) ([]TeamMember, error) {
 	ctx, cancel := s.operationContext(ctx)
 	defer cancel()
@@ -255,6 +257,15 @@ func (s *Service) MyTeamMembers(ctx context.Context, principal authorization.Pri
 	}
 	if err := s.requireTeamParticipant(ctx, principal, boardID); err != nil {
 		return nil, err
+	}
+	if s.accessPolicy != nil {
+		allowed, err := s.accessPolicy.CanReadBoard(ctx, principal, boardID)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			return nil, ErrBoardAccessDenied
+		}
 	}
 	team, err := s.store.GetTeamByMember(ctx, boardID, principal.UserID)
 	if err != nil {

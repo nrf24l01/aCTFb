@@ -54,7 +54,9 @@ const pending = ref(false)
 const roles = computed(() => grantableRoles(props.permissions, props.globalAdmin))
 
 async function searchUsers(query: string): Promise<UserDirectoryEntry[]> {
-  return (await accessApi.searchBoardUsers(props.boardUuid, query, 20, 0)).items
+  // Granting a scoped role needs the directory, which the server only allows
+  // with board.participants.manage or board.staff.manage.
+  return (await accessApi.searchBoardUsers(props.boardUuid, query, 'DIRECTORY', 20, 0)).items
 }
 
 function selectUser(user: UserDirectoryEntry) {

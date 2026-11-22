@@ -38,7 +38,9 @@ async function load() {
 }
 
 async function searchUsers(query: string): Promise<UserDirectoryEntry[]> {
-  const response = await accessApi.searchBoardUsers(props.boardUuid, query, 20, 0)
+  // Adding a participant needs the broader directory, which the server only
+  // allows with board.participants.manage.
+  const response = await accessApi.searchBoardUsers(props.boardUuid, query, 'DIRECTORY', 20, 0)
   return response.items
 }
 

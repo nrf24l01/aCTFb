@@ -59,9 +59,23 @@ export const accessApi = {
     return apiRequest<UserDirectoryResponse>(withQuery('/admin/user-search', pageQuery(limit, offset, query)))
   },
 
-  searchBoardUsers(boardUuid: string, query: string, limit = 20, offset = 0): Promise<UserDirectoryResponse> {
+  /**
+   * Board user search. `scope` is explicit so a caller cannot accidentally
+   * enumerate the global directory: PARTICIPANTS (default) returns only current
+   * board participants, DIRECTORY requires participant/staff management.
+   */
+  searchBoardUsers(
+    boardUuid: string,
+    query: string,
+    scope: 'PARTICIPANTS' | 'DIRECTORY' = 'PARTICIPANTS',
+    limit = 20,
+    offset = 0,
+  ): Promise<UserDirectoryResponse> {
     return apiRequest<UserDirectoryResponse>(
-      withQuery(`/admin/boards/${boardUuid}/user-search`, pageQuery(limit, offset, query)),
+      withQuery(`/admin/boards/${boardUuid}/user-search`, {
+        ...pageQuery(limit, offset, query),
+        scope,
+      }),
     )
   },
 

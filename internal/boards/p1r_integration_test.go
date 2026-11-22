@@ -514,3 +514,64 @@ func (f fakeExternalSubmissionSource) ReviewSubmission(_ context.Context, _ auth
 	}
 	return &value, nil
 }
+
+// TestMyTeamMembersRevokedGroupAccessStopsRoster is the privacy guard: a
+// participant whose live access-group membership is revoked can no longer read
+// the team roster, even though the participant row still exists.
+func TestMyTeamMembersRevokedGroupAccessStopsRoster(t *testing.T) {
+	dsn := testDSN()
+	if dsn == "" {
+		t.Skip("set ACTFB_TEST_POSTGRES_DSN to run the team roster revocation test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	db, cleanup := openIsolatedBoardDB(t, ctx, dsn)
+	defer cleanup()
+	authz := authorization.NewAuthorizer(db)
+	accessSvc := access.NewService(db, authz)
+	service := NewService(NewPostgresStore(db), authz, SystemClock{}, ratelimit.NewMemoryLimiter(64),
+		WithAccessPolicy(accessSvc), WithAccessService(accessSvc))
+
+	adminID := createBoardUser(t, ctx, db, "roster_admin", []string{"admin"})
+	playerID := createBoardUser(t, ctx, db, "roster_player", []string{"user"})
+	admin := authorization.Principal{UserID: adminID, GlobalRoles: []string{"admin"}}
+	player := authorization.Principal{UserID: playerID, GlobalRoles: []string{"user"}}
+
+	group, err := accessSvc.CreateAccessGroup(ctx, admin, "roster-gate")
+	if err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO access_group_members (group_id, user_id) VALUES ($1,$2)`, group.ID, playerID); err != nil {
+		t.Fatalf("add group member: %v", err)
+	}
+	board, err := service.AdminCreateBoard(ctx, admin, CreateBoardInput{
+		Slug: "roster-team", Name: "Roster Team", ParticipationMode: ParticipationTeam,
+		RegistrationMode: RegistrationOpen, Visibility: VisibilityPrivate, AccessMode: AccessModeAudience,
+		AccessGroupUUIDs: []uuid.UUID{group.ID}, RatingVisibility: RatingPublic,
+		TeamSettings: &TeamSettings{MinMembers: 1, MaxMembers: 4, AllowSelfCreate: true, AllowLeaveAfterStart: true},
+	})
+	if err != nil {
+		t.Fatalf("create board: %v", err)
+	}
+	if _, err := service.store.UpdateBoardStatus(ctx, board.ID, BoardStatusActive,
+		AuditEventParams{ActorUserID: adminID, Action: "test.activate", ResourceType: "board"}); err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+	if _, err := service.JoinBoard(ctx, player, board.ID); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	if _, err := service.CreateTeam(ctx, player, board.ID, "Roster Team One"); err != nil {
+		t.Fatalf("create team: %v", err)
+	}
+	if _, err := service.MyTeamMembers(ctx, player, board.ID); err != nil {
+		t.Fatalf("roster before revocation: %v", err)
+	}
+
+	// Revoke the live gate: the roster must stop being readable.
+	if _, err := db.Pool.Exec(ctx, `DELETE FROM access_group_members WHERE group_id=$1 AND user_id=$2`, group.ID, playerID); err != nil {
+		t.Fatalf("revoke membership: %v", err)
+	}
+	if _, err := service.MyTeamMembers(ctx, player, board.ID); !errors.Is(err, ErrBoardAccessDenied) {
+		t.Fatalf("roster after revocation err = %v, want board access denied", err)
+	}
+}

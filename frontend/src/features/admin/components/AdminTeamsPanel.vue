@@ -32,7 +32,8 @@ const memberProblem = ref<string | undefined>()
 const memberPending = ref(false)
 
 async function searchUsers(query: string): Promise<UserDirectoryEntry[]> {
-  return (await accessApi.searchBoardUsers(props.boardUuid, query, 20, 0)).items
+  // A team member must already be a board participant.
+  return (await accessApi.searchBoardUsers(props.boardUuid, query, 'PARTICIPANTS', 20, 0)).items
 }
 
 function selectMember(user: UserDirectoryEntry) {
