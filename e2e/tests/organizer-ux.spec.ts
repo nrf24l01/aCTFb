@@ -466,6 +466,62 @@ test.describe('organizer UX acceptance', () => {
     await expect(participantsSection.getByRole('cell', { name: new RegExp(outsider) })).toBeVisible({ timeout: 15_000 })
   })
 
+  test('legacy invite-only boards keep their invite affordances', async ({ page, browser }) => {
+    await signIn(page, adminUser, adminPass)
+    const token = await freshToken(page)
+    const suffix = Date.now().toString(36)
+    const adminRow = psql(`SELECT id::text FROM users WHERE username='${adminUser.replace(/'/g, "''")}' LIMIT 1`).trim()
+
+    // Two legacy combinations that still require a code. Both are seeded
+    // directly: the canonical create path refuses to build them.
+    const publicInvite = randomUUID()
+    const privateInviteWithGroup = randomUUID()
+    const group = await api(page, token, 'POST', '/api/v2/admin/access-groups', { name: `Legacy Invite Gate ${suffix}` })
+    psql(`
+      INSERT INTO boards (id, slug, name, participation_mode, registration_mode, visibility, status, rating_visibility, created_by)
+      VALUES ('${publicInvite}','legacy-public-invite-${suffix}','Legacy Public Invite ${suffix}','INDIVIDUAL','INVITE_ONLY','PUBLIC','ACTIVE','PUBLIC','${adminRow}');
+      INSERT INTO boards (id, slug, name, participation_mode, registration_mode, visibility, status, rating_visibility, created_by)
+      VALUES ('${privateInviteWithGroup}','legacy-private-invite-${suffix}','Legacy Private Invite ${suffix}','INDIVIDUAL','INVITE_ONLY','PRIVATE','ACTIVE','PUBLIC','${adminRow}');
+      INSERT INTO board_access_groups (board_id, group_id) VALUES ('${privateInviteWithGroup}','${group.uuid as string}');
+    `)
+
+    // An ordinary OPEN board must NOT ask for a code.
+    const openBoard = await api(page, token, 'POST', '/api/v2/admin/boards', {
+      slug: `open-${suffix}`, name: `Open Board ${suffix}`, participationMode: 'INDIVIDUAL',
+      registrationMode: 'OPEN', visibility: 'PUBLIC', accessMode: 'PUBLIC', rating: { visibility: 'PUBLIC' },
+    })
+    await api(page, token, 'POST', `/api/v2/admin/boards/${openBoard.uuid as string}/modules`, {
+      name: 'Open module', type: 'TASKS', allowedTaskTypes: ['FLAG'], enabled: true,
+    })
+    await api(page, token, 'POST', `/api/v2/admin/boards/${openBoard.uuid as string}/actions`, { action: 'PUBLISH' })
+
+    // A participant on the legacy PUBLIC+INVITE_ONLY board must get the code field.
+    const studentContext = await browser.newContext({ viewport: { width: 390, height: 844 } })
+    try {
+      const student = await studentContext.newPage()
+      await signIn(student, studentUser, studentPass)
+      await student.goto(`/boards/${publicInvite}`)
+      await expect(student.getByRole('button', { name: 'Join this board' })).toBeVisible({ timeout: 15_000 })
+      await expect(student.locator('#board-detail-invite')).toBeVisible()
+
+      // A plain OPEN board shows the join action without a code field.
+      await student.goto(`/boards/${openBoard.uuid as string}`)
+      await expect(student.getByRole('button', { name: 'Join this board' })).toBeVisible({ timeout: 15_000 })
+      await expect(student.locator('#board-detail-invite')).toHaveCount(0)
+    } finally {
+      await studentContext.close()
+    }
+
+    // Staff who are not joined on the legacy PRIVATE+INVITE_ONLY+groups board
+    // must still see the join code field and the reveal/rotate controls.
+    await page.goto(`/boards/${privateInviteWithGroup}`)
+    await expect(page.locator('#board-detail-invite')).toBeVisible({ timeout: 15_000 })
+    await page.goto(`/admin/boards/${privateInviteWithGroup}`)
+    await expect(page.getByRole('button', { name: 'Reveal current code' })).toBeVisible({ timeout: 15_000 })
+    // The hybrid board is still reported as legacy, not silently reclassified.
+    await expect(page.getByRole('alert').filter({ hasText: 'Legacy access' })).toBeVisible()
+  })
+
   test('legacy board saves metadata without touching its access gate', async ({ page }) => {
     await signIn(page, adminUser, adminPass)
     const token = await freshToken(page)

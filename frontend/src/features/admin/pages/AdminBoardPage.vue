@@ -26,7 +26,7 @@ import {
   canReadAudit,
   hasBoardPermission,
 } from '@/features/boards/permissions'
-import { accessModeLabel, participationLabel } from '@/features/boards/accessMode'
+import { accessModeLabel, participationLabel, requiresInviteCode } from '@/features/boards/accessMode'
 import { useSession } from '@/features/auth/session'
 import type { AdminBoard, AdminModule, Audience, BoardPermissionsResponse } from '@/shared/types/api'
 
@@ -260,7 +260,7 @@ void load()
       </section>
 
       <InviteCodePanel
-        v-if="board.accessMode === 'INVITE'"
+        v-if="requiresInviteCode(board)"
         :board-uuid="boardUuid"
         class="mb-6"
       />

@@ -25,7 +25,7 @@ import {
 } from '@/features/boards/permissions'
 import { isApiError } from '@/shared/api/errors'
 import { formatDateTime, plural } from '@/shared/lib/format'
-import { accessModeLabel, isInviteBoard, participationLabel } from '@/features/boards/accessMode'
+import { accessModeLabel, participationLabel, requiresInviteCode } from '@/features/boards/accessMode'
 import type { Board, BoardMe, BoardPermissionsResponse, ModuleListItem } from '@/shared/types/api'
 
 const route = useRoute()
@@ -261,7 +261,7 @@ void load()
               <form v-else-if="canJoinFromPage" class="space-y-2 border-t border-border pt-3" novalidate @submit.prevent="join">
                 <ErrorAlert v-if="joinError" :error="joinError" title="Could not join board" />
                 <FormField
-                  v-if="isInviteBoard(board.accessMode)"
+                  v-if="requiresInviteCode(board)"
                   label="Invite code"
                   for-id="board-detail-invite"
                   hint="The organizer provides this code."
