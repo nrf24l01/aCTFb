@@ -26,6 +26,23 @@ describe('fromTemplateParameters', () => {
     expect(fields[0].defaultValue).toBe('hello')
   })
 
+  it('renders a manifest `text` parameter as a multiline textarea', () => {
+    const fields = fromTemplateParameters([
+      { key: 'notes', label: 'Notes', type: 'text', required: false, secret: false },
+    ])
+    expect(fields).toHaveLength(1)
+    expect(fields[0].type).toBe('textarea')
+  })
+
+  it('keeps an unknown declared type usable as a single-line string', () => {
+    // The server rejects an unknown manifest type, so this is only a defensive
+    // UI fallback: it must not throw or produce a control the form cannot bind.
+    const fields = fromTemplateParameters([
+      { key: 'mystery', label: 'Mystery', type: 'provider-credential', required: false, secret: false },
+    ])
+    expect(fields[0].type).toBe('string')
+  })
+
   it('treats a non-empty allowlist policy as unsupported', () => {
     expect(hasUnsupportedPolicy(undefined)).toBe(false)
     expect(hasUnsupportedPolicy({})).toBe(false)

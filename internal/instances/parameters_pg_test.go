@@ -39,6 +39,7 @@ func seedParameterizedAllowlist(t *testing.T, db *postgres.DB, ids seedIDs) para
 			{"key": "replicas", "label": "Replicas", "type": "int", "required": true, "default": "2"},
 			{"key": "tls", "label": "TLS", "type": "bool", "required": false, "default": "true"},
 			{"key": "size", "label": "Size", "type": "choice", "options": []string{"small", "large"}, "required": true},
+			{"key": "notes", "label": "Notes", "type": "text", "required": false},
 			{"key": "flag", "label": "Flag", "type": "string", "required": true, "secret": true, "default": "do-not-leak"},
 		},
 		"nodes": []map[string]any{{
@@ -118,7 +119,7 @@ func TestTypedTemplateParametersEndToEnd(t *testing.T) {
 	for _, parameter := range versions[0].Parameters {
 		byKey[parameter.Key] = parameter
 	}
-	for _, key := range []string{"title", "replicas", "tls", "size", "flag"} {
+	for _, key := range []string{"title", "replicas", "tls", "size", "notes", "flag"} {
 		if _, ok := byKey[key]; !ok {
 			t.Fatalf("projection missing parameter %q: %#v", key, versions[0].Parameters)
 		}
@@ -138,6 +139,11 @@ func TestTypedTemplateParametersEndToEnd(t *testing.T) {
 	if byKey["title"].Default != "hello" {
 		t.Fatalf("non-secret default = %q, want hello", byKey["title"].Default)
 	}
+	// The manifest's `text` type is projected verbatim, so the UI can render a
+	// multiline control for it.
+	if byKey["notes"].Type != "text" {
+		t.Fatalf("notes type = %q, want text", byKey["notes"].Type)
+	}
 
 	// 2. A valid typed binding seals the secret and stores only public values.
 	taskID := uuid.New()
@@ -151,7 +157,10 @@ func TestTypedTemplateParametersEndToEnd(t *testing.T) {
 		BoardID: ids.BoardID, ModuleID: fixture.moduleID, TaskID: &taskID, Scope: ScopeTask,
 		TemplateID:      fixture.templateID,
 		TemplateVersion: 1,
-		Parameters:      map[string]string{"title": "Custom title", "replicas": "3", "tls": "false", "size": "large"},
+		Parameters: map[string]string{
+			"title": "Custom title", "replicas": "3", "tls": "false", "size": "large",
+			"notes": "line one\nline two",
+		},
 		SecretParameters: map[string]string{
 			"flag": "actfb{sealed}",
 		},
@@ -181,6 +190,10 @@ func TestTypedTemplateParametersEndToEnd(t *testing.T) {
 	}
 	if public["title"] != "Custom title" || public["replicas"] != "3" || public["size"] != "large" {
 		t.Fatalf("public parameters = %#v", public)
+	}
+	// A multiline text value round-trips unchanged.
+	if public["notes"] != "line one\nline two" {
+		t.Fatalf("multiline text parameter = %q", public["notes"])
 	}
 
 	// 3. An invalid choice is rejected.

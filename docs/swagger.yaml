@@ -27005,15 +27005,13 @@ definitions:
         type: string
         enum:
         - string
+        - text
         - int
-        - integer
-        - number
         - bool
-        - boolean
         - choice
-        - textarea
-        description: Declared parameter type. The UI renders a matching control and the server re-validates
-          against the immutable manifest.
+        description: Declared parameter type, exactly as the manifest validator accepts it. `text` is a
+          multiline value; the UI renders a matching control and the server re-validates against the
+          immutable manifest.
       options:
         type: array
         uniqueItems: true

@@ -46,9 +46,9 @@ type ApprovedTemplateParameter struct {
 	// Required: true
 	Secret *bool `json:"secret"`
 
-	// Declared parameter type. The UI renders a matching control and the server re-validates against the immutable manifest.
+	// Declared parameter type, exactly as the manifest validator accepts it. `text` is a multiline value; the UI renders a matching control and the server re-validates against the immutable manifest.
 	// Required: true
-	// Enum: ["string","int","integer","number","bool","boolean","choice","textarea"]
+	// Enum: ["string","text","int","bool","choice"]
 	Type *string `json:"type"`
 }
 
@@ -174,7 +174,7 @@ var approvedTemplateParameterTypeTypePropEnum []any
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["string","int","integer","number","bool","boolean","choice","textarea"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["string","text","int","bool","choice"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -187,26 +187,17 @@ const (
 	// ApprovedTemplateParameterTypeString captures enum value "string"
 	ApprovedTemplateParameterTypeString string = "string"
 
+	// ApprovedTemplateParameterTypeText captures enum value "text"
+	ApprovedTemplateParameterTypeText string = "text"
+
 	// ApprovedTemplateParameterTypeInt captures enum value "int"
 	ApprovedTemplateParameterTypeInt string = "int"
-
-	// ApprovedTemplateParameterTypeInteger captures enum value "integer"
-	ApprovedTemplateParameterTypeInteger string = "integer"
-
-	// ApprovedTemplateParameterTypeNumber captures enum value "number"
-	ApprovedTemplateParameterTypeNumber string = "number"
 
 	// ApprovedTemplateParameterTypeBool captures enum value "bool"
 	ApprovedTemplateParameterTypeBool string = "bool"
 
-	// ApprovedTemplateParameterTypeBoolean captures enum value "boolean"
-	ApprovedTemplateParameterTypeBoolean string = "boolean"
-
 	// ApprovedTemplateParameterTypeChoice captures enum value "choice"
 	ApprovedTemplateParameterTypeChoice string = "choice"
-
-	// ApprovedTemplateParameterTypeTextarea captures enum value "textarea"
-	ApprovedTemplateParameterTypeTextarea string = "textarea"
 )
 
 // prop value enum

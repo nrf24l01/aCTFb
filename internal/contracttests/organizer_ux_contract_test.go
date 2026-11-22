@@ -114,3 +114,62 @@ func TestOrganizerUXContract(t *testing.T) {
 		t.Fatal("ApprovedTemplateParameter accepted an out-of-enum type")
 	}
 }
+
+// TestApprovedTemplateParameterTypeEnumMatchesManifest pins the closed enum to
+// exactly the types the manifest validator accepts. A published template that
+// declares `type: text` is projected verbatim, so an enum that omits it would
+// emit a value outside its own documented schema.
+func TestApprovedTemplateParameterTypeEnumMatchesManifest(t *testing.T) {
+	specPath, err := filepath.Abs(filepath.Join("..", "..", "docs", "swagger.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := loads.Spec(specPath)
+	if err != nil {
+		t.Fatalf("load Swagger: %v", err)
+	}
+	expanded, err := doc.Expanded()
+	if err != nil {
+		t.Fatalf("expand Swagger: %v", err)
+	}
+	schema, ok := expanded.Spec().Definitions["ApprovedTemplateParameter"]
+	if !ok {
+		t.Fatal("ApprovedTemplateParameter missing from the contract")
+	}
+	property, ok := schema.Properties["type"]
+	if !ok {
+		t.Fatal("ApprovedTemplateParameter.type missing")
+	}
+
+	// The authoritative manifest set.
+	manifestTypes := []string{"string", "text", "int", "bool", "choice"}
+	declared := make(map[string]struct{}, len(property.Enum))
+	for _, value := range property.Enum {
+		name, _ := value.(string)
+		declared[name] = struct{}{}
+	}
+	for _, name := range manifestTypes {
+		if _, present := declared[name]; !present {
+			t.Fatalf("type enum %v is missing the manifest type %q", property.Enum, name)
+		}
+	}
+	if len(declared) != len(manifestTypes) {
+		t.Fatalf("type enum %v must be exactly the manifest set %v", property.Enum, manifestTypes)
+	}
+
+	// Every manifest type must validate, and an unknown type must not.
+	for _, name := range manifestTypes {
+		sample := map[string]any{
+			"key": "p", "label": "P", "type": name, "required": false, "secret": false,
+		}
+		if err := validate.AgainstSchema(&schema, sample, strfmt.Default); err != nil {
+			t.Fatalf("type %q rejected by the contract: %v", name, err)
+		}
+	}
+	unknown := map[string]any{
+		"key": "p", "label": "P", "type": "provider-credential", "required": false, "secret": false,
+	}
+	if err := validate.AgainstSchema(&schema, unknown, strfmt.Default); err == nil {
+		t.Fatal("the contract accepted an unknown parameter type")
+	}
+}
