@@ -118,3 +118,31 @@ func TestAudienceMemberListResolvesDisplayNames(t *testing.T) {
 		}
 	}
 }
+
+// TestAudienceMemberNameReachesTheWire guards the mapper too: a resolved name
+// must not be replaced by the identifier when the response model is built.
+func TestAudienceMemberNameReachesTheWire(t *testing.T) {
+	db := newTestDB(t)
+	f := seedAccessFixture(t, db)
+	svc := NewService(db, authorization.NewAuthorizer(db))
+	ctx := context.Background()
+	owner := authorization.Principal{UserID: f.User1}
+
+	audience, err := svc.CreateAudience(ctx, owner, f.BoardPrivate, AudienceInput{Name: "wire"})
+	if err != nil {
+		t.Fatalf("create audience: %v", err)
+	}
+	if _, err := svc.AddAudienceMember(ctx, owner, f.BoardPrivate, audience.ID, MemberInput{SubjectType: "USER", SubjectID: f.User2}); err != nil {
+		t.Fatalf("add member: %v", err)
+	}
+	page, err := svc.ListAudienceMembers(ctx, owner, f.BoardPrivate, audience.ID, ListQuery{})
+	if err != nil {
+		t.Fatalf("list members: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("members = %d, want 1", len(page.Items))
+	}
+	if page.Items[0].Subject.Name != "user-two" {
+		t.Fatalf("subject name = %q, want the username user-two", page.Items[0].Subject.Name)
+	}
+}

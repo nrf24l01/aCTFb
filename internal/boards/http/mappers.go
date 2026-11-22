@@ -615,7 +615,12 @@ func audienceMemberModel(member access.AudienceMember) *oapimodels.AudienceMembe
 	subjectType := oapimodels.SubjectType(member.Subject.Type)
 	subjectID := oapimodels.UUID(member.Subject.ID.String())
 	assigned := strfmt.DateTime(member.AssignedAt.UTC())
-	name := member.Subject.ID.String()
+	// Prefer the resolved display name. The identifier is only a last-resort
+	// fallback for a subject row that no longer exists.
+	name := member.Subject.Name
+	if name == "" {
+		name = member.Subject.ID.String()
+	}
 	return &oapimodels.AudienceMember{
 		AudienceUUID: &audienceID, AssignedAt: &assigned,
 		Subject: &oapimodels.ScoreSubject{Type: &subjectType, UUID: &subjectID, Name: &name},

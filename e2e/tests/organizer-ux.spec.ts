@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 
 const fullStack = process.env.E2E_FULL_STACK === '1'
 const base = process.env.E2E_BASE_URL || 'http://127.0.0.1:5173'
@@ -411,6 +412,270 @@ test.describe('organizer UX acceptance', () => {
     await page.keyboard.press('Escape')
     await confirmDiscard('Discard task changes?').click()
     await expect(page.locator('#task-answers')).toHaveCount(0)
+  })
+
+
+  test('scoped pickers only offer eligible board subjects', async ({ page }) => {
+    await signIn(page, adminUser, adminPass)
+    const token = await freshToken(page)
+    const suffix = Date.now().toString(36)
+
+    // A user who exists but is NOT a participant of this board.
+    const outsider = `outside-${suffix}`
+    psql(`INSERT INTO users (username, email, password) VALUES ('${outsider}', '${outsider}@actfb.test', 'x')`)
+
+    const board = await api(page, token, 'POST', '/api/v2/admin/boards', {
+      slug: `scope-${suffix}`, name: `Scope Board ${suffix}`, participationMode: 'INDIVIDUAL',
+      registrationMode: 'OPEN', visibility: 'PUBLIC', accessMode: 'PUBLIC', rating: { visibility: 'PUBLIC' },
+    })
+    const boardUuid = board.uuid as string
+    // Only the admin (as a real participant) is eligible.
+    const me = await api(page, token, 'GET', '/api/v2/me')
+    await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/participants`, { userUuid: me.uuid })
+    const audience = await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/audiences`, {
+      name: `Audience ${suffix}`,
+    })
+
+    await page.goto(`/boards/${boardUuid}/staff`)
+    const audienceSection = page.locator('section[aria-labelledby="audiences-heading"]')
+    await audienceSection.getByRole('button', { name: new RegExp(`Audience ${suffix}`) }).click()
+    const picker = audienceSection.getByRole('combobox')
+
+    // The outsider is invisible to the participant-scoped audience picker.
+    await picker.fill(outsider)
+    await expect(audienceSection.getByText('No matches.')).toBeVisible({ timeout: 15_000 })
+    await expect(audienceSection.getByRole('option')).toHaveCount(0)
+
+    // A real participant is offered and can be added.
+    await picker.fill(adminUser)
+    await expect(audienceSection.getByRole('option', { name: new RegExp(adminUser) })).toBeVisible({ timeout: 15_000 })
+    await audienceSection.getByRole('option', { name: new RegExp(adminUser) }).click()
+    // The roster must show the username, never a bare identifier.
+    await expect(audienceSection.getByText(adminUser, { exact: false }).first()).toBeVisible({ timeout: 15_000 })
+    await expect(audienceSection.getByText('No members', { exact: true })).toHaveCount(0)
+    expect(audience.uuid).toBeTruthy()
+
+    // The participant add flow still uses the directory scope, so it can find
+    // the outsider and add them.
+    await page.goto(`/boards/${boardUuid}/staff`)
+    const participantsSection = page.locator('section[aria-labelledby="participants-heading"]')
+    const participantPicker = participantsSection.getByRole('combobox')
+    await participantPicker.fill(outsider)
+    await expect(participantsSection.getByRole('option', { name: new RegExp(outsider) })).toBeVisible({ timeout: 15_000 })
+    await participantsSection.getByRole('option', { name: new RegExp(outsider) }).click()
+    await expect(participantsSection.getByRole('cell', { name: new RegExp(outsider) })).toBeVisible({ timeout: 15_000 })
+  })
+
+  test('legacy board saves metadata without touching its access gate', async ({ page }) => {
+    await signIn(page, adminUser, adminPass)
+    const token = await freshToken(page)
+    const suffix = Date.now().toString(36)
+
+    const group = await api(page, token, 'POST', '/api/v2/admin/access-groups', { name: `Legacy Gate ${suffix}` })
+    // Seed the pre-existing hybrid combination directly: PRIVATE + INVITE_ONLY +
+    // a group gate. The canonical create path refuses to build this.
+    const boardUuid = randomUUID()
+    const adminRow = psql(`SELECT id::text FROM users WHERE username='${adminUser.replace(/'/g, "''")}' LIMIT 1`).trim()
+    psql(`
+      INSERT INTO boards (id, slug, name, participation_mode, registration_mode, visibility, status, rating_visibility, created_by)
+      VALUES ('${boardUuid}','legacy-${suffix}','Legacy Board ${suffix}','INDIVIDUAL','INVITE_ONLY','PRIVATE','DRAFT','PUBLIC','${adminRow}');
+      INSERT INTO board_access_groups (board_id, group_id) VALUES ('${boardUuid}','${group.uuid as string}');
+    `)
+
+    await page.goto(`/admin/boards/${boardUuid}`)
+    // The canonical mode is LEGACY, and the page explains it in an alert.
+    await expect(page.getByRole('alert').filter({ hasText: 'Legacy access' })).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/old access combination/i)).toBeVisible()
+    await page.getByRole('button', { name: 'Edit board' }).first().click()
+    const dialog = page.getByRole('dialog')
+    // None of the three modes is preselected, so nothing is auto-converted.
+    const radios = dialog.locator('input[name="board-access-mode"]')
+    await expect(radios).toHaveCount(3)
+    expect(await radios.evaluateAll((nodes) => nodes.every((node) => !(node as HTMLInputElement).checked))).toBe(true)
+    await expect(dialog.getByText(/legacy access combination/i)).toBeVisible()
+
+    // A name-only save must succeed and must not drop the group gate.
+    const renamed = `Legacy Board Renamed ${suffix}`
+    await dialog.locator('#board-name').fill(renamed)
+    await dialog.getByRole('button', { name: 'Save changes' }).click()
+    await expect(dialog).toHaveCount(0, { timeout: 15_000 })
+    await expect(page.getByRole('heading', { name: renamed })).toBeVisible({ timeout: 15_000 })
+
+    const reloaded = await api(page, token, 'GET', `/api/v2/admin/boards/${boardUuid}`)
+    expect(reloaded.accessMode).toBe('LEGACY')
+    expect(reloaded.accessGroupUuids).toEqual([group.uuid])
+  })
+
+  test('typed instance parameters bind a real task from the published manifest', async ({ page }) => {
+    const dockerSocket = process.env.E2E_DOCKER_SOCKET || ''
+    const imageRef = process.env.E2E_DOCKER_IMAGE_REF || ''
+    test.skip(!dockerSocket || !imageRef, 'typed parameter binding needs the Docker integration fixture')
+
+    await signIn(page, adminUser, adminPass)
+    const token = await freshToken(page)
+    const suffix = Date.now().toString(36)
+
+    const integration = await api(page, token, 'POST', '/api/v2/admin/integrations', {
+      type: 'DOCKER', kind: 'CONTAINER', driver: 'docker',
+      name: `E2E Params Docker ${suffix}`,
+      settings: {
+        socket: dockerSocket,
+        registryAllowlist: ['nginx'],
+        dedicatedNode: `e2e-params-${suffix}`,
+        dedicatedNodeVerified: true,
+        pidsLimit: 128,
+        network: { kind: 'network' },
+      },
+    })
+    const integrationUuid = integration.uuid as string
+
+    const board = await api(page, token, 'POST', '/api/v2/admin/boards', {
+      slug: `typed-${suffix}`, name: `Typed Board ${suffix}`, participationMode: 'INDIVIDUAL',
+      registrationMode: 'OPEN', visibility: 'PUBLIC', accessMode: 'PUBLIC', rating: { visibility: 'PUBLIC' },
+    })
+    const boardUuid = board.uuid as string
+    const module = await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/modules`, {
+      name: 'Typed instance module', type: 'TASKS', allowedTaskTypes: ['INSTANCE'], enabled: true,
+    })
+    const moduleUuid = module.uuid as string
+
+    // A template whose manifest declares a string, an int, a bool, a choice and
+    // a required secret with a default that must never be disclosed. The nginx
+    // config renders the non-secret `marker` parameter, so a real instance
+    // proves the value travelled end to end.
+    const nginxConfig = 'server {\n  listen 8080;\n  root /usr/share/nginx/html;\n  location /marker { default_type text/plain; return 200 "{{ .marker }}"; }\n}\n'
+    const manifest = `apiVersion: actfb.dev/v1alpha1
+kind: DeploymentTemplate
+metadata:
+  name: E2E Typed
+  slug: typed-${suffix}
+  description: Typed parameter acceptance
+parameters:
+  - key: marker
+    label: Marker
+    type: string
+    required: true
+    default: default-marker
+  - key: replicas
+    label: Replicas
+    type: int
+    required: true
+    default: "1"
+  - key: tls
+    label: TLS
+    type: bool
+    required: false
+    default: "false"
+  - key: size
+    label: Size
+    type: choice
+    options: [small, large]
+    required: true
+  - key: flag
+    label: Flag
+    type: string
+    required: true
+    secret: true
+nodes:
+  - key: web
+    name: Web
+    kind: CONTAINER
+    source:
+      type: OCI_IMAGE
+      ref: ${imageRef}
+    resources:
+      cpuMillicores: 200
+      memoryMiB: 64
+      diskMiB: 64
+    endpoints:
+      - key: web
+        protocol: http
+        targetPort: 8080
+        exposure: PUBLIC
+    files:
+      - source: nginx.conf
+        target: /etc/nginx/conf.d/default.conf
+    driverOptions:
+      docker:
+        readOnlyRootFilesystem: true
+        user: "101:101"
+        userNumeric: true
+        entrypoint: ["nginx"]
+        cmd: ["-g", "daemon off;"]
+        tmpfs:
+          /tmp: 8
+          /var/cache/nginx: 16
+          /var/run: 8
+lifecycle:
+  reset: RECREATE
+`
+    const template = await api(page, token, 'POST', '/api/v2/admin/deployment-templates', {
+      manifestYaml: manifest,
+      files: [{ path: 'nginx.conf', contentBase64: Buffer.from(nginxConfig).toString('base64') }],
+    })
+    const templateUuid = template.uuid as string
+    const published = await api(page, token, 'POST', `/api/v2/admin/deployment-templates/${templateUuid}/publish`, {
+      versionNote: 'Typed parameter browser acceptance',
+    })
+    const versionUuid = published.uuid as string
+    await api(page, token, 'POST', `/api/v2/admin/deployment-templates/${templateUuid}/allowlist`, {
+      templateVersionUuid: versionUuid,
+      boardUuid,
+      moduleUuid,
+      targets: [{ integrationUuid, kind: 'CONTAINER' }],
+    })
+
+    // The approved-version projection exposes the typed definitions and never a
+    // secret default.
+    const approved = await api(page, token, 'GET', `/api/v2/boards/${boardUuid}/modules/${moduleUuid}/instance-templates`)
+    const approvedItem = (approved.items as Array<Record<string, unknown>>)[0]
+    const declared = approvedItem.parameters as Array<Record<string, unknown>>
+    expect(declared.map((item) => item.key)).toEqual(['marker', 'replicas', 'tls', 'size', 'flag'])
+    const secretField = declared.find((item) => item.key === 'flag')!
+    expect(secretField.secret).toBe(true)
+    // A secret parameter never exposes a default value to the picker.
+    expect(secretField.default ?? '').toBe('')
+
+    // Create the task through the real UI with the typed form.
+    await page.goto(`/admin/boards/${boardUuid}`)
+    await page.getByRole('button', { name: 'Create task' }).first().click()
+    const dialog = page.getByRole('dialog')
+    await dialog.locator('#task-title').fill('Typed instance task')
+    await dialog.locator('#task-category').fill('web')
+    await dialog.locator('#task-instance-approved').selectOption(`${templateUuid}:1`)
+    await expect(dialog.locator('#param-marker')).toBeVisible({ timeout: 20_000 })
+    await expect(dialog.locator('#param-replicas')).toHaveAttribute('type', 'number')
+    await expect(dialog.locator('#param-size')).toHaveValue('')
+    await expect(dialog.locator('#secret-flag')).toHaveAttribute('type', 'password')
+    // Raw JSON textareas and a UUID box are gone.
+    await expect(dialog.locator('#task-instance-parameters')).toHaveCount(0)
+    await expect(dialog.locator('#task-instance-template')).toHaveCount(0)
+
+    await dialog.locator('#param-marker').fill('marker-value')
+    await dialog.locator('#param-replicas').fill('2')
+    await dialog.locator('#param-size').selectOption('large')
+    await dialog.locator('#secret-flag').fill('actfb{typed-secret}')
+    await dialog.getByRole('button', { name: 'Save draft' }).click()
+    await expect(dialog).toHaveCount(0, { timeout: 30_000 })
+
+    // The server persisted the public values and sealed the secret.
+    const tasks = await api(page, token, 'GET', `/api/v2/admin/boards/${boardUuid}/modules/${moduleUuid}/tasks?limit=50`)
+    const created = (tasks.items as Array<Record<string, unknown>>)[0]
+    expect(JSON.stringify(created)).not.toContain('actfb{typed-secret}')
+    const persisted = psql(
+      `SELECT parameters::text || '|' || COALESCE(octet_length(secret_parameters_ciphertext), 0)::text ` +
+        `FROM deployment_bindings WHERE board_id='${boardUuid}' AND task_id='${created.uuid as string}'`,
+    ).trim()
+    expect(persisted).toContain('marker-value')
+    expect(persisted).toContain('large')
+    expect(persisted).not.toContain('actfb{typed-secret}')
+    const ciphertextBytes = Number(persisted.split('|').pop())
+    expect(ciphertextBytes).toBeGreaterThan(0)
+
+    // The secret is never returned on an edit read either.
+    const taskDetail = await api(page, token, 'GET',
+      `/api/v2/admin/boards/${boardUuid}/modules/${moduleUuid}/tasks/${created.uuid as string}`)
+    expect(JSON.stringify(taskDetail)).not.toContain('actfb{typed-secret}')
   })
 
   test('instance task editor offers typed template parameters, not raw JSON', async ({ page }) => {
