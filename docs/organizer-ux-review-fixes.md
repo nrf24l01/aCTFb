@@ -248,7 +248,10 @@ No `page.route`, `fulfill`, `routeFromHAR` or response stub is used in any spec.
 - No new migration. Migrations remain `001`–`018`; `018_site_settings.sql` is unchanged by this
   pass (the seeded intro already matched the fallback text).
 
-## Scoped re-review round 1 — R1, R2, N1, N2
+## Scoped re-review round 1 — R1, R2, N1, N2 (closed)
+
+Reviewed range `d3bba35..d90a386`; this round's commits are `d90a386..c8554d8` (6 commits, 17 files).
+Scoped package: `/tmp/opencode/organizer-ux-final-fixes.diff`.
 
 Review: `docs/organizer-ux-review.md` (appended section, `d3bba35..d90a386`). Verdict was
 "approve with two small remaining Important regressions". Both are fixed here, plus the two minors.
