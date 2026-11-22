@@ -1,10 +1,16 @@
 # Organizer UX verification (2026-11-22)
 
-Status: **implemented and verified** for the local scope, including real-browser acceptance.
-Base commit `79d79f8`. The authoritative head, file list and full diff are in
-`/tmp/opencode/organizer-ux-review.diff` (generated after the last code commit `1c63267`; later
-commits touch only this report and the plan). Nothing is pushed; remote CI and published-image
-checks stay pending until the review gate opens.
+Status: **implemented, independently reviewed, and re-verified after the review fixes** for the
+local scope, including real-browser acceptance. Base commit `79d79f8`.
+
+- Whole baseline (`79d79f8..1c63267`): `/tmp/opencode/organizer-ux-review.diff`.
+- Independent review: `docs/organizer-ux-review.md` (0 Critical · 7 Important · 12 Minor).
+- Review fixes and their evidence: `docs/organizer-ux-review-fixes.md`.
+- Scoped fixes package (`d3bba35..HEAD`): `/tmp/opencode/organizer-ux-fixes.diff`.
+- Browser evidence for the fixed state: `/tmp/opencode/actfb-organizer-ux-fixes-run.log`
+  (17 passed).
+
+Nothing is pushed; remote CI and published-image checks stay pending until the review gate opens.
 
 Spec: `docs/superpowers/specs/2026-11-22-organizer-ux-design.md`.
 Plan: `docs/superpowers/plans/2026-11-22-organizer-ux.md`.
@@ -20,10 +26,10 @@ Model/project scope: subagent session, model `bobr-cli-proxy/alicn/deepseek-v4.1
 |---|---|---|---|
 | 1 | Public root landing with organizer Markdown, anonymous whitelist, admin editor, transactional audit, sanitizer | Implemented | `migrations/018_site_settings.sql`; `internal/site`; `GET /api/v2/site`; `GET/PATCH /api/v2/admin/site`; `features/site`; `shared/lib/markdown.ts`; `TestSitePublicDefaultsAndWhitelist`, `TestSiteUpdateRequiresLiveAdminAndAudits`, `TestSiteUnpublishedHidesDraftIntroFromPublic`, `TestSiteRejectsOversizedIntro`; markdown unit tests; browser `anonymous landing renders organizer Markdown as real DOM after an admin edit` |
 | 2 | Hide successful health/readiness access logs, keep failures | Implemented | `internal/httpapi/router.go`; `TestAccessLogHidesSuccessfulHealthProbes`, `TestAccessLogKeepsFailedReadiness`, `TestAccessLogKeepsLookalikeHealthRoutes`; nginx `location = /healthz` already `access_log off` |
-| 3 | Server-backed searchable pickers, permissions, group membership, audience/team pickers, no raw UUID boxes | Implemented | `internal/access/usersearch.go`; 8 additive endpoints; `SearchPicker` + `UserPicker` + `TeamPicker`; `AudiencePanel`; `ParticipantsPanel`; `RoleGrantDialog`; `AdminTeamsPanel`; `TestSearchUsersMatchesUUIDUsernameAndEmailLiterally`, `TestSearchUsersEscapesWildcardsAndPaginates`, `TestSearchUsersRejectsNonAdminAndDisabled`, `TestBoardUserSearchRequiresLiveParticipantsManage`, `TestBoardTeamSearchRequiresRosterPermissionAndStaysInBoard`, `TestAudienceManagerCanSearchBoardUsers`, `TestAccessGroupMembersAddListRemove`; browser `global group membership picker searches the server beyond the first page` |
-| 4 | One three-option board access control, legacy preservation, anonymous public browse | Implemented | `Board.AccessMode`; `accessMode` on Board/AdminBoard/create/patch; `BoardSettingsDialog.vue`; `AdminBoardPage.vue` legacy notice; `OptionalUser`, `ListPublicBoards`, `GetPublicBoard`; `TestBoardAccessModeProjection`, `TestApplyAccessModeNormalizesLegacyFields`, `TestValidateAccessModeConflict`; browser `board access is one control: public browse, audience and invite stay private` |
+| 3 | Server-backed searchable pickers, permissions, group membership, audience/team pickers, scoped eligibility, no raw UUID boxes | Implemented | `internal/access/usersearch.go`; 8 additive endpoints; `SearchPicker` + `UserPicker` + `TeamPicker`; `AudiencePanel`; `ParticipantsPanel`; `RoleGrantDialog`; `AdminTeamsPanel`; `TestSearchUsersMatchesUUIDUsernameAndEmailLiterally`, `TestSearchUsersEscapesWildcardsAndPaginates`, `TestSearchUsersRejectsNonAdminAndDisabled`, `TestBoardUserSearchRequiresLiveParticipantsManage`, `TestBoardTeamSearchRequiresRosterPermissionAndStaysInBoard`, `TestAudienceManagerCanSearchBoardUsers`, `TestAccessGroupMembersAddListRemove`; browser `global group membership picker searches the server beyond the first page` |
+| 4 | One three-option board access control, exact mode mapping on every read, gate-preserving legacy saves, anonymous public browse | Implemented | `Board.AccessMode`; `accessMode` on Board/AdminBoard/create/patch; `BoardSettingsDialog.vue`; `AdminBoardPage.vue` legacy notice; `OptionalUser`, `ListPublicBoards`, `GetPublicBoard`; `TestBoardAccessModeProjection`, `TestApplyAccessModeNormalizesLegacyFields`, `TestValidateAccessModeConflict`; browser `board access is one control: public browse, audience and invite stay private` |
 | 5 | One module format, task cardinality 1, legacy mixed read-only, native A+D/PENTEST preserved | Implemented | `validateNewModuleFormat`; `legacyMixed`; `ModuleEditorDialog.vue`; `TestNewModuleFormatCardinality`, `TestManualOnlyModuleIsPublishable`; browser `module has one format and the task editor inherits it`; A+D and PENTEST browser tests unchanged and passing |
-| 6 | Conditional task modal, inherited type, MiB limits, typed template parameters, secret-keep, draft-first | Implemented | `TaskEditorDialog.vue`; `taskParameters.ts`; `AdminModuleSection.vue` Publish/Unpublish; `taskParameters.test.ts`, `taskPayload.test.ts`; browser `draft FLAG task with Markdown publishes and accepts a real submission`, `instance task editor offers typed template parameters, not raw JSON` |
+| 6 | Conditional task modal, inherited type, MiB limits, typed template parameters from the published manifest, secret-keep, draft-first | Implemented | `TaskEditorDialog.vue`; `taskParameters.ts`; `AdminModuleSection.vue` Publish/Unpublish; `taskParameters.test.ts`, `taskPayload.test.ts`; browser `draft FLAG task with Markdown publishes and accepts a real submission`, `instance task editor offers typed template parameters, not raw JSON` |
 | 7 | Full-page task view, INSTANCE + manual form, state actions, staff edit, history below content | Implemented | `TaskPage.vue`; `ManualSubmissionForm.vue`; `FlagSubmitForm.vue`; `TaskCard.vue`; browser `draft FLAG task...` (mobile 390×844, no overflow) |
 | 8 | Captain team management without raw UUIDs | Implemented | `SearchCaptainRoster` + `GET /boards/{boardUuid}/team/roster-search`; `MyTeamMembers` + `GET /boards/{boardUuid}/team/members`; rewritten `TeamPanel.vue` (names, per-member remove, current-member captain transfer, invite-key add); `TestCaptainRosterSearchIsCaptainOnlyAndHidesEmail`; real-PG own-roster assertions in `TestP1RTeamsManualAudienceGroupsAudiences` path |
 | 9 | Discard confirmation on every editor dismissal path | Implemented | `useDiscardGuard.ts` + `useDiscardGuard.test.ts`; wired into board, module and task dialogs; browser `every editor confirms before discarding unsaved work` (Escape, click-outside, secret preserved) |
@@ -44,9 +50,11 @@ Model/project scope: subagent session, model `bobr-cli-proxy/alicn/deepseek-v4.1
 | Frontend build | `bun run build` | PASS |
 | Swagger validate | `swagger validate docs/swagger.yaml` | valid (v0.36.7) |
 | Swagger regeneration | generate into temp tree, `diff -rq` vs `internal/generated/openapi/models` | no differences |
-| Full browser suite | `GOMAXPROCS=2 E2E_KEEP=1 E2E_WORKDIR=/tmp/opencode/actfb-ux8 bash e2e/run-full-e2e.sh` | **14 passed (3.2m)**; `owned Docker resources: 0 new containers, 0 new volumes`; `core and Vue artifact hashes unchanged`. Log kept at `/tmp/opencode/actfb-ux8-run.log` |
+| Full browser suite (post-fix) | `GOMAXPROCS=2 E2E_KEEP=1 E2E_WORKDIR=/tmp/opencode/actfb-ux12 bash e2e/run-full-e2e.sh` | **17 passed (4.0m)**; `owned Docker resources: 0 new containers, 0 new volumes`; `core and Vue artifact hashes unchanged`. Log kept at `/tmp/opencode/actfb-organizer-ux-fixes-run.log` |
+| Full browser suite (pre-fix baseline) | same harness, earlier run | 14 passed; retained at `/tmp/opencode/actfb-ux8-run.log` as history |
+| Race, changed packages | `ACTFB_TEST_POSTGRES_DSN=… go test -race ./internal/boards/ ./internal/access/ ./internal/site/ ./internal/instances/` | PASS, no data race |
 
-### Browser tests in that run
+### Browser tests in the fixed-state run (17)
 
 1. `full-stage` plugin install / grant / iframe bridge / disable / upgrade
 2. `full-stage` trusted-js default-deny approval and ESM mount
@@ -60,8 +68,11 @@ Model/project scope: subagent session, model `bobr-cli-proxy/alicn/deepseek-v4.1
 10. `organizer-ux` module has one format and the task editor inherits it
 11. `organizer-ux` draft FLAG task with Markdown publishes and accepts a real submission
 12. `organizer-ux` every editor confirms before discarding unsaved work
-13. `organizer-ux` instance task editor offers typed template parameters, not raw JSON
-14. `p1-core` admin publishes a FLAG task and a separate student joins, submits, sees history/score
+13. `organizer-ux` scoped pickers only offer eligible board subjects
+14. `organizer-ux` legacy board saves metadata without touching its access gate
+15. `organizer-ux` typed instance parameters bind a real task from the published manifest
+16. `organizer-ux` instance task editor offers typed template parameters, not raw JSON
+17. `p1-core` admin publishes a FLAG task and a separate student joins, submits, sees history/score
 
 No route was intercepted and no response was stubbed. Sanitizer assertions are on real DOM:
 `article script` count 0, `article [onerror]` count 0, injected `window.__actfbXss` stays false,
@@ -78,18 +89,18 @@ No route was intercepted and no response was stubbed. Sanitizer assertions are o
 4. The seeded intro repeated the page title as an in-body H1.
 5. The E2E harness needed the A+D runner image allowlist that config validation requires.
 
-## New API surface (8 additive operations)
+## New API surface (11 additive operations)
 
 - `GET /api/v2/site`
 - `GET /api/v2/admin/site`, `PATCH /api/v2/admin/site`
 - `GET /api/v2/admin/user-search`
 - `GET /api/v2/admin/boards/{boardUuid}/user-search`
 - `GET /api/v2/admin/boards/{boardUuid}/team-search`
+- `GET /api/v2/boards/{boardUuid}/team/roster-search`
+- `GET /api/v2/boards/{boardUuid}/team/members`
 - `GET /api/v2/admin/access-groups/{groupUuid}/members`
 - `POST /api/v2/admin/access-groups/{groupUuid}/members`
 - `DELETE /api/v2/admin/access-groups/{groupUuid}/members/{userUuid}`
-- `GET /api/v2/boards/{boardUuid}/team/members`
-- `GET /api/v2/boards/{boardUuid}/team/roster-search`
 
 `GET /api/v2/boards` and `GET /api/v2/boards/{boardUuid}` accept anonymous requests
 (published PUBLIC only; invalid bearer still 401; private boards 404).
@@ -130,6 +141,16 @@ Schema: 18 migrations; only `018_site_settings.sql` is new. No applied migration
 | `a08e979` | organizer UX browser acceptance spec |
 | `a385ab1` | human labels in board views |
 | `1c63267` | browser-found fixes and full-suite pass (last code commit) |
+
+## Independent-review disposition
+
+Every Important finding and every security-relevant Minor was verified against the cited source
+and fixed with a failing-first test. The full disposition table, RED/GREEN evidence per finding,
+and the commands actually run are in `docs/organizer-ux-review-fixes.md`. Summary:
+I1–I7 fixed; M1, M4, M5, M6, M7, M8, M9, M10, M11, M12 fixed; M2 and M3 were stale documentation
+and are corrected. Two further defects were found while validating the fixes and fixed: the
+audience member mapper rendered a UUID instead of the resolved name, and the typed form sent
+non-string parameter values.
 
 ## Concerns / preserved limits
 

@@ -710,28 +710,51 @@ Implemented in this pass (additive; `/api/v2` unchanged, migration `018` is the 
   non-2xx readiness/errors and lookalike routes remain logged. Nginx `location = /healthz`
   already had `access_log off`.
 - **User picker**: global `GET /api/v2/admin/user-search` and board-scoped
-  `GET /api/v2/admin/boards/{boardUuid}/user-search` (live `board.participants.manage`, audited),
-  literal wildcard escaping, UUID exact/prefix and bounded pagination. Real access-group member
-  list/add/remove endpoints. Reusable debounced combobox with stale-request cancellation, keyboard
-  navigation and disabled duplicates; wired into access groups and board participants.
+  `GET /api/v2/admin/boards/{boardUuid}/user-search` with an explicit `scope`: `PARTICIPANTS`
+  (default) returns only current board participants, `DIRECTORY` returns the user table and
+  requires `board.participants.manage` or `board.staff.manage` (an audience-only manager is
+  refused). Literal wildcard escaping, UUID exact/prefix and bounded pagination. Real
+  access-group member list/add/remove endpoints. One reusable `SearchPicker` with debounce,
+  stale-request cancellation (including on a context switch), keyboard navigation and disabled
+  duplicates; wired into access groups, board participants, staff grants, admin team members,
+  audience user membership and team audience membership (teams via the board team search, which
+  excludes empty teams). Captains get a captain-scoped eligible-roster search that never returns
+  email addresses.
 - **Board access**: additive `accessMode` projection (`PUBLIC`/`AUDIENCE`/`INVITE`/`LEGACY`) on
-  Board/AdminBoard and create/update. Legacy boards are never auto-converted; the UI blocks the
-  mode until the organizer chooses one. One three-option control replaces the visible
-  visibility/registration controls.
+  Board/AdminBoard and create/update. The mapping is exact: PUBLIC = PUBLIC+OPEN+no groups,
+  AUDIENCE = PRIVATE+OPEN+>=1 group, INVITE = PRIVATE+INVITE_ONLY+no groups; every other
+  combination (including PRIVATE+INVITE_ONLY+groups and CLOSED) stays LEGACY. The projection is
+  derived from a count column on every list/detail read, so it is correct after a reload without
+  loading or exposing group identifiers. A canonical `accessMode`-only PATCH persists the
+  normalized gate. Legacy boards are never auto-converted: a name/date save preserves the gate and
+  sends no canonical mode, and an explicit mode change asks for confirmation first. One
+  three-option control replaces the visible visibility/registration controls.
 - **Module format**: new TASKS modules require exactly one task type; ATTACK_DEFENSE keeps its
   native EXPLOIT+PATCH workflow and PENTEST its report type. Existing mixed TASKS modules are
-  preserved and flagged `legacyMixed`; the UI shows a legacy notice and an explicit resolution
-  choice. Single format dropdown with friendly labels.
+  preserved and flagged `legacyMixed`; the editor opens on "Keep current mixed types" so an
+  unrelated save never narrows them, and only an explicit choice resolves them. An installed
+  EXTENSION module is shown read-only as `Extension: <key> (unavailable)` and keeps its stored
+  type, key and task types on an unrelated save. Single format dropdown with friendly labels.
 - **Task editor/view**: inherited format (no type selector for normal modules), Markdown
-  Write/Preview, friendly text/files choice with MiB limits, approved-template parameter form
-  (typed, no raw JSON/UUID boxes), actionable empty/error state, draft-first default. Task view is
-  a full page with breadcrumb, sanitized Markdown, friendly attachments, INSTANCE panel plus the
-  manual report form, state-specific messages, staff-only edit link and history below content.
+  Write/Preview, friendly text/files choice with MiB limits, draft-first default with an explicit
+  per-task Publish control, actionable empty/error state. The INSTANCE parameter form is built
+  from the approved immutable template's published-manifest `parameters` projection (typed
+  string/int/bool/choice/textarea; secret defaults masked, secret inputs always blank), works even
+  when the allowlist `parametersPolicy` is empty, and shows an actionable operator error when a
+  non-empty `parametersPolicy` restriction is present instead of pretending the form works. Task
+  view is a full page with breadcrumb, sanitized Markdown, friendly attachments, INSTANCE panel
+  plus the manual report form, state-specific messages, staff-only edit link and history below
+  content.
 
-Partial / not run in this pass:
+Verification for this pass (including the independent-review fixes) is in
+`docs/organizer-ux-verification.md` and `docs/organizer-ux-review-fixes.md`: full Go build/vet/test,
+real-PostgreSQL packages, frontend unit/typecheck/build, and the full real-browser Docker suite.
 
-- Audience member picker remains a bounded board-roster select (not the new searchable combobox).
-- The browser E2E lifecycle was not re-run in this session; backend real-PostgreSQL suites and
-  frontend unit/typecheck/build were run (see the verification report).
-- External GHCR publication/CI remains blocked until a reviewed push is authorized; the admin CLI
-  `--help` path was verified locally without a database.
+Remaining limits:
+
+- Legacy mixed TASKS modules are preserved, not bulk-converted; resolution still refuses to drop a
+  type that existing tasks use.
+- A non-empty allowlist `parametersPolicy` is still rejected by the binder (it has no supported
+  schema); the UI surfaces that as an operator error.
+- External GHCR publication/CI remains pending until a reviewed push is authorized; the admin CLI
+  `--help` path is verified locally without a database.

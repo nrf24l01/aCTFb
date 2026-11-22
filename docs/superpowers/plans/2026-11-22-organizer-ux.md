@@ -74,10 +74,28 @@ Gates run: `go build ./...`, `go vet ./...`, `go test ./...`, real-PostgreSQL pa
 - [x] InstancePanel + manual report form coexist.
 - [x] State-specific actions, staff edit link, Markdown content, history below, friendly bytes.
 - [x] Removed raw enum/technical explanations from touched views.
-- [x] Browser lifecycle re-run: all 14 real-browser tests pass (6 existing + 7 new + p1-core).
+- [x] Browser lifecycle re-run: all 17 real-browser tests pass after the review fixes
+      (6 existing full-stage + 10 organizer-ux + p1-core), one worker, owned cleanup.
 
 ## Final
 
 - [x] `docs/organizer-ux-verification.md` with requirement table and actual evidence.
 - [x] Separate logical local commits per slice (18 commits, `79d79f8..1c63267`), no push.
 - [x] Review package at `/tmp/opencode/organizer-ux-review.diff`.
+
+## Independent-review fix pass (2026-11-22)
+
+- [x] I1 accessMode derived on every read via a projected group count.
+- [x] I2 accessMode-only PATCH persists normalized gate replacement.
+- [x] I3 exact mode mapping; PRIVATE+INVITE_ONLY+groups and CLOSED stay LEGACY; gate-preserving
+      legacy saves; confirmation before an explicit gate replacement.
+- [x] I4 EXTENSION module identity preserved and read-only.
+- [x] I5 legacy mixed modules default to "Keep current mixed types".
+- [x] I6 typed parameter form built from the published manifest projection, works with an empty
+      allowlist policy, masks secret defaults, rejects unsupported policy with an operator error.
+- [x] I7 explicit picker scope (PARTICIPANTS default / DIRECTORY gated), empty teams excluded.
+- [x] Security minors: GET /site security override, no draft title/body leak, locked site write,
+      meaningful fallback, live group check on own-team roster, picker context reset, captain
+      roster action, group search instead of a 100 cap, real publish regression test.
+- [x] Evidence: `docs/organizer-ux-review-fixes.md`; scoped package
+      `/tmp/opencode/organizer-ux-fixes.diff`.
