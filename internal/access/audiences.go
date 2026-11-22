@@ -202,11 +202,20 @@ func (s *AccessService) ListAudienceMembers(ctx context.Context, principal autho
 		return MemberPage{}, err
 	}
 	limit, offset := clampPage(q.Limit, q.Offset)
+	// Resolve the subject display name in the same query: the roster must show a
+	// username or team name, never a bare identifier the organizer has to decode.
 	rows, err := s.db.Pool.Query(ctx, `
-		SELECT audience_id, subject_type, subject_id, assigned_at
-		FROM audience_members
-		WHERE audience_id = $1
-		ORDER BY subject_type, subject_id
+		SELECT am.audience_id, am.subject_type, am.subject_id, am.assigned_at,
+		       CASE am.subject_type
+		         WHEN 'USER' THEN COALESCE(u.username, '')
+		         WHEN 'TEAM' THEN COALESCE(t.name, '')
+		         ELSE ''
+		       END
+		FROM audience_members am
+		LEFT JOIN users u ON am.subject_type = 'USER' AND u.id = am.subject_id
+		LEFT JOIN teams t ON am.subject_type = 'TEAM' AND t.id = am.subject_id
+		WHERE am.audience_id = $1
+		ORDER BY am.subject_type, am.subject_id
 		LIMIT $2 OFFSET $3
 	`, audienceID, limit, offset)
 	if err != nil {
@@ -216,9 +225,11 @@ func (s *AccessService) ListAudienceMembers(ctx context.Context, principal autho
 	page := MemberPage{Items: make([]AudienceMember, 0)}
 	for rows.Next() {
 		var member AudienceMember
-		if err := rows.Scan(&member.AudienceID, &member.Subject.Type, &member.Subject.ID, &member.AssignedAt); err != nil {
+		var name string
+		if err := rows.Scan(&member.AudienceID, &member.Subject.Type, &member.Subject.ID, &member.AssignedAt, &name); err != nil {
 			return MemberPage{}, fmt.Errorf("access: scan audience member: %w", err)
 		}
+		member.Subject.Name = name
 		page.Items = append(page.Items, member)
 	}
 	if err := rows.Err(); err != nil {

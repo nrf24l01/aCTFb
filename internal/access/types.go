@@ -16,6 +16,9 @@ import (
 type Subject struct {
 	Type string // "USER" or "TEAM"
 	ID   uuid.UUID
+	// Name is the resolved display name (username or team name) on a member
+	// read. It is never persisted and never an email address.
+	Name string
 }
 
 // Group is an admin-managed access group. Membership is assigned through admin

@@ -226,6 +226,20 @@ function selectApprovedTemplate(value: unknown) {
   form.secretParameters = {}
 }
 
+/**
+ * The wire contract types every template parameter value as a string. A
+ * `type="number"` input is auto-cast to a number by Vue, and a checkbox can
+ * yield a boolean, so coerce here instead of sending a value the server rejects
+ * as a type error.
+ */
+function toStringMap(values: Record<string, string>): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const [key, value] of Object.entries(values)) {
+    result[key] = String(value ?? '')
+  }
+  return result
+}
+
 function instanceProblem(): string | undefined {
   if (form.type !== 'INSTANCE' || isEdit.value) return undefined
   if (!form.deploymentTemplateUuid) return 'Choose an approved template version.'
@@ -287,8 +301,8 @@ async function submit() {
               enabled: true,
               deploymentTemplateUuid: form.deploymentTemplateUuid,
               templateVersion: form.templateVersion,
-              ...(Object.keys(form.parameters).length > 0 ? { parameters: form.parameters } : {}),
-              ...(Object.keys(form.secretParameters).length > 0 ? { secretParameters: form.secretParameters } : {}),
+              ...(Object.keys(form.parameters).length > 0 ? { parameters: toStringMap(form.parameters) } : {}),
+              ...(Object.keys(form.secretParameters).length > 0 ? { secretParameters: toStringMap(form.secretParameters) } : {}),
             })
       : { enabled: false }
     if (props.task) {

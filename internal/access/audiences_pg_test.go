@@ -80,3 +80,41 @@ func TestAudiencesServiceCRUDAndSubjectMode(t *testing.T) {
 		t.Fatalf("delete unused audience: %v", err)
 	}
 }
+
+// TestAudienceMemberListResolvesDisplayNames keeps the roster readable: the
+// member list must carry the username/team name, not a bare identifier.
+func TestAudienceMemberListResolvesDisplayNames(t *testing.T) {
+	db := newTestDB(t)
+	f := seedAccessFixture(t, db)
+	svc := NewService(db, authorization.NewAuthorizer(db))
+	ctx := context.Background()
+	owner := authorization.Principal{UserID: f.User1}
+	admin := authorization.Principal{UserID: f.Admin}
+	_ = admin
+
+	audience, err := svc.CreateAudience(ctx, owner, f.BoardPrivate, AudienceInput{Name: "names"})
+	if err != nil {
+		t.Fatalf("create audience: %v", err)
+	}
+	if _, err := svc.AddAudienceMember(ctx, owner, f.BoardPrivate, audience.ID, MemberInput{SubjectType: "USER", SubjectID: f.User2}); err != nil {
+		t.Fatalf("add user member: %v", err)
+	}
+	if _, err := svc.AddAudienceMember(ctx, owner, f.BoardPrivate, audience.ID, MemberInput{SubjectType: "USER", SubjectID: f.User3}); err != nil {
+		t.Fatalf("add second user member: %v", err)
+	}
+	page, err := svc.ListAudienceMembers(ctx, owner, f.BoardPrivate, audience.ID, ListQuery{})
+	if err != nil {
+		t.Fatalf("list members: %v", err)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("members = %d, want 2", len(page.Items))
+	}
+	for _, member := range page.Items {
+		if member.Subject.Name == "" {
+			t.Fatalf("member %s has no resolved display name", member.Subject.ID)
+		}
+		if member.Subject.Name == member.Subject.ID.String() {
+			t.Fatalf("member name fell back to the identifier: %s", member.Subject.Name)
+		}
+	}
+}
