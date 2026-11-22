@@ -75,7 +75,8 @@ response fields; legacy `visibility`, `registrationMode` and `allowedTaskTypes` 
 | `ec32b4b` | server-backed user pickers + group membership |
 | `e569d3d` | canonical board access mode + single-format modules |
 | `0e80e7d` | conditional task editor + full-page task view |
-| (this commit) | organizer UX docs, README operator UI, dependency lock |
+| `33cdf3a` | organizer UX docs, README operator UI, dependency lock |
+| `5cc352e` | anonymous browse of published public boards |
 
 ## Concerns and limits
 
