@@ -348,8 +348,9 @@ func TestAccessLogOmitsQuerySecrets(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	router := NewRouter(logger, func(context.Context) error { return nil })
+	router.GET("/debug/probe", func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
 
-	req := httptest.NewRequest(http.MethodGet, "/health?access_token=super-secret-value&password=hunter2", nil)
+	req := httptest.NewRequest(http.MethodGet, "/debug/probe?access_token=super-secret-value&password=hunter2", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -363,8 +364,65 @@ func TestAccessLogOmitsQuerySecrets(t *testing.T) {
 			t.Fatalf("access log leaked %q: %s", secret, output)
 		}
 	}
-	if !strings.Contains(output, `"path":"/health"`) {
+	if !strings.Contains(output, `"path":"/debug/probe"`) {
 		t.Fatalf("access log missing structured path: %s", output)
+	}
+}
+
+func TestAccessLogHidesSuccessfulHealthProbes(t *testing.T) {
+	for _, path := range []string{"/health", "/ready"} {
+		t.Run(path, func(t *testing.T) {
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewJSONHandler(&logs, nil))
+			router := NewRouter(logger, func(context.Context) error { return nil })
+
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+			if strings.Contains(logs.String(), "http request") {
+				t.Fatalf("successful probe %s was logged: %s", path, logs.String())
+			}
+		})
+	}
+}
+
+func TestAccessLogKeepsFailedReadiness(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	router := NewRouter(logger, func(context.Context) error { return errors.New("database unavailable") })
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ready", nil))
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+	output := logs.String()
+	if !strings.Contains(output, "http request") || !strings.Contains(output, `"status":503`) {
+		t.Fatalf("failed readiness was not access-logged: %s", output)
+	}
+}
+
+func TestAccessLogKeepsLookalikeHealthRoutes(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	router := NewRouter(logger, func(context.Context) error { return nil })
+	router.GET("/health-data", func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
+	router.GET("/api/v2/health", func(c *echo.Context) error { return c.NoContent(http.StatusOK) })
+
+	for _, path := range []string{"/health-data", "/api/v2/health"} {
+		logs.Reset()
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want 200", path, rec.Code)
+		}
+		if !strings.Contains(logs.String(), "http request") {
+			t.Fatalf("lookalike route %s was hidden: %s", path, logs.String())
+		}
 	}
 }
 

@@ -184,6 +184,13 @@ func accessLogMiddleware(logger *slog.Logger) echo.MiddlewareFunc {
 				path = c.Request().URL.Path
 			}
 
+			// Successful probe traffic is pure noise. Only the exact matched
+			// pathname is skipped and only for 2xx; failed readiness/health
+			// checks stay visible, and lookalike routes are never hidden.
+			if isSuccessfulHealthProbe(path, status) {
+				return err
+			}
+
 			remoteIP := c.RealIP()
 			if clientIP, ok := c.Get(ClientIPKey).(string); ok && clientIP != "" {
 				remoteIP = clientIP
@@ -206,6 +213,21 @@ func accessLogMiddleware(logger *slog.Logger) echo.MiddlewareFunc {
 
 			return err
 		}
+	}
+}
+
+// isSuccessfulHealthProbe reports whether the access log may drop this request.
+// The match is exact (no prefix matching), so user routes such as
+// /health-data or /api/v2/health keep their access log.
+func isSuccessfulHealthProbe(path string, status int) bool {
+	if status < http.StatusOK || status >= http.StatusMultipleChoices {
+		return false
+	}
+	switch path {
+	case "/health", "/ready", "/healthz":
+		return true
+	default:
+		return false
 	}
 }
 
