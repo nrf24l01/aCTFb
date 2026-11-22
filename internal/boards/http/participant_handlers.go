@@ -14,10 +14,7 @@ import (
 )
 
 func (h *Handler) ListBoards(c *echo.Context) error {
-	principal, ok := httpapi.CurrentPrincipal(c)
-	if !ok {
-		return writeError(c, boards.ErrUnauthorized)
-	}
+	principal, authenticated := httpapi.CurrentPrincipal(c)
 	limit, offset, problem := queryLimitOffset(c)
 	if problem != nil {
 		return problem.write(c)
@@ -38,10 +35,17 @@ func (h *Handler) ListBoards(c *echo.Context) error {
 	if participation != "" && participation != boards.ParticipationIndividual && participation != boards.ParticipationTeam {
 		return validationProblem(boards.Invalid("query.participationMode", "unknown participation mode", "INVALID_VALUE")).write(c)
 	}
-	page, err := h.service.ListBoards(c.Request().Context(), principal, boards.ListBoardsQuery{
+	query := boards.ListBoardsQuery{
 		ListQuery:  boards.ListQuery{Limit: limit, Offset: offset, Query: search},
 		ModuleType: moduleType, Status: status, ParticipationMode: participation,
-	})
+	}
+	var page boards.Page[boards.Board]
+	var err error
+	if authenticated {
+		page, err = h.service.ListBoards(c.Request().Context(), principal, query)
+	} else {
+		page, err = h.service.ListPublicBoards(c.Request().Context(), query)
+	}
 	if err != nil {
 		return writeError(c, err)
 	}
@@ -54,15 +58,18 @@ func (h *Handler) ListBoards(c *echo.Context) error {
 }
 
 func (h *Handler) GetBoard(c *echo.Context) error {
-	principal, ok := httpapi.CurrentPrincipal(c)
-	if !ok {
-		return writeError(c, boards.ErrUnauthorized)
-	}
+	principal, authenticated := httpapi.CurrentPrincipal(c)
 	boardID, problem := pathUUID(c, "boardUuid")
 	if problem != nil {
 		return problem.write(c)
 	}
-	board, err := h.service.GetBoard(c.Request().Context(), principal, boardID)
+	var board *boards.Board
+	var err error
+	if authenticated {
+		board, err = h.service.GetBoard(c.Request().Context(), principal, boardID)
+	} else {
+		board, err = h.service.GetPublicBoard(c.Request().Context(), boardID)
+	}
 	if err != nil {
 		return writeError(c, err)
 	}

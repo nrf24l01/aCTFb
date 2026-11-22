@@ -48,6 +48,7 @@ const leaving = ref(false)
 const leaveError = ref<unknown>(null)
 
 const isGlobalAdmin = computed(() => state.user?.roles.includes('admin') ?? false)
+const isAuthenticated = computed(() => state.status === 'authenticated')
 const isStaff = computed(
   () =>
     Boolean(permissions.value?.roles.length) ||
@@ -86,6 +87,9 @@ async function load() {
   try {
     const loadedBoard = await boardsApi.getBoard(boardUuid.value)
     board.value = loadedBoard
+    if (!isAuthenticated.value) {
+      return
+    }
     me.value = await boardsApi.getBoardMe(boardUuid.value)
     try {
       modules.value = (await boardsApi.listModules(boardUuid.value, { limit: 100 })).items
@@ -106,7 +110,7 @@ async function load() {
       permissionsError.value = caught
     }
   } catch (caught) {
-    if (isApiError(caught) && caught.code === 'BOARD_ACCESS_DENIED') {
+    if (isApiError(caught) && (caught.code === 'BOARD_ACCESS_DENIED' || caught.code === 'BOARD_NOT_FOUND' || caught.code === 'FORBIDDEN' || caught.status === 404 || caught.status === 403)) {
       accessDenied.value = true
     } else {
       error.value = caught
@@ -157,10 +161,15 @@ void load()
     >
       <div class="space-y-3">
         <ErrorAlert v-if="joinError" :error="joinError" title="Could not join board" />
-        <FormField label="Invite code" for-id="board-join-invite" hint="Only needed when the organizer provided one.">
-          <Input id="board-join-invite" v-model="joinInviteCode" autocomplete="off" spellcheck="false" />
-        </FormField>
-        <Button :disabled="joining" @click="join">{{ joining ? 'Joining…' : 'Join this board' }}</Button>
+        <template v-if="isAuthenticated">
+          <FormField label="Invite code" for-id="board-join-invite" hint="Only needed when the organizer provided one.">
+            <Input id="board-join-invite" v-model="joinInviteCode" autocomplete="off" spellcheck="false" />
+          </FormField>
+          <Button :disabled="joining" @click="join">{{ joining ? 'Joining…' : 'Join this board' }}</Button>
+        </template>
+        <Button v-else as-child>
+          <RouterLink :to="{ name: 'sign-in', query: { redirect: route.fullPath } }">Sign in to join</RouterLink>
+        </Button>
       </div>
     </EmptyState>
 
@@ -206,7 +215,10 @@ void load()
           <h2 id="modules-heading" class="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             Modules
           </h2>
-          <div v-if="modules.length === 0" class="border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+          <div v-if="!isAuthenticated" class="border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+            Sign in to see this board's modules and submit answers.
+          </div>
+          <div v-else-if="modules.length === 0" class="border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
             No modules are available yet. The organizer may still be preparing this board.
           </div>
           <div v-else class="space-y-2">
@@ -218,7 +230,14 @@ void load()
         </section>
 
         <aside class="space-y-4 self-start">
-          <section class="border border-border">
+          <section v-if="!isAuthenticated" class="border border-border px-4 py-4 text-sm">
+            <h2 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Participate</h2>
+            <p class="mt-2 text-muted-foreground">Sign in to join this board, see its modules and submit answers.</p>
+            <Button as-child class="mt-3 w-full">
+              <RouterLink :to="{ name: 'sign-in', query: { redirect: route.fullPath } }">Sign in</RouterLink>
+            </Button>
+          </section>
+          <section v-else class="border border-border">
             <div class="border-b border-border px-4 py-3">
               <h2 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Your standing</h2>
             </div>

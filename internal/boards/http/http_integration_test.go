@@ -353,8 +353,8 @@ func TestP1BoardHTTPIntegration(t *testing.T) {
 		t.Fatalf("unauthorized sibling read wrote %d audit rows", unauthorizedReads)
 	}
 
-	// Unauthenticated and badly formed bearer requests fail with 401.
-	doJSON(t, router, http.MethodGet, "/api/v2/boards", "", nil, nil, http.StatusUnauthorized)
+	// Anonymous board browse is allowed; a present but invalid bearer is still 401.
+	doJSON(t, router, http.MethodGet, "/api/v2/boards", "", nil, nil, http.StatusOK)
 	doJSON(t, router, http.MethodGet, "/api/v2/boards", "not-a-token", nil, nil, http.StatusUnauthorized)
 
 	// Wrong content type is 415.

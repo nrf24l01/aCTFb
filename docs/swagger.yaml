@@ -1199,8 +1199,6 @@ paths:
   /boards:
     get:
       x-error-codes:
-        '401':
-        - UNAUTHORIZED
         '422':
         - VALIDATION_FAILED
         '500':
@@ -1208,7 +1206,10 @@ paths:
       tags:
       - Boards
       summary: List visible boards
+      description: Optional bearer authentication. Anonymous callers receive only published PUBLIC boards;
+        authenticated callers also receive their joined and staff boards.
       operationId: listBoards
+      security: []
       x-required-permissions: []
       x-scope: collection
       parameters:
@@ -1298,9 +1299,11 @@ paths:
       tags:
       - Boards
       summary: Board details
+      description: Optional bearer authentication. Anonymous callers receive only published PUBLIC boards and
+        a private board returns the same 404 as a missing board.
       operationId: getBoard
-      x-required-permissions:
-      - board.read
+      security: []
+      x-required-permissions: []
       x-scope: board
       x-scope-params:
       - boardUuid

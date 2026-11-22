@@ -12,7 +12,7 @@ Plan: `docs/superpowers/plans/2026-11-22-organizer-ux.md`.
 | 1 | Public root landing, organizer Markdown, anonymous whitelist, admin editor, audit, sanitizer | Implemented | migration `018`; `internal/site`; `GET /api/v2/site`; `GET/PATCH /api/v2/admin/site`; `frontend/src/features/site`; `shared/lib/markdown.ts`; site PG tests; markdown tests |
 | 2 | Hide successful health/readiness access logs, keep failures | Implemented | `internal/httpapi/router.go`; `TestAccessLogHidesSuccessfulHealthProbes`, `TestAccessLogKeepsFailedReadiness`, `TestAccessLogKeepsLookalikeHealthRoutes`; nginx `location = /healthz` already `access_log off` |
 | 3 | Server-backed searchable user picker, permissions, group membership, no UUID boxes | Implemented (audience picker partial) | `internal/access/usersearch.go`; 5 new endpoints; `UserPicker.vue` + tests; access-group members UI; participants UI. Audience member picker remains a bounded board-roster select |
-| 4 | One three-option board access control, legacy preservation | Implemented | `Board.AccessMode`; `accessMode` on Board/AdminBoard/create/patch; `BoardSettingsDialog.vue` + test; legacy notice in `AdminBoardPage.vue` |
+| 4 | One three-option board access control, legacy preservation, anonymous public browse | Implemented | `Board.AccessMode`; `accessMode` on Board/AdminBoard/create/patch; `BoardSettingsDialog.vue` + test; legacy notice in `AdminBoardPage.vue`; `OptionalUser` + `ListPublicBoards`/`GetPublicBoard`; anonymous list/detail integration assertions; router public board routes with sign-in-to-participate UI |
 | 5 | One module format, task cardinality 1, legacy mixed read-only | Implemented | `validateNewModuleFormat`; `legacyMixed`; `ModuleEditorDialog.vue` + test; `organizer_ux_test.go` |
 | 6 | Conditional task modal, inherited type, MiB, template parameter form, secret-keep | Implemented | `TaskEditorDialog.vue`; `taskParameters.ts` + test; `taskPayload.test.ts` |
 | 7 | Full-page task view, INSTANCE + manual form, state actions, staff edit, history below | Implemented | `TaskPage.vue`; `ManualSubmissionForm.vue`; `FlagSubmitForm.vue`; `format.ts` |
@@ -43,6 +43,7 @@ user data, volumes or operator config were touched.
 
 ## New API surface (8 operations, additive)
 
+- `GET /api/v2/boards` and `GET /api/v2/boards/{boardUuid}` now accept anonymous requests (published PUBLIC only; invalid bearer still 401)
 - `GET /api/v2/site` (anonymous whitelist)
 - `GET /api/v2/admin/site`, `PATCH /api/v2/admin/site`
 - `GET /api/v2/admin/user-search`
@@ -57,6 +58,7 @@ response fields; legacy `visibility`, `registrationMode` and `allowedTaskTypes` 
 
 ## New constructors / functions
 
+- `httpapi.OptionalUser`, `Service.ListPublicBoards`, `Service.GetPublicBoard`
 - `site.NewService`, `site/http.NewHandler`
 - `AccessService.SearchUsers`, `SearchBoardUsers`, `ListAccessGroupMembers`,
   `AddAccessGroupMember`, `RemoveAccessGroupMember`

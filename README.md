@@ -27,6 +27,7 @@ The root `/` is a public landing page with an organizer-controlled Markdown intr
 see only the title, intro, published flag and update time.
 
 Boards use one access control: **Public**, **Selected audiences** (global access groups) or **Invite code**.
+Published public boards are browsable without signing in; signing in is required to join, submit and score.
 Existing boards with old ambiguous combinations keep their behaviour and show a legacy notice until an organizer
 chooses an explicit mode. Modules have one format; tasks inherit it. Board, module and task editors use
 searchable user pickers instead of UUID text boxes.

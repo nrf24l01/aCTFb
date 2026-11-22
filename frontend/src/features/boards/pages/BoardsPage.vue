@@ -12,10 +12,13 @@ import PageContainer from '@/components/layout/PageContainer.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import BoardCard from '@/features/boards/components/BoardCard.vue'
 import { boardsApi } from '@/features/boards/api/boards'
+import { useSession } from '@/features/auth/session'
 import { isUuid, normalizeUuidInput } from '@/shared/lib/validate'
 import type { BoardListItem } from '@/shared/types/api'
 
 const router = useRouter()
+const { state } = useSession()
+const authenticated = computed(() => state.status === 'authenticated')
 const items = ref<BoardListItem[]>([])
 const total = ref(0)
 const loading = ref(true)
@@ -64,7 +67,7 @@ void load()
 
 <template>
   <PageContainer>
-    <PageHeader title="Boards" description="Private boards you joined, plus boards where you are staff.">
+    <PageHeader title="Boards" description="Published public boards, plus private boards you joined or where you are staff.">
       <template #actions>
         <Button variant="outline" :disabled="loading" @click="load(true)">Refresh</Button>
       </template>
@@ -88,7 +91,7 @@ void load()
         <EmptyState
           v-else-if="items.length === 0"
           title="No boards yet"
-          description="Private boards are not listed until you join. Open a board link from the organizer or paste its UUID on the right."
+          description="Public boards appear here when they are published. Private boards are not listed until you join."
         />
         <div v-else class="space-y-3">
           <BoardCard v-for="board in items" :key="board.uuid" :board="board" />
@@ -104,9 +107,9 @@ void load()
             Join by link
           </h2>
         </div>
-        <form class="space-y-4 px-4 py-4" novalidate @submit.prevent="join">
+        <form v-if="authenticated" class="space-y-4 px-4 py-4" novalidate @submit.prevent="join">
           <p class="text-sm text-muted-foreground">
-            Board UUIDs are unguessable. Paste the UUID from a private board link to join an open board.
+            Paste the UUID from a board link to join an open or invite-only board.
           </p>
           <ErrorAlert v-if="joinError" :error="joinError" title="Could not join board" />
           <FormField
@@ -134,6 +137,12 @@ void load()
             The server decides whether joining is allowed for this board.
           </p>
         </form>
+        <div v-else class="space-y-3 px-4 py-4 text-sm">
+          <p class="text-muted-foreground">Sign in to join a board or submit answers.</p>
+          <Button as-child class="w-full">
+            <RouterLink :to="{ name: 'sign-in', query: { redirect: '/boards' } }">Sign in</RouterLink>
+          </Button>
+        </div>
       </section>
     </div>
   </PageContainer>

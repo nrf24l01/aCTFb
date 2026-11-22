@@ -196,6 +196,24 @@ func TestP1RHTTPRoutes(t *testing.T) {
 	doJSON(t, router, http.MethodPost, "/api/v2/boards/"+inviteBoardID+"/join", p1Token,
 		map[string]any{"inviteCode": *code.InviteCode}, nil, http.StatusOK)
 
+	// Anonymous browse: only published PUBLIC boards are listed/readable.
+	publicList := decode[oapimodels.BoardListResponse](t, doJSON(t, router, http.MethodGet,
+		"/api/v2/boards?limit=50&offset=0", "", nil, nil, http.StatusOK), http.StatusOK)
+	foundPublic := false
+	for _, item := range publicList.Items {
+		if item.UUID != nil && string(*item.UUID) == boardID {
+			foundPublic = true
+		}
+		if item.UUID != nil && string(*item.UUID) == inviteBoardID {
+			t.Fatalf("anonymous list leaked private invite board %s", inviteBoardID)
+		}
+	}
+	if !foundPublic {
+		t.Fatalf("anonymous list did not include public board %s", boardID)
+	}
+	doJSON(t, router, http.MethodGet, "/api/v2/boards/"+boardID, "", nil, nil, http.StatusOK)
+	doJSON(t, router, http.MethodGet, "/api/v2/boards/"+inviteBoardID, "", nil, nil, http.StatusNotFound)
+
 	// Files routes fail closed while the files service is not installed.
 	doJSON(t, router, http.MethodPost,
 		"/api/v2/boards/"+boardID+"/modules/"+moduleID+"/tasks/"+manualTaskID+"/submission-drafts",

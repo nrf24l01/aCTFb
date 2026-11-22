@@ -49,6 +49,7 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 		return
 	}
 	requireUser := httpapi.RequireUser(h.auth)
+	optionalUser := httpapi.OptionalUser(h.auth)
 	boardRead := func(admin bool) echo.MiddlewareFunc { return h.requireBoardRead("boardUuid", admin) }
 	boardPermission := func(permission authorization.Permission, admin bool) echo.MiddlewareFunc {
 		return h.requirePermission(permission, "boardUuid", "", admin)
@@ -57,8 +58,8 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 		return h.requirePermission(permission, "boardUuid", "moduleUuid", admin)
 	}
 
-	e.GET("/api/v2/boards", h.ListBoards, requireUser)
-	e.GET("/api/v2/boards/:boardUuid", h.GetBoard, requireUser, boardRead(false))
+	e.GET("/api/v2/boards", h.ListBoards, optionalUser)
+	e.GET("/api/v2/boards/:boardUuid", h.GetBoard, optionalUser)
 	e.POST("/api/v2/boards/:boardUuid/join", h.JoinBoard, requireUser)
 	e.POST("/api/v2/boards/:boardUuid/leave", h.LeaveBoard, requireUser)
 	e.GET("/api/v2/boards/:boardUuid/me", h.GetBoardMe, requireUser)

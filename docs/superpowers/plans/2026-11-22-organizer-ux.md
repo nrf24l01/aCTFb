@@ -46,7 +46,10 @@ Gates run: `go build ./...`, `go vet ./...`, `go test ./...`, real-PostgreSQL pa
       boards keep their old read/join behaviour.
 - [x] UI: three-option control, audience multiselect, invite code copy/rotate after save,
       legacy notice.
-- [x] Tests: access-mode projection/conflict units, UI radio/legacy component tests.
+- [x] Anonymous browse: optional bearer on `GET /boards` and `GET /boards/{boardUuid}`;
+      published PUBLIC only, invalid bearer still 401, private boards 404.
+- [x] Tests: access-mode projection/conflict units, UI radio/legacy component tests,
+      anonymous list/detail integration assertions.
 
 ## Slice 5: Module one format
 

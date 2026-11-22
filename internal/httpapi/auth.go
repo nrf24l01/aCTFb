@@ -55,6 +55,30 @@ func RequireUser(auth AccessTokenAuthenticator) echo.MiddlewareFunc {
 	}
 }
 
+// OptionalUser attaches the live principal when a valid Bearer token is
+// present and otherwise continues anonymously. It is used only by public read
+// routes; every mutation and every participant endpoint keeps RequireUser.
+func OptionalUser(auth AccessTokenAuthenticator) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			header := c.Request().Header.Get("Authorization")
+			if strings.TrimSpace(header) == "" {
+				return next(c)
+			}
+			token, ok := strictBearerToken(header)
+			if !ok || auth == nil {
+				return writeAPIError(c, http.StatusUnauthorized, oapimodels.ErrorCodeUNAUTHORIZED, "Authentication required or credentials invalid")
+			}
+			user, err := auth.AuthenticateAccessToken(c.Request().Context(), token)
+			if err != nil || user == nil {
+				return writeAPIError(c, http.StatusUnauthorized, oapimodels.ErrorCodeUNAUTHORIZED, "Authentication required or credentials invalid")
+			}
+			c.Set(principalContextKey, PrincipalFromUser(user))
+			return next(c)
+		}
+	}
+}
+
 // CurrentPrincipal returns the authenticated principal attached by RequireUser.
 func CurrentPrincipal(c *echo.Context) (authorization.Principal, bool) {
 	if c == nil {

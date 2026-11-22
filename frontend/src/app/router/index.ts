@@ -44,11 +44,13 @@ const router = createRouter({
           path: 'boards',
           name: 'boards',
           component: () => import('@/features/boards/pages/BoardsPage.vue'),
+          meta: { public: true },
         },
         {
           path: 'boards/:boardUuid',
           name: 'board',
           component: () => import('@/features/boards/pages/BoardPage.vue'),
+          meta: { public: true },
         },
         {
           path: 'boards/:boardUuid/scoreboard',
