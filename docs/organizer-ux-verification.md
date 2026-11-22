@@ -2,6 +2,7 @@
 
 Status: implemented for the local scope; browser E2E and remote CI were not run in this session.
 Base commit: `79d79f8` (`fix(admin): accept max-length CRLF password stdin`).
+Head after this pass: `ea4d095` (local only; not pushed).
 Spec: `docs/superpowers/specs/2026-11-22-organizer-ux-design.md`.
 Plan: `docs/superpowers/plans/2026-11-22-organizer-ux.md`.
 
@@ -77,6 +78,7 @@ response fields; legacy `visibility`, `registrationMode` and `allowedTaskTypes` 
 | `0e80e7d` | conditional task editor + full-page task view |
 | `33cdf3a` | organizer UX docs, README operator UI, dependency lock |
 | `5cc352e` | anonymous browse of published public boards |
+| `ea4d095` | board picker for staff role grants and admin team members |
 
 ## Concerns and limits
 
