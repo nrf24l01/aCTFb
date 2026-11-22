@@ -1,7 +1,7 @@
 # Organizer UX verification (2026-11-22)
 
 Status: **implemented and verified** for the local scope, including real-browser acceptance.
-Base commit `79d79f8`; head `1c63267`. Nothing is pushed; remote CI and published-image checks stay
+Base commit `79d79f8`; head `9825e4e`. Nothing is pushed; remote CI and published-image checks stay
 pending until the review gate opens.
 
 Spec: `docs/superpowers/specs/2026-11-22-organizer-ux-design.md`.
@@ -106,7 +106,7 @@ Schema: 18 migrations; only `018_site_settings.sql` is new. No applied migration
 `renderMarkdown`, `parseParameterPolicy`, `initialParameterValues`, `accessModeLabel`,
 `moduleFormatLabel`, `taskTypeLabel`, `formatBytes`, `useDiscardGuard`.
 
-## Local commits (BASE `79d79f8` → HEAD `1c63267`, 18 commits)
+## Local commits (BASE `79d79f8` → HEAD `9825e4e`, 19 commits)
 
 | Commit | Scope |
 |---|---|
@@ -128,6 +128,7 @@ Schema: 18 migrations; only `018_site_settings.sql` is new. No applied migration
 | `a08e979` | organizer UX browser acceptance spec |
 | `a385ab1` | human labels in board views |
 | `1c63267` | browser-found fixes and full-suite pass |
+| `9825e4e` | verification report reconciled with the actual head |
 
 ## Concerns / preserved limits
 
