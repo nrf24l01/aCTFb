@@ -62,7 +62,7 @@ func NewOrchestrator(db *postgres.DB, registry *runtime.DriverRegistry, auth aut
 		return nil, errors.New("instances: database and driver registry are required")
 	}
 	orchestrator := &Orchestrator{
-		store: newStore(db), registry: registry, auth: auth, sealer: sealer, keyVersion: keyVersion,
+		store: newStore(db, Options{}), registry: registry, auth: auth, sealer: sealer, keyVersion: keyVersion,
 		outbox: events.NewOutbox(db), logger: slog.Default(),
 	}
 	for _, option := range options {
@@ -177,6 +177,14 @@ func (o *Orchestrator) HandleJob(ctx context.Context, job Job) error {
 			return o.finishFailure(ctx, instance, operations, err)
 		}
 		if err := o.applyOperation(ctx, instance, operation, snapshotNode, manifestNode, renderedNode, target, providerIDs[operation.NodeKey]); err != nil {
+			var expired *expiredDuringApplyError
+			if errors.As(err, &expired) {
+				// The provider resource was created after the deadline and its
+				// confirmed destroy already ran. Release resources and report the
+				// environment as expired; never emit started/created events.
+				_ = o.store.markOperation(ctx, operation.ID, "CANCELED", string(CodeExpired))
+				return o.finishExpiredDuringApply(ctx, instance)
+			}
 			_ = o.store.markOperation(ctx, operation.ID, "FAILED", errorCode(err))
 			return o.finishFailure(ctx, instance, operations, err)
 		}
@@ -264,12 +272,28 @@ func (o *Orchestrator) applyOperation(ctx context.Context, instance *workerInsta
 	if state, err := o.store.liveDeadline(ctx, instance.ID); err != nil {
 		return err
 	} else if blocked := state.blocked(time.Now()); blocked != nil {
-		if resource.ProviderID != "" {
-			if destroyErr := driver.Destroy(ctx, targetRuntime, resource.ProviderID, runtimeOp); destroyErr != nil {
-				return destroyErr
-			}
+		if strings.TrimSpace(resource.ProviderID) == "" {
+			// The driver reported RUNNING without an id. Nothing can be adopted
+			// or destroyed, so never advertise success and never free ports as if
+			// cleanup had been confirmed.
+			return fmt.Errorf("%w: provider reported RUNNING without a resource id", runtime.ErrProviderUnavailable)
 		}
-		return blocked
+		// Persist the id and queue the DESTROY before touching the provider, so a
+		// failed or interrupted destroy is retried with the real id by the next
+		// reconcile pass instead of orphaning a labelled object.
+		cleanupOp, stageErr := o.store.stageExpiredResource(ctx, instance.ID, operation.NodeKey, operation.Generation, target.Driver, resource.ProviderID)
+		if stageErr != nil {
+			return stageErr
+		}
+		if destroyErr := driver.Destroy(ctx, targetRuntime, resource.ProviderID, runtimeOp); destroyErr != nil {
+			// Leave the staged DESTROY op QUEUED (not FAILED) so the next
+			// reconcile pass claims it and retries with the persisted id. The
+			// instance is not removed and no lease is freed until a destroy is
+			// confirmed.
+			return destroyErr
+		}
+		_ = o.store.markOperation(ctx, cleanupOp, "SUCCEEDED", "")
+		return &expiredDuringApplyError{cause: blocked}
 	}
 	return o.store.nodeResult(ctx, instance.ID, operation.NodeKey, operation.Generation, target.Driver, resource)
 }
@@ -551,4 +575,40 @@ func (o *Orchestrator) PendingJobs(ctx context.Context, limit int) ([]Job, error
 		limit = 100
 	}
 	return o.store.pendingJobs(ctx, limit)
+}
+
+// expiredDuringApplyError marks the narrow case where a provider resource was
+// created after the instance deadline and has already been destroyed (or staged
+// for destroy). It is not a provisioning failure: the environment is expired.
+type expiredDuringApplyError struct{ cause error }
+
+func (e *expiredDuringApplyError) Error() string {
+	if e.cause == nil {
+		return "instance expired during provider apply"
+	}
+	return e.cause.Error()
+}
+
+func (e *expiredDuringApplyError) Unwrap() error { return e.cause }
+
+// finishExpiredDuringApply releases the instance after a confirmed cleanup and
+// emits only the expired event. Any still-queued DESTROY means the inline
+// destroy did not confirm, so resources stay held for the reconcile retry.
+func (o *Orchestrator) finishExpiredDuringApply(ctx context.Context, instance *workerInstance) error {
+	var pending int
+	if err := o.store.db.Pool.QueryRow(ctx, `
+		SELECT count(*) FROM instance_operations
+		WHERE instance_id = $1 AND operation = 'DESTROY' AND status IN ('QUEUED','RUNNING')
+	`, instance.ID).Scan(&pending); err != nil {
+		return err
+	}
+	if pending > 0 {
+		return conflict(CodeExpired, "instance expired during provider apply; cleanup is pending")
+	}
+	if err := o.store.releaseResources(ctx, instance.ID); err != nil {
+		return err
+	}
+	o.store.syncPentestEnvironmentStatus(ctx, instance.ID, StatusExpired)
+	o.enqueueEvent(ctx, instance, events.EventInstanceExpired, "EXPIRED")
+	return nil
 }

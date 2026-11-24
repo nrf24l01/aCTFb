@@ -24,11 +24,11 @@ func extensionRequestHash(instanceID uuid.UUID) string {
 // verbatim for a retried Idempotency-Key so a double click cannot consume two
 // credits.
 type extendOutcome struct {
-	InstanceID      uuid.UUID
-	GrantedSeconds  int64
-	ExtensionCount  int
-	ExpiresAt       *time.Time
-	Replay          bool
+	InstanceID     uuid.UUID
+	GrantedSeconds int64
+	ExtensionCount int
+	ExpiresAt      *time.Time
+	Replay         bool
 }
 
 type extendRow struct {
@@ -41,7 +41,11 @@ type extendRow struct {
 	SubjectType    string
 	SubjectID      uuid.UUID
 	Snapshot       DesiredSnapshot
+	BoardStatus    string
+	BoardStartsAt  *time.Time
 	BoardEndsAt    *time.Time
+	ModuleEnabled  bool
+	ModuleStartsAt *time.Time
 	ModuleEndsAt   *time.Time
 }
 
@@ -61,7 +65,8 @@ func (s *store) extendInstanceAtomic(ctx context.Context, instanceID uuid.UUID, 
 	var snapshotRaw []byte
 	if err := tx.QueryRow(ctx, `
 		SELECT i.id, i.status, i.expires_at, i.extension_count, i.created_at, i.removed_at,
-		       i.subject_type, i.subject_id, i.desired_snapshot, b.ends_at, m.ends_at
+		       i.subject_type, i.subject_id, i.desired_snapshot,
+		       b.status, b.starts_at, b.ends_at, m.enabled, m.starts_at, m.ends_at
 		FROM instances i
 		JOIN boards b ON b.id = i.board_id
 		JOIN modules m ON m.board_id = i.board_id AND m.id = i.module_id
@@ -69,7 +74,9 @@ func (s *store) extendInstanceAtomic(ctx context.Context, instanceID uuid.UUID, 
 		FOR UPDATE OF i
 	`, instanceID).Scan(
 		&row.ID, &row.Status, &row.ExpiresAt, &row.ExtensionCount, &row.CreatedAt, &row.RemovedAt,
-		&row.SubjectType, &row.SubjectID, &snapshotRaw, &row.BoardEndsAt, &row.ModuleEndsAt,
+		&row.SubjectType, &row.SubjectID, &snapshotRaw,
+		&row.BoardStatus, &row.BoardStartsAt, &row.BoardEndsAt,
+		&row.ModuleEnabled, &row.ModuleStartsAt, &row.ModuleEndsAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, notFound(CodeNotFound)
@@ -126,6 +133,12 @@ func (s *store) extendInstanceAtomic(ctx context.Context, instanceID uuid.UUID, 
 	}
 	if row.ExpiresAt == nil || !row.ExpiresAt.After(now) {
 		return nil, conflict(CodeExpired, "instance has expired")
+	}
+	// The board/module window is re-read under the same lock, with the same
+	// post-wait clock: a paused board or disabled module must not let a credit be
+	// spent on time the worker would refuse to provision.
+	if err := row.liveWindowError(now); err != nil {
+		return nil, err
 	}
 	policy := policyFor(row.Snapshot, options)
 	if !policy.ExtendEnabled {
@@ -191,4 +204,29 @@ func (s *Service) extendInstance(ctx context.Context, actorUserID uuid.UUID, ins
 		return nil, err
 	}
 	return s.store.getInstance(ctx, instanceID)
+}
+
+// liveWindowError reports whether the board/module is currently usable for a new
+// provisioning attempt. It is evaluated after the row lock and the database
+// clock read, so it cannot be based on stale pre-lock state.
+func (r *extendRow) liveWindowError(now time.Time) error {
+	if r.BoardStatus != "ACTIVE" && r.BoardStatus != "SCHEDULED" {
+		return conflict(CodeBoardNotActive, "board is not active")
+	}
+	if r.BoardStartsAt != nil && now.Before(*r.BoardStartsAt) {
+		return conflict(CodeBoardNotActive, "board has not started")
+	}
+	if r.BoardEndsAt != nil && !now.Before(*r.BoardEndsAt) {
+		return conflict(CodeExpired, "board has ended")
+	}
+	if !r.ModuleEnabled {
+		return instanceError(CodeForbidden, "module is not available", 403)
+	}
+	if r.ModuleStartsAt != nil && now.Before(*r.ModuleStartsAt) {
+		return instanceError(CodeForbidden, "module is not available", 403)
+	}
+	if r.ModuleEndsAt != nil && !now.Before(*r.ModuleEndsAt) {
+		return conflict(CodeExpired, "module has ended")
+	}
+	return nil
 }

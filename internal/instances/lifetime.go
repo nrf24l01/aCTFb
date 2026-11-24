@@ -211,6 +211,22 @@ func policyForSnapshot(lifecycle *LifecyclePolicy, options Options) LifecyclePol
 	return legacyPolicy(options)
 }
 
+// resolveInstancePolicy is the single resolver shared by the read model and the
+// action paths. A frozen snapshot policy wins for every field. A legacy instance
+// derives its lifetime and extension fields from the operator options and takes
+// reset from the LIVE module setting, because reset is an administrative switch
+// that must apply to rows created before the policy existed.
+func resolveInstancePolicy(lifecycle *LifecyclePolicy, module *ModuleInstanceSettings, options Options) LifecyclePolicy {
+	if lifecycle != nil {
+		return *lifecycle
+	}
+	policy := legacyPolicy(options)
+	if module != nil {
+		policy.ResetEnabled = module.ResetEnabled
+	}
+	return policy
+}
+
 // DefaultInitialLifetimeSeconds is the documented global fallback initial
 // lifetime. The boards read model exposes the same value; a test cross-checks
 // the two so the task summary cannot drift from the service.

@@ -17,14 +17,14 @@ import (
 // lifetimeHarness wires a real PostgreSQL schema with the fake driver so the
 // service, the orchestrator and the SQL policies are exercised together.
 type lifetimeHarness struct {
-	db         *postgres.DB
-	ids        seedIDs
-	service    *Service
+	db           *postgres.DB
+	ids          seedIDs
+	service      *Service
 	orchestrator *Orchestrator
-	publisher  *fakePublisher
-	driver     *fakeDriver
-	actor      authorization.Principal
-	ctx        context.Context
+	publisher    *fakePublisher
+	driver       *fakeDriver
+	actor        authorization.Principal
+	ctx          context.Context
 }
 
 func newLifetimeHarness(t *testing.T) *lifetimeHarness {
@@ -115,7 +115,7 @@ func (h *lifetimeHarness) snapshot(t *testing.T, id uuid.UUID) DesiredSnapshot {
 	return snapshot
 }
 
-func intTestPtr(value int) *int { return &value }
+func intTestPtr(value int) *int    { return &value }
 func boolTestPtr(value bool) *bool { return &value }
 
 func TestTaskLifetimeOverrideAndSnapshotFreezeRealPostgres(t *testing.T) {
@@ -343,9 +343,15 @@ func TestLegacySnapshotFallsBackToGlobalPolicyRealPostgres(t *testing.T) {
 	if legacy.Lifecycle != nil {
 		t.Fatal("legacy snapshot should have no frozen policy")
 	}
-	// The legacy path reports no extension capability rather than inventing one.
-	if legacy.CanExtend {
-		t.Fatalf("legacy instance must not advertise canExtend: %+v", legacy)
+	// A legacy instance keeps the documented global fallback, and the read model
+	// must report exactly what the service will do (see
+	// TestLegacyInstanceReadModelMatchesActionPolicyRealPostgres for the action
+	// side).
+	if !legacy.CanExtend {
+		t.Fatalf("legacy instance must advertise the global-fallback extension: %+v", legacy)
+	}
+	if legacy.ExtensionsRemaining == nil || *legacy.ExtensionsRemaining != 3 {
+		t.Fatalf("legacy remaining extensions = %v, want the global default 3", legacy.ExtensionsRemaining)
 	}
 }
 
@@ -408,9 +414,10 @@ func TestWorkerLateExpiryDoesNotAdvertiseRunningRealPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	// HandleJob surfaces the expiry as an error; the important part is the state.
-	if err := orchestrator.HandleJob(ctx, publisher.last(t)); err == nil {
-		t.Fatal("a job that expires during Apply must not report success")
+	// The job ends as a completed cleanup: the provider resource was destroyed and
+	// the environment expired. It must never be reported as a RUNNING instance.
+	if err := orchestrator.HandleJob(ctx, publisher.last(t)); err != nil {
+		t.Fatalf("a late expiry with a confirmed destroy must settle the job: %v", err)
 	}
 	current, err := service.Get(ctx, actor, instance.UUID)
 	if err != nil {

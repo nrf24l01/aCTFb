@@ -721,3 +721,52 @@ func (s *store) pendingJobs(ctx context.Context, limit int) ([]Job, error) {
 	}
 	return jobs, nil
 }
+
+// stageExpiredResource persists a provider resource that was created after the
+// instance deadline and queues its DESTROY, in one transaction, BEFORE any
+// external destroy is attempted. If the worker crashes or the destroy call fails,
+// the next reconcile pass finds the real provider id and a queued DESTROY op, so
+// the object is never orphaned.
+//
+// It returns the queued operation id. The caller may attempt an inline destroy
+// and mark that operation done, but the durable record exists either way.
+func (s *store) stageExpiredResource(ctx context.Context, instanceID uuid.UUID, nodeKey string, generation int64, driver, providerID string) (uuid.UUID, error) {
+	tx, err := s.db.Pool.Begin(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	labels := mustJSON(runtime.Labels(driver, runtime.Operation{InstanceID: instanceID, NodeKey: nodeKey, Generation: generation}))
+	if _, err := tx.Exec(ctx, `
+		UPDATE instance_nodes
+		SET status = 'DESTROYING', provider_resource_id = NULLIF($4,''), generation = $3, provider_labels = $5
+		WHERE instance_id = $1 AND key = $2
+	`, instanceID, nodeKey, generation, providerID, labels); err != nil {
+		return uuid.Nil, err
+	}
+	opID := uuid.New()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO instance_operations
+			(id, instance_id, node_key, operation, generation, idempotency_key, status,
+			 requested_by, authorized_context)
+		VALUES ($1,$2,$3,'DESTROY',$4,$5,'QUEUED',NULL,$6)
+		ON CONFLICT (instance_id, node_key, generation, operation) DO NOTHING
+	`, opID, instanceID, nodeKey, generation,
+		fmt.Sprintf("%s:%s:%d:DESTROY", instanceID, nodeKey, generation),
+		mustJSON(AuthorizedContext{System: true, Permission: "system.expire"}),
+	); err != nil {
+		return uuid.Nil, err
+	}
+	var queued uuid.UUID
+	if err := tx.QueryRow(ctx, `
+		SELECT id FROM instance_operations
+		WHERE instance_id=$1 AND node_key=$2 AND generation=$3 AND operation='DESTROY'
+	`, instanceID, nodeKey, generation).Scan(&queued); err != nil {
+		return uuid.Nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return uuid.Nil, err
+	}
+	return queued, nil
+}

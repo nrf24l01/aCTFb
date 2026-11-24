@@ -18,9 +18,13 @@ import (
 
 type store struct {
 	db *postgres.DB
+	// options are the operator-configured global lifetime defaults. The read
+	// model needs them to resolve a legacy instance (no frozen snapshot policy)
+	// exactly the way the action paths do, instead of guessing.
+	options Options
 }
 
-func newStore(db *postgres.DB) *store { return &store{db: db} }
+func newStore(db *postgres.DB, options Options) *store { return &store{db: db, options: options} }
 
 // sourceContext is the live board/module/task/pentest configuration. Every
 // field is reloaded at start and rechecked by the worker before apply.
@@ -396,24 +400,31 @@ func (s *store) findByIdempotencyKey(ctx context.Context, key string) (*liveInst
 
 func (s *store) getInstance(ctx context.Context, id uuid.UUID) (*Instance, error) {
 	instance := &Instance{}
-	var snapshotRaw []byte
+	var snapshotRaw, moduleSettingsRaw []byte
 	var boardEndsAt, moduleEndsAt *time.Time
+	var pentestResetEnabled *bool
+	var pentestMaxResets, pentestResetsUsed *int
 	err := s.db.Pool.QueryRow(ctx, `
 		SELECT i.id, i.board_id, i.module_id, i.scope, i.scope_uuid, i.subject_type, i.subject_id,
 		       u.username, i.status, i.created_at, i.started_at, i.expires_at, i.extension_count,
 		       i.generation, i.binding_id, i.template_version_id, i.removed_at,
-		       i.desired_snapshot, b.ends_at, m.ends_at
+		       i.desired_snapshot, b.ends_at, m.ends_at, m.task_instance_settings,
+		       pc.reset_enabled, pc.max_resets, pe.resets_used
 		FROM instances i
 		LEFT JOIN users u ON u.id = i.subject_id
 		LEFT JOIN boards b ON b.id = i.board_id
 		LEFT JOIN modules m ON m.board_id = i.board_id AND m.id = i.module_id
+		LEFT JOIN pentest_configs pc ON pc.module_id = i.module_id
+		LEFT JOIN pentest_environments pe
+		       ON pe.module_id = i.module_id AND pe.subject_type = i.subject_type AND pe.subject_id = i.subject_id
 		WHERE i.id = $1
 	`, id).Scan(
 		&instance.UUID, &instance.BoardID, &instance.ModuleID, &instance.Scope, &instance.ScopeUUID,
 		&instance.SubjectType, &instance.SubjectID, &instance.SubjectName, &instance.Status,
 		&instance.CreatedAt, &instance.StartedAt, &instance.ExpiresAt, &instance.ExtensionCount,
 		&instance.Generation, &instance.BindingID, &instance.VersionID, &instance.RemovedAt,
-		&snapshotRaw, &boardEndsAt, &moduleEndsAt,
+		&snapshotRaw, &boardEndsAt, &moduleEndsAt, &moduleSettingsRaw,
+		&pentestResetEnabled, &pentestMaxResets, &pentestResetsUsed,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -425,8 +436,18 @@ func (s *store) getInstance(ctx context.Context, id uuid.UUID) (*Instance, error
 	if len(snapshotRaw) > 0 {
 		_ = json.Unmarshal(snapshotRaw, &snapshot)
 	}
+	moduleSettings, err := decodeModuleInstanceSettings(moduleSettingsRaw)
+	if err != nil {
+		return nil, instanceError(CodeInternal, "stored module instance settings are invalid", 500)
+	}
 	instance.Lifecycle = snapshot.Lifecycle
-	instance.applyLifecycle(boardEndsAt, moduleEndsAt, time.Now())
+	policy := resolveInstancePolicy(snapshot.Lifecycle, moduleSettings, s.options)
+	instance.applyLifecycle(policy, boardEndsAt, moduleEndsAt, time.Now())
+	if instance.Scope == ScopePentest {
+		// A pentest environment never extends; reset depends on the live
+		// pentest config and the consumed reset budget, not on a task policy.
+		instance.applyPentestCapabilities(pentestResetEnabled, pentestMaxResets, pentestResetsUsed)
+	}
 	nodes, err := s.loadNodes(ctx, id)
 	if err != nil {
 		return nil, err
@@ -545,10 +566,10 @@ func (s *store) loadModuleSettings(ctx context.Context, moduleID uuid.UUID, sour
 // lane. Unknown fields are ignored so a future additive key cannot break the
 // worker.
 type moduleInstanceSettingsWire struct {
-	DefaultTTLSeconds                *int   `json:"defaultTtlSeconds"`
-	MaxTTLSeconds                    *int   `json:"maxTtlSeconds"`
-	MaxConcurrentInstancesPerSubject *int   `json:"maxConcurrentInstancesPerSubject"`
-	ResetEnabled                     *bool  `json:"resetEnabled"`
+	DefaultTTLSeconds                *int  `json:"defaultTtlSeconds"`
+	MaxTTLSeconds                    *int  `json:"maxTtlSeconds"`
+	MaxConcurrentInstancesPerSubject *int  `json:"maxConcurrentInstancesPerSubject"`
+	ResetEnabled                     *bool `json:"resetEnabled"`
 	Extension                        *struct {
 		Enabled  *bool `json:"enabled"`
 		Seconds  *int  `json:"seconds"`
@@ -593,17 +614,11 @@ func decodeModuleInstanceSettings(raw []byte) (*ModuleInstanceSettings, error) {
 	return settings, nil
 }
 
-// applyLifecycle fills the server-computed capability fields. Clients never
-// derive these: the UI only renders what the server allows.
-func (i *Instance) applyLifecycle(boardEndsAt, moduleEndsAt *time.Time, now time.Time) {
-	if i.Lifecycle == nil {
-		// Legacy instance without a frozen policy: report no extension
-		// capability rather than inventing one the service would not honour.
-		i.CanExtend = false
-		i.CanReset = i.Status != StatusDestroying && i.Status != StatusExpired && i.RemovedAt == nil
-		return
-	}
-	policy := *i.Lifecycle
+// applyLifecycle fills the server-computed capability fields from an already
+// resolved policy. Clients never derive these: the UI only renders what the
+// server allows, and the policy here is the same one the action paths use, so a
+// legacy instance cannot advertise "no extend" while the service still extends.
+func (i *Instance) applyLifecycle(policy LifecyclePolicy, boardEndsAt, moduleEndsAt *time.Time, now time.Time) {
 	remaining := int64(policy.ExtendMaxCount) - i.ExtensionCount
 	if remaining < 0 {
 		remaining = 0
@@ -616,5 +631,36 @@ func (i *Instance) applyLifecycle(boardEndsAt, moduleEndsAt *time.Time, now time
 		deadline := hardDeadline(i.CreatedAt, time.Duration(policy.MaxTotalTTLSeconds)*time.Second, boardEndsAt, moduleEndsAt)
 		i.CanExtend = deadline.After(*i.ExpiresAt)
 	}
-	i.CanReset = i.RemovedAt == nil && i.Status != StatusDestroying && i.Status != StatusExpired && policy.ResetEnabled
+	i.CanReset = i.resetAllowed(now) && policy.ResetEnabled
+}
+
+// resetAllowed is the shared live precondition for RESET: not removed, not
+// already destroying/expired, and not past the deadline. It does not consult a
+// policy; callers combine it with the frozen or live reset switch.
+func (i *Instance) resetAllowed(now time.Time) bool {
+	if i.RemovedAt != nil || i.Status == StatusDestroying || i.Status == StatusExpired {
+		return false
+	}
+	if i.ExpiresAt != nil && !i.ExpiresAt.After(now) {
+		return false
+	}
+	return true
+}
+
+// applyPentestCapabilities reflects the real pentest config and budget. A
+// pentest environment never extends, so the extension fields stay nil instead of
+// advertising a zero step or a zero remaining count.
+func (i *Instance) applyPentestCapabilities(resetEnabled *bool, maxResets, resetsUsed *int) {
+	i.CanExtend = false
+	i.ExtensionSeconds = nil
+	i.ExtensionsRemaining = nil
+	if resetEnabled == nil || !*resetEnabled {
+		i.CanReset = false
+		return
+	}
+	if maxResets != nil && resetsUsed != nil && *resetsUsed >= *maxResets {
+		i.CanReset = false
+		return
+	}
+	i.CanReset = i.resetAllowed(time.Now())
 }

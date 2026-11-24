@@ -111,7 +111,7 @@ func NewService(db *postgres.DB, auth authorization.Authorizer, registry *runtim
 		return nil, errors.New("instances: database is required")
 	}
 	service := &Service{
-		store: dbStore(db), auth: auth, registry: registry, sealer: sealer, keyVersion: keyVersion,
+		auth: auth, registry: registry, sealer: sealer, keyVersion: keyVersion,
 		logger: slog.Default(),
 		options: Options{
 			DefaultTTL:             time.Hour,
@@ -126,10 +126,13 @@ func NewService(db *postgres.DB, auth authorization.Authorizer, registry *runtim
 			option(service)
 		}
 	}
+	// The read model must resolve a legacy instance with exactly the operator
+	// options the action paths use, so build the store after the options apply.
+	service.store = dbStore(db, service.options)
 	return service, nil
 }
 
-func dbStore(db *postgres.DB) *store { return &store{db: db} }
+func dbStore(db *postgres.DB, options Options) *store { return &store{db: db, options: options} }
 
 // StartTask creates the immutable desired snapshot and queues provisioning.
 func (s *Service) StartTask(ctx context.Context, actor authorization.Principal, boardID, moduleID, taskID uuid.UUID, idempotencyKey string) (*Instance, error) {
@@ -428,8 +431,13 @@ func (s *Service) applyAction(ctx context.Context, actor authorization.Principal
 		}
 		return s.extendInstance(ctx, actor.UserID, target.UUID, idempotencyKey)
 	case ActionReset:
-		if target.Status == StatusDestroying || target.Status == StatusExpired || target.RemovedAt != nil {
-			return nil, conflict(CodeActionNotAllowed, "instance cannot be reset")
+		if !target.resetAllowed(time.Now()) {
+			// An expired instance is never reset, even while the board/module
+			// window is still open: its lifetime has ended.
+			if target.RemovedAt != nil || target.Status == StatusExpired {
+				return nil, conflict(CodeActionNotAllowed, "instance cannot be reset")
+			}
+			return nil, conflict(CodeExpired, "instance has expired")
 		}
 		if err := s.ensureActive(source); err != nil {
 			return nil, conflict(CodeExpired, "instance has expired")
@@ -438,7 +446,9 @@ func (s *Service) applyAction(ctx context.Context, actor authorization.Principal
 			return nil, instanceError(CodeActionNotAllowed, "reset is disabled for this pentest", 422)
 		}
 		if scope == ScopeTask {
-			policy := policyForSnapshot(target.Lifecycle, s.options)
+			// New instances use their frozen policy; legacy rows follow the live
+			// module switch so an admin disabling reset takes effect immediately.
+			policy := resolveInstancePolicy(target.Lifecycle, source.ModuleSettings, s.options)
 			if !policy.ResetEnabled {
 				return nil, instanceError(CodeActionNotAllowed, "reset is disabled for this module", 422)
 			}
