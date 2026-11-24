@@ -189,7 +189,9 @@ report text + attached-file metadata. No duplicate core routes are added.
   generation is canceled and can never create a future generation.
 - TTL expiration queues cleanup; a worker kill leaves operations
   `QUEUED`/`RUNNING` and `PendingJobs` reconciles them. Drivers adopt only exact
-  labels; stale owned generations and platform volumes are removed.
+  labels; stale owned generations and platform volumes are removed. A failed
+  operation is marked `FAILED` and is **not** retried automatically; the instance
+  stays `ERROR` until expiry cleanup removes it.
 - `cmd/instance-worker` consumes `ACTFB_INSTANCES` / `actfb.instances.jobs`
   (JetStream, explicit ack), runs a 30 s reconcile/expiry loop, and answers
   `actfb.integrations.test.request` with an **id-only** payload.
@@ -199,9 +201,53 @@ board/module participation/team membership, module audience, board/module
 window, and operation generation. `authorized_context` is loaded from the DB by
 operation id.
 
-`instances.Options` defaults: TTL 1 h, max TTL 7 d, extension 30 min, max 3
-extensions, max 2 instances per subject (enforced by core; the DB still owns
-uniqueness).
+### Lifetime policy (migration 019)
+
+`instances.Options` still holds the **global fallback**: initial 1 h, maximum
+total 7 d, one extension step of 30 min, 3 extension credits, 2 concurrent
+instances per subject. A module may persist `modules.task_instance_settings`
+(`defaultTtlSeconds`, `maxTtlSeconds`, `maxConcurrentInstancesPerSubject`,
+`resetEnabled`, `extension{enabled,seconds,maxCount}`) and a task may persist
+nullable overrides (`instance_ttl_seconds`, `instance_max_ttl_seconds`,
+`instance_extension_enabled`, `instance_extension_seconds`,
+`instance_extension_max_count`). Precedence is task → module → global, and an
+override may only narrow the module ceiling.
+
+The resolved policy is **frozen** into `desired_snapshot.lifecycle` at CREATE, so
+later task/module edits affect new instances only. Instances created before the
+block existed have no policy and fall back to the global defaults.
+
+```text
+hardDeadline   = min(created_at + maxTotalTtl, earliest(boardEnd, moduleEnd))
+initialExpires = min(created_at + initialTtl,   hardDeadline)
+```
+
+The anchor is `instances.created_at` (request/allocation time), and the expiry is
+computed with the database clock in the insert. Board/module ends and the hard
+deadline are always read live, including for old instances.
+
+`maxConcurrentInstancesPerSubject` is enforced inside the create transaction
+under a per-module+subject advisory lock; live rows (`removed_at IS NULL`,
+including `ERROR`/`DESTROYING`) count as allocated until cleanup is confirmed.
+The DB still owns the per-scope uniqueness index.
+
+`EXTEND` runs in one transaction: the instance row is locked, the DB clock is
+read after the wait, the snapshotted step is applied from the **current** expiry
+and clamped to the hard deadline, and exactly one credit is consumed. A zero-gain
+extension is rejected without spending a credit; a partial gain at the deadline
+spends one credit. `instance_extension_requests (instance_id, request_key)` makes
+a retried `Idempotency-Key` replay the original outcome instead of consuming a
+second credit. An `EXPIRED`/`DESTROYING`/removed instance is never revived.
+`RESET` never changes the expiry, the credit count or the anchor, and is refused
+when the frozen `resetEnabled` is false.
+
+The worker re-reads `expires_at` plus the live board/module window before any
+provider call, so a queued job whose deadline already passed performs zero
+`Apply` calls. If a provider call outlives the deadline, the node is not
+advertised `RUNNING`: the resource it just created is destroyed, the operation is
+not reported as success, and endpoints/leases are released only after a confirmed
+destroy. Cleanup therefore happens within the existing 30 s reconcile interval,
+not instantly.
 
 ### Binding / allowlist
 

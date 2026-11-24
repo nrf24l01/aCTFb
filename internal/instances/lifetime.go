@@ -110,24 +110,28 @@ func ResolveLifecycle(task TaskLifetimeOverrides, module *ModuleInstanceSettings
 	return policy, nil
 }
 
+// validate only checks internal consistency. The 60 s..7 d bounds belong to the
+// administrator-facing contract (boards validation plus the migration CHECK
+// constraints); the trusted service Options are operator configuration and may
+// deliberately be shorter, for example a 6 s lifetime in an acceptance test.
 func (p LifecyclePolicy) validate() error {
-	if p.InitialTTLSeconds < MinLifetimeSeconds || p.InitialTTLSeconds > MaxLifetimeSeconds {
-		return fmt.Errorf("instances: initial lifetime %d is outside %d..%d", p.InitialTTLSeconds, MinLifetimeSeconds, MaxLifetimeSeconds)
+	if p.InitialTTLSeconds <= 0 {
+		return fmt.Errorf("instances: initial lifetime %d must be positive", p.InitialTTLSeconds)
 	}
-	if p.MaxTotalTTLSeconds < MinLifetimeSeconds || p.MaxTotalTTLSeconds > MaxLifetimeSeconds {
-		return fmt.Errorf("instances: max total lifetime %d is outside %d..%d", p.MaxTotalTTLSeconds, MinLifetimeSeconds, MaxLifetimeSeconds)
+	if p.MaxTotalTTLSeconds <= 0 {
+		return fmt.Errorf("instances: max total lifetime %d must be positive", p.MaxTotalTTLSeconds)
 	}
 	if p.InitialTTLSeconds > p.MaxTotalTTLSeconds {
 		return fmt.Errorf("instances: initial lifetime %d exceeds max total lifetime %d", p.InitialTTLSeconds, p.MaxTotalTTLSeconds)
 	}
-	if p.ExtendSeconds < MinLifetimeSeconds || p.ExtendSeconds > MaxExtensionSeconds {
-		return fmt.Errorf("instances: extension step %d is outside %d..%d", p.ExtendSeconds, MinLifetimeSeconds, MaxExtensionSeconds)
+	if p.ExtendSeconds <= 0 {
+		return fmt.Errorf("instances: extension step %d must be positive", p.ExtendSeconds)
 	}
-	if p.ExtendMaxCount < 0 || p.ExtendMaxCount > MaxExtensionCount {
-		return fmt.Errorf("instances: extension count %d is outside 0..%d", p.ExtendMaxCount, MaxExtensionCount)
+	if p.ExtendMaxCount < 0 {
+		return fmt.Errorf("instances: extension count %d must not be negative", p.ExtendMaxCount)
 	}
-	if p.MaxConcurrent < 1 || p.MaxConcurrent > MaxConcurrent {
-		return fmt.Errorf("instances: max concurrent %d is outside 1..%d", p.MaxConcurrent, MaxConcurrent)
+	if p.MaxConcurrent < 1 {
+		return fmt.Errorf("instances: max concurrent %d must be at least 1", p.MaxConcurrent)
 	}
 	return nil
 }
@@ -144,8 +148,11 @@ func normalizedOptions(options Options) Options {
 	if options.ExtensionTTL <= 0 {
 		options.ExtensionTTL = 30 * time.Minute
 	}
-	if options.MaxExtensions < 0 {
-		options.MaxExtensions = 0
+	// Options{} means "unset" (WithOptions only accepts positive values), so a
+	// zero here must fall back to the frozen default rather than meaning
+	// "extensions disabled". A real zero comes from module/task settings.
+	if options.MaxExtensions <= 0 {
+		options.MaxExtensions = 3
 	}
 	if options.MaxInstancesPerSubject <= 0 {
 		options.MaxInstancesPerSubject = 2
@@ -203,3 +210,8 @@ func policyForSnapshot(lifecycle *LifecyclePolicy, options Options) LifecyclePol
 	}
 	return legacyPolicy(options)
 }
+
+// DefaultInitialLifetimeSeconds is the documented global fallback initial
+// lifetime. The boards read model exposes the same value; a test cross-checks
+// the two so the task summary cannot drift from the service.
+const DefaultInitialLifetimeSeconds = 3600

@@ -177,6 +177,30 @@ Runtime/integration providers are configured through the admin integration recor
 environment values. Docker is the only supported project container runtime; not every advertised VM/container
 driver is accepted in this environment.
 
+### Instance lifetime
+
+Instance lifetime is configured in the web admin UI, not in `config.yaml`:
+
+- **Module** (TASKS module, Instance format): default lifetime, maximum total lifetime, max concurrent
+  instances per participant, reset allowed, and the student extension policy (enabled, one step, max count).
+- **Task** (INSTANCE task, Lifetime section): `Inherit module defaults` or `Custom` with an initial lifetime,
+  a maximum total lifetime and an extension override. An override may only narrow the module limits; the
+  server rejects an attempt to raise them and never silently clamps an admin value.
+
+Precedence is task override → module setting → global default. The global defaults are compiled in
+(`1 h` initial, `7 d` maximum total, `+30 min × 3` extensions, `2` concurrent instances per subject) and
+are used unchanged when a module has no settings, so legacy boards keep their behaviour. There are no new
+`ENV`/`YAML` keys for this feature.
+
+Lifetime is measured from the moment the environment is **requested**, so provisioning time counts. The
+effective expiry is additionally clamped by the earliest board/module end and by the maximum total
+lifetime; those two are always read live, even for instances created before a policy edit. Participants
+extend by the configured step only and never choose a duration.
+
+VM drivers (Proxmox, KubeVirt, Kubernetes) remain blocked for live acceptance here: they need an operator
+allowlist entry in `ACTFB_PROVIDER_ALLOWED_HOSTS` (env-only, empty means deny every remote provider URL) plus
+reachable credentials. Only Docker has a real-daemon test in this repository.
+
 ## Retention
 
 | ENV | YAML | Short description | Default |

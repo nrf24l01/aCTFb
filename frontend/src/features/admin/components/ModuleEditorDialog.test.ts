@@ -154,3 +154,61 @@ describe('ModuleEditorDialog EXTENSION and legacy formats', () => {
     wrapper.unmount()
   })
 })
+
+describe('ModuleEditorDialog instance settings', () => {
+  it('reloads the persisted instance policy and sends it back', async () => {
+    const wrapper = mount(ModuleEditorDialog, {
+      props: {
+        open: true,
+        boardUuid: '11111111-1111-4111-8111-111111111111',
+        audiences: [],
+        module: {
+          uuid: '33333333-3333-4333-8333-333333333333',
+          boardUuid: '11111111-1111-4111-8111-111111111111',
+          name: 'Lab',
+          description: '',
+          type: 'TASKS',
+          allowedTaskTypes: ['INSTANCE'],
+          status: 'ACTIVE',
+          audienceUuids: [],
+          order: 0,
+          enabled: true,
+          taskInstanceSettings: {
+            maxConcurrentInstancesPerSubject: 2,
+            defaultTtlSeconds: 1800,
+            maxTtlSeconds: 7200,
+            resetEnabled: false,
+            extension: { enabled: true, seconds: 900, maxCount: 6 },
+          },
+        },
+      },
+      attachTo: document.body,
+    })
+    await flushPromises()
+
+    const value = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.value
+    // 1800 s -> 0.5 h, 7200 s -> 2 h, 900 s -> 15 min, count 6.
+    expect(value('module-instance-default-ttl')).toBe('0.5')
+    expect(value('module-instance-max-ttl')).toBe('2')
+    expect(value('module-instance-extension-minutes')).toBe('15')
+    expect(value('module-instance-extension-count')).toBe('6')
+
+    document.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+    await flushPromises()
+
+    expect(updateModule).toHaveBeenCalledTimes(1)
+    const body = updateModule.mock.calls[0][2] as {
+      taskInstanceSettings: {
+        defaultTtlSeconds: number
+        maxTtlSeconds: number
+        resetEnabled: boolean
+        extension: { enabled: boolean; seconds: number; maxCount: number }
+      }
+    }
+    expect(body.taskInstanceSettings.defaultTtlSeconds).toBe(1800)
+    expect(body.taskInstanceSettings.maxTtlSeconds).toBe(7200)
+    expect(body.taskInstanceSettings.resetEnabled).toBe(false)
+    expect(body.taskInstanceSettings.extension).toEqual({ enabled: true, seconds: 900, maxCount: 6 })
+    wrapper.unmount()
+  })
+})
