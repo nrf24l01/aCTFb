@@ -212,3 +212,48 @@ describe('ModuleEditorDialog instance settings', () => {
     wrapper.unmount()
   })
 })
+
+describe('ModuleEditorDialog instance limit validation', () => {
+  it('blocks an out-of-range max concurrency instead of sending it', async () => {
+    const wrapper = mount(ModuleEditorDialog, {
+      props: {
+        open: true,
+        boardUuid: '11111111-1111-4111-8111-111111111111',
+        audiences: [],
+        module: {
+          uuid: '33333333-3333-4333-8333-333333333333',
+          boardUuid: '11111111-1111-4111-8111-111111111111',
+          name: 'Lab',
+          description: '',
+          type: 'TASKS',
+          allowedTaskTypes: ['INSTANCE'],
+          status: 'ACTIVE',
+          audienceUuids: [],
+          order: 0,
+          enabled: true,
+          taskInstanceSettings: {
+            maxConcurrentInstancesPerSubject: 2,
+            defaultTtlSeconds: 3600,
+            maxTtlSeconds: 7200,
+            resetEnabled: true,
+            extension: { enabled: true, seconds: 900, maxCount: 3 },
+          },
+        },
+      },
+      attachTo: document.body,
+    })
+    await flushPromises()
+
+    const input = document.getElementById('module-instance-concurrent') as HTMLInputElement
+    input.value = '0'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+
+    document.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+    await flushPromises()
+
+    expect(updateModule).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('Max concurrent per participant must be a whole number between 1 and 100')
+    wrapper.unmount()
+  })
+})

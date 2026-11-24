@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import EmptyState from '@/components/layout/EmptyState.vue'
@@ -8,6 +8,7 @@ import LoadingState from '@/components/layout/LoadingState.vue'
 import StatusBadge from '@/components/layout/StatusBadge.vue'
 import ConfirmDialog from '@/components/layout/ConfirmDialog.vue'
 import { instancesApi } from '@/features/instances/api'
+import { createIdempotencyKey } from '@/shared/api/idempotency'
 import { isApiError } from '@/shared/api/errors'
 import { formatDateTime } from '@/shared/lib/format'
 import type { Instance, Task } from '@/shared/types/api'
@@ -23,9 +24,11 @@ const destroyOpen = ref(false)
 let pollTimer: ReturnType<typeof setTimeout> | null = null
 let tickTimer: ReturnType<typeof setInterval> | null = null
 let alive = true
-// One key per action intent; kept across a failed attempt so a retry can never
-// consume a second extension credit, cleared after success.
-const retryKeys: Record<string, string | undefined> = {}
+// One key per action intent. It is created on the first attempt and kept across a
+// failed attempt (network error, 5xx, lost response) so a retry is a replay of the
+// same intent and can never consume a second extension credit. It is cleared only
+// after a confirmed success or when the instance identity changes.
+const retryKeys = ref<Record<string, string>>({})
 const now = ref(Date.now())
 
 const transient = computed(() =>
@@ -57,7 +60,7 @@ const extendDisabledReason = computed(() => {
   if (remaining.value !== null && remaining.value <= 0) return 'Instance has expired'
   if (current.canExtend) return undefined
   if (current.extensionsRemaining === 0) return 'No extensions left'
-  return 'No further extension budget before the deadline'
+  return 'Extensions are not available for this instance'
 })
 
 function formatRemaining(seconds: number): string {
@@ -113,18 +116,22 @@ async function start() {
 }
 
 async function action(next: 'RESET' | 'DESTROY' | 'EXTEND') {
+  if (busy.value) return
   busy.value = true
   error.value = null
-  const key = retryKeys[next]
+  // Reuse the key of an unfinished attempt; generate exactly one new key per
+  // intent otherwise.
+  const key = retryKeys.value[next] ?? createIdempotencyKey()
+  retryKeys.value = { ...retryKeys.value, [next]: key }
   try {
     instance.value = await instancesApi.taskAction(props.boardUuid, props.moduleUuid, props.task.uuid, next, key)
-    delete retryKeys[next]
+    const { [next]: _consumed, ...remainingKeys } = retryKeys.value
+    retryKeys.value = remainingKeys
     destroyOpen.value = false
     schedulePoll()
     emit('changed')
   } catch (caught) {
-    // Keep the key so the next attempt is a safe retry of the same intent.
-    if (next === 'EXTEND') retryKeys[next] = key ?? retryKeys[next]
+    // The key stays so the next click replays the same request.
     error.value = caught
   } finally {
     busy.value = false
@@ -138,6 +145,15 @@ function copy(value: string) {
 tickTimer = setInterval(() => {
   now.value = Date.now()
 }, 1000)
+
+// A new instance (start, reset, or another task) is a different intent: never
+// carry a stale key across identities.
+watch(
+  () => instance.value?.uuid,
+  () => {
+    retryKeys.value = {}
+  },
+)
 
 onUnmounted(() => {
   alive = false
@@ -159,8 +175,10 @@ void load()
     </div>
     <div class="space-y-3 px-4 py-4">
       <LoadingState v-if="loading" :rows="2" />
-      <ErrorAlert v-else-if="error" :error="error" title="Instance request failed" />
       <template v-else>
+        <!-- A failed action must not hide the instance: the retry button lives
+             inside the panel and reuses the same Idempotency-Key. -->
+        <ErrorAlert v-if="error" :error="error" title="Instance request failed" />
         <EmptyState
           v-if="!instance"
           title="No instance"

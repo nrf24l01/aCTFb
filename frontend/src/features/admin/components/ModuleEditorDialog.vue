@@ -149,6 +149,13 @@ function validateSettings(): string | undefined {
     return 'Choose one task type to resolve this legacy mixed module.'
   }
   if (isInstance.value) {
+    if (
+      !Number.isInteger(form.instanceMaxConcurrent) ||
+      form.instanceMaxConcurrent < 1 ||
+      form.instanceMaxConcurrent > 100
+    ) {
+      return 'Max concurrent per participant must be a whole number between 1 and 100.'
+    }
     if (form.instanceMaxTtlHours < form.instanceDefaultTtlHours) {
       return 'Maximum TTL must be at least the default TTL.'
     }
