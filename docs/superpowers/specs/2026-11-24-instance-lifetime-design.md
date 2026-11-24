@@ -136,6 +136,26 @@ reason. Empty/zero count is never rendered as "unlimited".
 
 Admin inventory keeps using the existing instance read model (expires/used/remaining).
 
+## 7a. Independent-review rulings (2026-11-24)
+
+The frozen design was upheld; five implementation defects were found and fixed (see
+`docs/instance-lifetime-review-fixes.md`). The following points were ambiguous enough to record as rulings:
+
+- **Legacy rows use the operator policy, not a disabled button.** An instance whose snapshot has no
+  `lifecycle` block resolves through the same resolver the action paths use: initial/max/extension from
+  `instances.Options`, reset from the **live** module setting, and the current board/module end still clamps
+  the hard deadline. Fail-closed was rejected because it would remove a capability existing live instances
+  have today.
+- **The effective pair is validated, not the overrides.** `initial <= max` is checked on the resolved values,
+  and a module update re-checks every instance-enabled task under the same per-module advisory lock the task
+  mutations use, so an admin cannot strand a task and a concurrent edit cannot produce an invalid pair.
+- **A late expiry persists the provider id before destroying.** The durable record (provider id, node
+  `DESTROYING`, queued DESTROY) is written first; only a confirmed destroy releases endpoints/leases.
+- **The 60 s contract minimum is administrator-facing.** Trusted operator `Options` may be shorter for
+  acceptance tests; the read model reports the operator value rather than clamping it.
+- **`integrations.allowed_hosts` in `config.yaml` is the supported remote-provider allowlist.** The legacy env
+  variable remains a fallback only when the YAML list is empty; the SSRF guard is unchanged.
+
 ## 8. Out of scope
 
 - No per-task `starts_at`/`ends_at` (they do not exist; board/module windows remain).

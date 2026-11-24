@@ -205,7 +205,16 @@ operation id.
 
 `instances.Options` still holds the **global fallback**: initial 1 h, maximum
 total 7 d, one extension step of 30 min, 3 extension credits, 2 concurrent
-instances per subject. A module may persist `modules.task_instance_settings`
+instances per subject.
+
+The `60 s` minima in `docs/swagger.yaml` describe the **administrator-facing**
+contract (module settings and task overrides). They are enforced by the boards
+validation and the migration `019` CHECK constraints. `instances.Options` is
+trusted operator configuration and may deliberately be shorter: the real-Docker
+and unit acceptance tests inject a 6 s lifetime to avoid minute-long waits. Such
+a configuration is only valid for a test process, never for a real deployment,
+and the read model reports the operator value truthfully rather than clamping it
+to the documented minimum. A module may persist `modules.task_instance_settings`
 (`defaultTtlSeconds`, `maxTtlSeconds`, `maxConcurrentInstancesPerSubject`,
 `resetEnabled`, `extension{enabled,seconds,maxCount}`) and a task may persist
 nullable overrides (`instance_ttl_seconds`, `instance_max_ttl_seconds`,
@@ -231,9 +240,18 @@ under a per-module+subject advisory lock; live rows (`removed_at IS NULL`,
 including `ERROR`/`DESTROYING`) count as allocated until cleanup is confirmed.
 The DB still owns the per-scope uniqueness index.
 
-`EXTEND` runs in one transaction: the instance row is locked, the DB clock is
-read after the wait, the snapshotted step is applied from the **current** expiry
-and clamped to the hard deadline, and exactly one credit is consumed. A zero-gain
+A legacy instance (one whose snapshot predates the policy block) is resolved with
+the same operator options the action paths use: its initial/max/extension fields
+come from `instances.Options`, its `resetEnabled` comes from the **live** module
+setting, and the current board/module end still clamps the hard deadline. The
+read model and the action therefore always agree, so the UI never hides an
+extension the service would grant.
+
+`EXTEND` runs in one transaction: the instance row is locked, the DB clock and
+the board/module window are read after the wait, the snapshotted step is applied
+from the **current** expiry and clamped to the hard deadline, and exactly one
+credit is consumed. A paused board or disabled module rejects the request before
+any credit or idempotency row is written. A zero-gain
 extension is rejected without spending a credit; a partial gain at the deadline
 spends one credit. `instance_extension_requests (instance_id, request_key)` makes
 a retried `Idempotency-Key` replay the original outcome instead of consuming a
@@ -244,9 +262,11 @@ when the frozen `resetEnabled` is false.
 The worker re-reads `expires_at` plus the live board/module window before any
 provider call, so a queued job whose deadline already passed performs zero
 `Apply` calls. If a provider call outlives the deadline, the node is not
-advertised `RUNNING`: the resource it just created is destroyed, the operation is
-not reported as success, and endpoints/leases are released only after a confirmed
-destroy. Cleanup therefore happens within the existing 30 s reconcile interval,
+advertised `RUNNING`. The provider id and node status are persisted and a
+`DESTROY` operation is queued **before** the destroy is attempted, so a failed or
+interrupted destroy is retried with the real id on the next reconcile pass; the
+instance is not removed and no endpoint/lease is released until a destroy is
+confirmed. Cleanup therefore happens within the existing 30 s reconcile interval,
 not instantly.
 
 ### Binding / allowlist

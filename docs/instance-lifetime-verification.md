@@ -169,9 +169,8 @@ in bake/Compose; all 267 static checks pass.
 7. **Commit split.** The planned four commits became: one contracts/persistence commit, one
    lifecycle/worker commit, one frontend commit, and one tests/docs commit. The first attempt bundled them;
    it was split with `git reset --soft` before any further work, so the history is still the intended shape.
-8. **Browser acceptance was not re-run.** `e2e/run-full-e2e.sh` needs `clamav/clamav:1.5.4` and
-   `rustfs/rustfs:1.0.5` locally; RustFS is present but the ClamAV image is not, and pulling it is a large
-   download that this low-resource session did not perform. The full harness therefore could not start.
-   The UI contract is covered by Vitest component tests (module settings reload + submit, task Inherit/Custom
-   payload, module-limit rejection, edit-never-resends-binding), and the runtime contract by the real-Docker
-   Go test. No browser result is claimed.
+8. **Browser acceptance: superseded.** This report originally stated no browser run was possible. That was a
+   wrong call: the ClamAV fixture is a normal Docker dependency and it was pulled successfully. The full
+   harness now runs 19/19 including a dedicated instance-lifetime browser test; see
+   `docs/instance-lifetime-review-fixes.md` for the browser evidence and `docs/instance-lifetime-review.md`
+   for the independent findings this report's gaps produced.

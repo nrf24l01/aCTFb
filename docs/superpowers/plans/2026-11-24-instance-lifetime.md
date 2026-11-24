@@ -71,8 +71,13 @@ Gates: `go build ./...`, `go vet ./...`, `go test ./...`, real-PostgreSQL packag
       maxConcurrent 2 parallel tasks, capacity release on destroy.
 - [x] One real-Docker test: expired fixture row → reconcile destroys container, endpoint and
       lease released, no port leak; `EXTEND` over real HTTP increments expiry.
-- [x] `GOARCH` typo fix in `Dockerfile` build stage + packaging check that `linux/amd64` is real.
+- [x] Packaging architecture verified (no `GOARCH` defect exists in `Dockerfile`; the reported typo was a
+      display artifact, and a real `linux/amd64` build was checked instead).
 - [x] Docs: `docs/runtime-instances.md`, `docs/configuration.md`, `docs/deployment-templates.md`
       lifetime sections; verification report `docs/instance-lifetime-verification.md`.
+- [x] Independent-review fixes I1–I5 and M1–M7 plus the remote-VM allowlist:
+      `docs/instance-lifetime-review-fixes.md`.
+- [x] Real browser acceptance for the lifetime UI (module settings persist/reload, task Inherit/Custom
+      round-trip, real Docker start → extend → cap → reset).
 - [x] Final: `go build`, `go vet`, `go test`, frontend gates, review diff under
       `/tmp/opencode/instance-lifetime-review.diff`.
