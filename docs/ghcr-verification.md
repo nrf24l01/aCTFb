@@ -12,6 +12,12 @@ re-checks and the config.yaml provider allowlist) and is verified with an anonym
 cleanroom run of the published backend + instance-worker pair that starts, extends, resets and expires a real
 Docker workload.
 
+**Image source commit vs current `main`.** The images are built from source commit
+`5edd6d53c44986761aca863c0160278b6aa4c3bc`. Any later commit that touches only `docs/` or `README.md` does not
+change the images: the CI workflow's `paths` filter excludes documentation, so no rebuild or republish happens
+and the tags above remain the current images. Check `git log --oneline <image-source>..main -- ':!docs' ':!*.md'`
+before assuming a newer image exists.
+
 Earlier publications (retained for history): `511e039` (organizer UX pass), `29227d7` (YAML application
 settings + datasource-only env), `3ef4d5b`/`fea429a` (shared backend/worker image), `f133e3b` (first
 one-process-per-container), `2191282` (docs/tests/labels only).
