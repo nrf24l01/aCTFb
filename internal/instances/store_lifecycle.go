@@ -722,6 +722,27 @@ func (s *store) pendingJobs(ctx context.Context, limit int) ([]Job, error) {
 	return jobs, nil
 }
 
+// confirmStagedDestroy clears the provider id of a node whose destroy was
+// confirmed inline, so a later pass does not try to destroy it twice.
+func (s *store) confirmStagedDestroy(ctx context.Context, instanceID uuid.UUID, nodeKey string) error {
+	_, err := s.db.Pool.Exec(ctx, `
+		UPDATE instance_nodes
+		SET status = 'DESTROYED', provider_resource_id = NULL
+		WHERE instance_id = $1 AND key = $2
+	`, instanceID, nodeKey)
+	return err
+}
+
+// liveProviderNodeCount counts nodes that still own a provider object.
+func (s *store) liveProviderNodeCount(ctx context.Context, instanceID uuid.UUID) (int, error) {
+	var count int
+	err := s.db.Pool.QueryRow(ctx, `
+		SELECT count(*) FROM instance_nodes
+		WHERE instance_id = $1 AND COALESCE(provider_resource_id,'') <> ''
+	`, instanceID).Scan(&count)
+	return count, err
+}
+
 // stageExpiredResource persists a provider resource that was created after the
 // instance deadline and queues its DESTROY, in one transaction, BEFORE any
 // external destroy is attempted. If the worker crashes or the destroy call fails,

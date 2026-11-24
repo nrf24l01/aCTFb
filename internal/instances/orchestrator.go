@@ -293,6 +293,9 @@ func (o *Orchestrator) applyOperation(ctx context.Context, instance *workerInsta
 			return destroyErr
 		}
 		_ = o.store.markOperation(ctx, cleanupOp, "SUCCEEDED", "")
+		if err := o.store.confirmStagedDestroy(ctx, instance.ID, operation.NodeKey); err != nil {
+			return err
+		}
 		return &expiredDuringApplyError{cause: blocked}
 	}
 	return o.store.nodeResult(ctx, instance.ID, operation.NodeKey, operation.Generation, target.Driver, resource)
@@ -603,6 +606,19 @@ func (o *Orchestrator) finishExpiredDuringApply(ctx context.Context, instance *w
 		return err
 	}
 	if pending > 0 {
+		return conflict(CodeExpired, "instance expired during provider apply; cleanup is pending")
+	}
+	// Another node of the same instance may still own a live provider object
+	// (a multi-node template where the deadline passed between nodes). Queue its
+	// destroy instead of releasing ports under a running workload.
+	liveNodes, err := o.store.liveProviderNodeCount(ctx, instance.ID)
+	if err != nil {
+		return err
+	}
+	if liveNodes > 0 {
+		if _, _, err := o.store.destroyInstance(ctx, instance.ID, AuthorizedContext{System: true, Permission: "system.expire"}); err != nil {
+			return err
+		}
 		return conflict(CodeExpired, "instance expired during provider apply; cleanup is pending")
 	}
 	if err := o.store.releaseResources(ctx, instance.ID); err != nil {

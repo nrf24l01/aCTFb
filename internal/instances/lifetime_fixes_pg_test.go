@@ -2,6 +2,7 @@ package instances
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -330,4 +331,131 @@ func TestLateExpiryFailedDestroyPersistsProviderIDRealPostgres(t *testing.T) {
 	assertCount(t, db, `SELECT COUNT(*) FROM instance_network_leases WHERE instance_id=$1 AND released_at IS NULL`, 0, instance.UUID)
 	assertCount(t, db, `SELECT COUNT(*) FROM events_outbox WHERE type='instance.expired'`, 1)
 	assertCount(t, db, `SELECT COUNT(*) FROM events_outbox WHERE type='instance.started'`, 0)
+}
+
+// A multi-node instance can pass the deadline between nodes. The first node
+// already owns a persisted provider object when the second node's apply notices
+// the deadline, so cleanup must queue that node's destroy instead of releasing
+// the ports under a live workload.
+type secondApplyExpiringDriver struct {
+	fakeDriver
+	db      *postgres.DB
+	applies int
+}
+
+func (d *secondApplyExpiringDriver) Apply(ctx context.Context, target runtime.Target, node deployment.Node, op runtime.Operation) (runtime.ProviderResource, error) {
+	d.applies++
+	if d.applies == 2 {
+		if _, err := d.db.Pool.Exec(ctx, `UPDATE instances SET expires_at = NOW() - interval '1 second' WHERE id=$1`, op.InstanceID); err != nil {
+			return runtime.ProviderResource{}, err
+		}
+	}
+	resource, err := d.fakeDriver.Apply(ctx, target, node, op)
+	if err != nil {
+		return resource, err
+	}
+	// The shared fake always reports a "web" endpoint; the second node has none,
+	// so drop it to keep the fixture honest about its own manifest.
+	if node.Key != "web" {
+		resource.Endpoints = nil
+	}
+	return resource, nil
+}
+
+func TestLateExpiryWithAnotherLiveNodeQueuesDestroyRealPostgres(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+	ids := seedInstanceFixture(t, db)
+	ctx := context.Background()
+
+	// Add a second node to the immutable version so the snapshot contains both.
+	var manifestRaw []byte
+	if err := db.Pool.QueryRow(ctx, `SELECT manifest FROM deployment_template_versions WHERE id=$1`, ids.VersionID).Scan(&manifestRaw); err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	nodes, _ := manifest["nodes"].([]any)
+	manifest["nodes"] = append(nodes, map[string]any{
+		"key": "db", "name": "db", "kind": "CONTAINER",
+		"source":    map[string]any{"type": "OCI_IMAGE", "ref": "nginx@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11"},
+		"resources": map[string]any{"cpuMillicores": 100, "memoryMiB": 64, "diskMiB": 32},
+	})
+	updated, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The immutable-version trigger blocks UPDATE, so replace the row.
+	if _, err := db.Pool.Exec(ctx, `ALTER TABLE deployment_template_versions DISABLE TRIGGER deployment_template_versions_immutable`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `UPDATE deployment_template_versions SET manifest=$2 WHERE id=$1`, ids.VersionID, updated); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `ALTER TABLE deployment_template_versions ENABLE TRIGGER deployment_template_versions_immutable`); err != nil {
+		t.Fatal(err)
+	}
+
+	driver := &secondApplyExpiringDriver{db: db}
+	registry, err := runtime.NewRegistry(driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher := &fakePublisher{}
+	auth := authorization.NewAuthorizer(db)
+	service, err := NewService(db, auth, registry, testSealer(t), 1, WithPublisher(publisher))
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator, err := NewOrchestrator(db, registry, auth, testSealer(t), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := authorization.Principal{UserID: ids.UserID}
+	instance, err := service.StartTask(ctx, actor, ids.BoardID, ids.ModuleID, ids.TaskID, "late-multinode-01")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_nodes WHERE instance_id=$1`, 2, instance.UUID)
+
+	if err := orchestrator.HandleJob(ctx, publisher.last(t)); err == nil {
+		t.Fatal("cleanup with another live node must not report a released instance")
+	}
+	// One node was cleaned up inline; the other keeps its provider object and a
+	// queued destroy, and nothing was released under it.
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_nodes WHERE instance_id=$1 AND COALESCE(provider_resource_id,'')<>''`, 1, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_operations WHERE instance_id=$1 AND operation='DESTROY' AND status='QUEUED'`, 1, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM instances WHERE id=$1 AND removed_at IS NULL`, 1, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_endpoints WHERE instance_id=$1 AND released_at IS NULL`, 1, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_network_leases WHERE instance_id=$1 AND released_at IS NULL`, 1, instance.UUID)
+
+	// The reconcile pass destroys the surviving node and releases exactly once.
+	jobs, err := orchestrator.PendingJobs(ctx, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handled := false
+	for _, pending := range jobs {
+		if pending.InstanceID != instance.UUID {
+			continue
+		}
+		handled = true
+		if err := orchestrator.HandleJob(ctx, pending); err != nil {
+			t.Fatalf("cleanup retry: %v", err)
+		}
+	}
+	if !handled {
+		t.Fatal("no cleanup job was queued")
+	}
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_endpoints WHERE instance_id=$1 AND released_at IS NULL`, 0, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_network_leases WHERE instance_id=$1 AND released_at IS NULL`, 0, instance.UUID)
+	final, err := service.Get(ctx, actor, instance.UUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Status != StatusExpired || final.RemovedAt == nil {
+		t.Fatalf("instance was not released after the retry: %+v", final)
+	}
 }
