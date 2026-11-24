@@ -18,20 +18,29 @@ type URLPolicy struct {
 	AllowedHosts []string
 }
 
-// URLPolicyFromEnv reads the global provider host allowlist.
+// URLPolicyFromHosts builds the policy from an already resolved allowlist. The
+// caller (backend or worker) resolves config.yaml `integrations.allowed_hosts`
+// with the legacy env fallback so both processes share one source of truth.
+func URLPolicyFromHosts(hosts []string) URLPolicy {
+	clean := make([]string, 0, len(hosts))
+	for _, item := range hosts {
+		host := strings.ToLower(strings.TrimSpace(item))
+		if host != "" {
+			clean = append(clean, host)
+		}
+	}
+	return URLPolicy{AllowedHosts: clean}
+}
+
+// URLPolicyFromEnv reads only the legacy environment allowlist. It remains for
+// callers that have no loaded config; prefer URLPolicyFromHosts with the resolved
+// operator setting.
 func URLPolicyFromEnv() URLPolicy {
 	raw := strings.TrimSpace(os.Getenv("ACTFB_PROVIDER_ALLOWED_HOSTS"))
 	if raw == "" {
 		return URLPolicy{}
 	}
-	hosts := make([]string, 0, 8)
-	for _, item := range strings.Split(raw, ",") {
-		host := strings.ToLower(strings.TrimSpace(item))
-		if host != "" {
-			hosts = append(hosts, host)
-		}
-	}
-	return URLPolicy{AllowedHosts: hosts}
+	return URLPolicyFromHosts(strings.Split(raw, ","))
 }
 
 func (p URLPolicy) hostAllowed(host string) bool {

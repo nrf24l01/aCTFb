@@ -172,6 +172,7 @@ image allowlist must be non-empty and digest-pinned.
 | — | `deployment.credential_key` | Base64 32-byte envelope key for secrets/credentials. | `Empty; required when enabled` |
 | — | `deployment.key_version` | Credential key version. | `1` |
 | — | `integrations.enabled` | Enable admin/provider integrations. | `false` |
+| — | `integrations.allowed_hosts` | Approved provider hostnames for remote VM/container APIs. Empty denies every remote provider URL. | `[]` |
 
 Runtime/integration providers are configured through the admin integration records, not through arbitrary
 environment values. Docker is the only supported project container runtime; not every advertised VM/container
@@ -197,9 +198,31 @@ effective expiry is additionally clamped by the earliest board/module end and by
 lifetime; those two are always read live, even for instances created before a policy edit. Participants
 extend by the configured step only and never choose a duration.
 
-VM drivers (Proxmox, KubeVirt, Kubernetes) remain blocked for live acceptance here: they need an operator
-allowlist entry in `ACTFB_PROVIDER_ALLOWED_HOSTS` (env-only, empty means deny every remote provider URL) plus
-reachable credentials. Only Docker has a real-daemon test in this repository.
+### Remote provider allowlist
+
+`integrations.allowed_hosts` is the supported way to approve a remote VM provider. It is a plain YAML list, so a
+single-worker deployment configures Proxmox/KubeVirt/Kubernetes without inventing environment values:
+
+```yaml
+integrations:
+  enabled: true
+  allowed_hosts: ["pve.example.com"]
+```
+
+- Empty (the shipped default) denies **every** remote provider URL; loopback is not implicitly trusted.
+- Plain HTTP, userinfo, query strings, path traversal and unlisted hosts stay rejected. The SSRF guard is never
+  weakened or disabled by this setting.
+- The legacy `ACTFB_PROVIDER_ALLOWED_HOSTS` environment value is still accepted and applies only when the YAML
+  list is empty, so an inherited environment cannot widen a YAML-configured policy. New deployments should use
+  the YAML field; the environment variable is documented as `ENV = —` for production.
+- The backend (integration CRUD validation) and `instance-worker` (connection test and provider calls) resolve
+  the same list, so a host approved in the UI is also reachable by the worker.
+- Provider **credentials** are never part of this file; they are write-only admin integration records sealed
+  with the deployment key.
+
+VM drivers (Proxmox, KubeVirt, Kubernetes) remain unverified for live acceptance here: no endpoint or
+credentials exist in this environment, so only the `httptest` contract tests ran. Only Docker has a
+real-daemon test in this repository.
 
 ## Retention
 

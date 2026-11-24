@@ -344,6 +344,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 			integrations.WithSealer(sealer, cfg.Deployment.KeyVersion),
 			integrations.WithConnectionTester(integrations.NewNATSTester(sharedNATS)),
 			integrations.WithRuntime(runtimeRegistry),
+			integrations.WithURLPolicy(providerURLPolicy(cfg)),
 		)
 	}
 
@@ -586,4 +587,12 @@ func parseLogLevel(level string) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+// providerURLPolicy is the single place the backend turns operator configuration
+// into the provider SSRF policy. config.yaml `integrations.allowed_hosts` is the
+// supported setting; the legacy ACTFB_PROVIDER_ALLOWED_HOSTS value remains a
+// fallback. The guard itself is never weakened or bypassed.
+func providerURLPolicy(cfg *config.Config) integrations.URLPolicy {
+	return integrations.URLPolicyFromHosts(config.ProviderAllowedHosts(cfg))
 }

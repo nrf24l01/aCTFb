@@ -145,7 +145,12 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer consumer.Stop()
 
-	tester := &integrationTester{db: db, registry: registry, sealer: sealer, logger: logger}
+	tester := &integrationTester{
+		db: db, registry: registry, sealer: sealer, logger: logger,
+		// Same resolved allowlist as the backend: config.yaml
+		// integrations.allowed_hosts with the legacy env fallback.
+		policy: integrations.URLPolicyFromHosts(config.ProviderAllowedHosts(cfg)),
+	}
 	subscription, err := natsClient.Subscribe(integrations.TestSubject, func(message *nats.Msg) {
 		tester.handle(ctx, message)
 	})
@@ -228,6 +233,7 @@ type integrationTester struct {
 	registry *runtime.DriverRegistry
 	sealer   secrets.Sealer
 	logger   *slog.Logger
+	policy   integrations.URLPolicy
 }
 
 func (t *integrationTester) handle(parent context.Context, message *nats.Msg) {

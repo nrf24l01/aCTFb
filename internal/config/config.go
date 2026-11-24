@@ -439,6 +439,11 @@ func (a *AttackDefenseConfig) UnmarshalYAML(value *yaml.Node) error {
 
 type IntegrationsConfig struct {
 	Enabled bool `yaml:"enabled" env:"ACTFB_INTEGRATIONS_ENABLED"`
+	// AllowedHosts is the operator allowlist for remote provider base URLs. It is
+	// the config.yaml form of the legacy ACTFB_PROVIDER_ALLOWED_HOSTS env value.
+	// An empty list denies every remote provider URL; loopback is not implicitly
+	// trusted. The SSRF guard itself is never weakened.
+	AllowedHosts []string `yaml:"allowed_hosts"`
 }
 
 type RetentionConfig struct {

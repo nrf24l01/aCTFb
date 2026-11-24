@@ -99,6 +99,11 @@ attack_defense:
 
 integrations:
   enabled: false
+  # Approved provider hostnames for remote VM/container APIs (Proxmox, KubeVirt,
+  # Kubernetes). Empty denies every remote provider URL; a local Docker/Podman
+  # socket needs none. List only hosts you operate, for example:
+  #   allowed_hosts: ["pve.example.com"]
+  allowed_hosts: []
 
 retention:
   days: 7

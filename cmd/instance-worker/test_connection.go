@@ -62,10 +62,15 @@ func (t *integrationTester) test(ctx context.Context, rawID string) error {
 		}
 	}
 	if record.Category == "GIT" {
-		return testGit(ctx, record, credentials)
+		return testGit(ctx, record, credentials, t.policy)
 	}
 	if record.Driver == "" {
 		return errors.New("compute integration has no driver")
+	}
+	// Remote compute providers go through the same SSRF allowlist the backend
+	// enforced at creation; the worker never widens it.
+	if err := t.policy.Validate(record.BaseURL, record.Driver); err != nil {
+		return errors.New("provider base URL is not allowed")
 	}
 	settings, err := runtime.EncodeTargetSettings(runtime.TargetSettings{Options: record.Settings})
 	if err != nil {
@@ -85,8 +90,7 @@ func (t *integrationTester) test(ctx context.Context, rawID string) error {
 // testGit performs a bounded authenticated HTTPS request. 2xx/3xx is a real
 // successful connection; auth failures and provider errors fail the test. The
 // response body is discarded and never returned.
-func testGit(ctx context.Context, record integrationRecord, credentials map[string]string) error {
-	policy := integrations.URLPolicyFromEnv()
+func testGit(ctx context.Context, record integrationRecord, credentials map[string]string, policy integrations.URLPolicy) error {
 	if err := policy.Validate(record.BaseURL, "git"); err != nil {
 		return errors.New("git base URL is not allowed")
 	}
