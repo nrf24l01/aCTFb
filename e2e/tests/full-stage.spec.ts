@@ -694,6 +694,342 @@ lifecycle:
       await studentContext.close()
     }
   })
+
+  test('instance lifetime: module settings, task overrides, real extend cap and reset', async ({ page, browser }, testInfo) => {
+    const dockerSocket = process.env.E2E_DOCKER_SOCKET || ''
+    const imageRef = process.env.E2E_DOCKER_IMAGE_REF || ''
+    const instancePort = process.env.E2E_INSTANCE_PORT || ''
+    test.skip(!dockerSocket || !imageRef || !instancePort, 'lifetime acceptance needs E2E_DOCKER_* and a free port')
+    test.skip(dockerSocket !== '/var/run/docker.sock', 'instance endpoint reachability requires real Docker Engine')
+    const suffix = Date.now().toString(36)
+    const integrationName = `E2E Lifetime ${suffix}`
+
+    await signIn(page, adminUser, adminPass)
+    const token = await freshToken(page)
+
+    // --- real admin UI: register the Docker target -------------------------
+    await page.goto('/admin/integrations')
+    await page.getByRole('button', { name: 'Create integration' }).click()
+    const integrationDialog = page.getByRole('dialog')
+    await integrationDialog.locator('#integration-type').click()
+    await page.getByRole('option', { name: 'DOCKER', exact: true }).click()
+    await integrationDialog.locator('#integration-name').fill(integrationName)
+    await integrationDialog.locator('#integration-settings').fill(
+      JSON.stringify({
+        socket: dockerSocket,
+        registryAllowlist: ['nginx'],
+        dedicatedNode: `e2e-life-${suffix}`,
+        dedicatedNodeVerified: true,
+        pidsLimit: 128,
+        network: { kind: 'network' },
+      }),
+    )
+    await integrationDialog.locator('#integration-public-host').fill('127.0.0.1')
+    await integrationDialog.locator('#integration-port-from').fill(instancePort)
+    await integrationDialog.locator('#integration-port-to').fill(instancePort)
+    await integrationDialog.getByRole('button', { name: 'Save integration' }).click()
+    await expect(integrationDialog).toBeHidden()
+    const integrationList = await api(page, token, 'GET', '/api/v2/admin/integrations?limit=100&offset=0')
+    const integration = (integrationList.items as Array<Record<string, unknown>>).find((item) => item.name === integrationName)
+    expect(integration).toBeTruthy()
+
+    const board = await createBoard(page, token, {
+      slug: `life-${suffix}`,
+      name: 'Lifetime Board',
+      participationMode: 'INDIVIDUAL',
+      registrationMode: 'OPEN',
+      visibility: 'PRIVATE',
+    })
+    const boardUuid = board.uuid as string
+
+    // --- real admin UI: module instance settings persist --------------------
+    await page.goto(`/admin/boards/${boardUuid}`)
+    await page.getByRole('button', { name: 'Create module' }).first().click()
+    const moduleDialog = page.getByRole('dialog')
+    await moduleDialog.locator('#module-name').fill('Lifetime Module')
+    // #module-format is a native select, so select by value.
+    await moduleDialog.locator('#module-format').selectOption('INSTANCE')
+    // Instance limits live inside the collapsed Advanced section.
+    await moduleDialog.locator('summary').filter({ hasText: 'Advanced' }).click()
+    await expect(moduleDialog.locator('#module-instance-concurrent')).toBeVisible()
+    await moduleDialog.locator('#module-instance-concurrent').fill('1')
+    await moduleDialog.locator('#module-instance-default-ttl').fill('0.5')
+    await moduleDialog.locator('#module-instance-max-ttl').fill('2')
+    await moduleDialog.locator('#module-instance-extension-minutes').fill('15')
+    await moduleDialog.locator('#module-instance-extension-count').fill('6')
+    await moduleDialog.getByRole('button', { name: 'Create module' }).click()
+    await expect(moduleDialog).toBeHidden({ timeout: 20_000 })
+    // The backend used to answer UNSUPPORTED here; assert the real values came back.
+    await expect(page.getByText('Module action failed')).toHaveCount(0)
+    const modules = await api(page, token, 'GET', `/api/v2/admin/boards/${boardUuid}/modules?limit=100&offset=0`)
+    const module = (modules.items as Array<Record<string, unknown>>).find((item) => item.name === 'Lifetime Module')
+    expect(module).toBeTruthy()
+    const moduleUuid = module!.uuid as string
+    const moduleSettings = module!.taskInstanceSettings as Record<string, unknown>
+    expect(moduleSettings).toBeTruthy()
+    expect(moduleSettings.defaultTtlSeconds).toBe(1800)
+    expect(moduleSettings.maxTtlSeconds).toBe(7200)
+    expect((moduleSettings.extension as Record<string, unknown>).seconds).toBe(900)
+    expect((moduleSettings.extension as Record<string, unknown>).maxCount).toBe(6)
+
+    // Reload the editor: the persisted values must be shown, not defaults.
+    await page.goto(`/admin/boards/${boardUuid}`)
+    const moduleSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Lifetime Module' }) })
+    await moduleSection.getByRole('button', { name: 'Edit module' }).click()
+    const reopened = page.getByRole('dialog')
+    await reopened.locator('summary').filter({ hasText: 'Advanced' }).click()
+    await expect(reopened.locator('#module-instance-default-ttl')).toHaveValue('0.5')
+    await expect(reopened.locator('#module-instance-max-ttl')).toHaveValue('2')
+    await expect(reopened.locator('#module-instance-extension-minutes')).toHaveValue('15')
+    await expect(reopened.locator('#module-instance-extension-count')).toHaveValue('6')
+    await reopened.getByRole('button', { name: 'Cancel' }).click()
+
+    // --- template + allowlist (API; the UI flow is covered by the test above)
+    await page.goto('/admin/templates')
+    await page.getByRole('button', { name: 'Create template' }).click()
+    await expect(page).toHaveURL(/\/admin\/templates\/[0-9a-f-]{36}$/)
+    const templateUuid = page.url().split('/').pop() as string
+    const nginxConfig = 'server {\n  listen 8080;\n  root /usr/share/nginx/html;\n  location / { try_files $uri =404; }\n}\n'
+    const manifest = `apiVersion: actfb.dev/v1alpha1
+kind: DeploymentTemplate
+metadata:
+  name: E2E Lifetime
+  slug: life-${suffix}
+  description: Browser acceptance lifetime
+nodes:
+  - key: web
+    name: Web
+    kind: CONTAINER
+    source:
+      type: OCI_IMAGE
+      ref: ${imageRef}
+    resources:
+      cpuMillicores: 200
+      memoryMiB: 64
+      diskMiB: 64
+    files:
+      - source: nginx.conf
+        target: /etc/nginx/conf.d/default.conf
+      - source: marker
+        target: /usr/share/nginx/html/marker
+    endpoints:
+      - key: web
+        protocol: http
+        targetPort: 8080
+        exposure: PUBLIC
+    driverOptions:
+      docker:
+        readOnlyRootFilesystem: true
+        user: "101:101"
+        userNumeric: true
+        entrypoint: ["nginx"]
+        cmd: ["-g", "daemon off;"]
+        tmpfs:
+          /tmp: 8
+          /var/cache/nginx: 16
+          /var/run: 8
+lifecycle:
+  reset: RECREATE
+`
+    await page.getByLabel('Template manifest YAML').fill(manifest)
+    const filesSection = page.locator('section').filter({ hasText: 'Package files' })
+    await filesSection.locator('input[type=file]').setInputFiles([
+      { name: 'nginx.conf', mimeType: 'text/plain', buffer: Buffer.from(nginxConfig) },
+      { name: 'marker', mimeType: 'text/plain', buffer: Buffer.from('lifetime-1') },
+    ])
+    await expect(filesSection.getByRole('textbox', { name: 'Package file path' })).toHaveCount(2)
+    await page.getByRole('button', { name: 'Save draft' }).click()
+    await page.getByRole('button', { name: 'Validate', exact: true }).click()
+    await expect(page.getByText('Validation: valid')).toBeVisible({ timeout: 20_000 })
+    await page.getByRole('button', { name: 'Publish', exact: true }).click()
+    const publishDialog = page.getByRole('dialog')
+    await publishDialog.locator('#version-note').fill('Lifetime acceptance')
+    await publishDialog.getByRole('button', { name: 'Publish', exact: true }).click()
+    await expect(page.getByText(/^v1 ·/)).toBeVisible({ timeout: 20_000 })
+    await page.locator('#allowlist-version').click()
+    await page.getByRole('option', { name: /^v1 / }).click()
+    await page.locator('#allowlist-board').fill(boardUuid)
+    await page.locator('#allowlist-module').fill(moduleUuid)
+    await page.locator('#allowlist-integration').click()
+    await page.getByRole('option', { name: integrationName }).click()
+    await page.getByRole('button', { name: 'Create allowlist' }).click()
+    await expect(page.getByText('Allowlist action failed')).toHaveCount(0)
+
+    // --- task with a narrowed lifetime override ----------------------------
+    const instanceTask = await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/modules/${moduleUuid}/tasks`, {
+      title: 'Lifetime lab', type: 'INSTANCE', category: 'web', description: 'lifetime acceptance',
+      points: 10, visible: true,
+      submission: { mode: 'TEXT', checker: 'MANUAL', text: { required: true, minLength: 1, maxLength: 1000 } },
+      instance: {
+        enabled: true, deploymentTemplateUuid: templateUuid, templateVersion: 1, parameters: {},
+        ttlSeconds: 1800, maxTtlSeconds: 7200,
+        extension: { enabled: true, seconds: 900, maxCount: 2 },
+      },
+    })
+    const taskUuid = instanceTask.uuid as string
+    expect((instanceTask.instanceConfig as Record<string, unknown>).ttlSeconds).toBe(1800)
+    expect((instanceTask.instanceConfig as Record<string, unknown>).maxTtlSeconds).toBe(7200)
+    expect(((instanceTask.instanceConfig as Record<string, unknown>).extension as Record<string, unknown>).maxCount).toBe(2)
+
+    // --- real admin UI: the task editor round-trips the policy -------------
+    const openTaskEditor = async () => {
+      await page.goto(`/admin/boards/${boardUuid}`)
+      const row = page.getByRole('row').filter({ hasText: 'Lifetime lab' })
+      await row.getByRole('button', { name: 'Edit', exact: true }).click()
+      return page.getByRole('dialog')
+    }
+    // The advanced lifetime fields only exist in Custom mode, inside a collapsed
+    // <details>. Select Custom first, then expand.
+    const openCustomLifetime = async () => {
+      const dialog = await openTaskEditor()
+      await dialog.getByRole('button', { name: 'Custom' }).click()
+      await dialog.locator('summary').filter({ hasText: 'Advanced' }).click()
+      return dialog
+    }
+    const taskDialog = await openCustomLifetime()
+    await expect(taskDialog.getByText('Inherit module defaults')).toBeVisible()
+    // The stored override is Custom, so the custom inputs are visible.
+    await expect(taskDialog.locator('#task-lifetime-initial')).toHaveValue('30')
+    await expect(taskDialog.locator('#task-lifetime-max')).toHaveValue('120')
+    await expect(taskDialog.locator('#task-extension-step')).toHaveValue('15')
+    await expect(taskDialog.locator('#task-extension-count')).toHaveValue('2')
+    await taskDialog.getByRole('button', { name: 'Save changes' }).click()
+    await expect(taskDialog).toBeHidden({ timeout: 20_000 })
+    // Saving metadata must not revert to the hardcoded 1h or clear the binding.
+    const afterSave = await api(page, token, 'GET', `/api/v2/admin/boards/${boardUuid}/modules/${moduleUuid}/tasks/${taskUuid}`)
+    const savedConfig = afterSave.instanceConfig as Record<string, unknown>
+    expect(savedConfig.ttlSeconds).toBe(1800)
+    expect(savedConfig.maxTtlSeconds).toBe(7200)
+    expect((savedConfig.extension as Record<string, unknown>).maxCount).toBe(2)
+    // The immutable binding must survive a metadata/lifetime save. The admin
+    // read model does not expose the template id, so check the real row.
+    const bindingAfterSave = psql(`SELECT deployment_binding_id IS NOT NULL FROM tasks WHERE id='${taskUuid}'`).trim()
+    expect(bindingAfterSave).toBe('t')
+
+    // Inherit clears every override explicitly (null, never zero).
+    const inheritDialog = await openTaskEditor()
+    await inheritDialog.getByRole('button', { name: 'Inherit module defaults' }).click()
+    await inheritDialog.getByRole('button', { name: 'Save changes' }).click()
+    await expect(inheritDialog).toBeHidden({ timeout: 20_000 })
+    const inherited = await api(page, token, 'GET', `/api/v2/admin/boards/${boardUuid}/modules/${moduleUuid}/tasks/${taskUuid}`)
+    const inheritedConfig = inherited.instanceConfig as Record<string, unknown>
+    expect(inheritedConfig.ttlSeconds ?? null).toBeNull()
+    expect(inheritedConfig.maxTtlSeconds ?? null).toBeNull()
+    expect(inheritedConfig.extension ?? null).toBeNull()
+    expect(psql(`SELECT deployment_binding_id IS NOT NULL FROM tasks WHERE id='${taskUuid}'`).trim()).toBe('t')
+
+    // Restore the narrowed policy through the real UI (Custom + values).
+    const customDialog = await openCustomLifetime()
+    await customDialog.locator('#task-lifetime-initial').fill('30')
+    await customDialog.locator('#task-lifetime-max').fill('120')
+    await customDialog.locator('#task-extension-step').fill('15')
+    await customDialog.locator('#task-extension-count').fill('2')
+    await customDialog.getByRole('button', { name: 'Save changes' }).click()
+    await expect(customDialog).toBeHidden({ timeout: 20_000 })
+    const restored = await api(page, token, 'GET', `/api/v2/admin/boards/${boardUuid}/modules/${moduleUuid}/tasks/${taskUuid}`)
+    expect((restored.instanceConfig as Record<string, unknown>).ttlSeconds).toBe(1800)
+
+    await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/actions`, { action: 'PUBLISH' })
+
+    // --- student: real Docker start, real extend, real cap, real reset -----
+    const instancePath = `/api/v2/boards/${boardUuid}/modules/${moduleUuid}/tasks/${taskUuid}/instance`
+    let instanceToken = token
+    const getInstance = async (): Promise<Record<string, unknown> | null> => {
+      const response = await page.request.get(`${base}${instancePath}`, {
+        headers: { Authorization: `Bearer ${instanceToken}` },
+      })
+      if (!response.ok()) return null
+      return (await response.json()) as Record<string, unknown>
+    }
+
+    const studentContext = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+    try {
+      const studentPage = await studentContext.newPage()
+      await signIn(studentPage, studentUser, studentPass)
+      instanceToken = await freshToken(studentPage)
+      await studentPage.goto('/boards')
+      await studentPage.locator('#join-board-uuid').fill(boardUuid)
+      await studentPage.getByRole('button', { name: 'Join board' }).click()
+      await expect(studentPage).toHaveURL(new RegExp(`/boards/${boardUuid}$`))
+      await studentPage.goto(`/boards/${boardUuid}/modules/${moduleUuid}/tasks/${taskUuid}`)
+      await studentPage.getByRole('button', { name: 'Start instance' }).click()
+      await expect(studentPage.getByText('RUNNING', { exact: true })).toBeVisible({ timeout: 90_000 })
+
+      const started = await getInstance()
+      expect(started?.status).toBe('RUNNING')
+      expect(started?.canExtend).toBe(true)
+      expect(started?.extensionSeconds).toBe(900)
+      expect(started?.extensionsRemaining).toBe(2)
+      const startedRemaining = Number(started?.remainingSeconds ?? 0)
+      expect(startedRemaining).toBeGreaterThan(29 * 60)
+      expect(startedRemaining).toBeLessThanOrEqual(30 * 60)
+
+      const section = studentPage.locator('section[aria-labelledby="instance-heading"]')
+      await expect(section.getByText(/Extend \+15 min/)).toBeVisible()
+      await expect(section.getByText(/2 left/)).toBeVisible()
+
+      // First real extension over HTTP.
+      const firstExpiry = new Date(String(started?.expiresAt)).getTime()
+      const extendResponse = studentPage.waitForResponse(
+        (response) =>
+          response.url().includes(`/tasks/${taskUuid}/instance/actions`) &&
+          response.request().method() === 'POST',
+      )
+      await section.getByRole('button', { name: /Extend \+15 min/ }).click()
+      expect((await extendResponse).status()).toBe(202)
+      await expect.poll(async () => Number((await getInstance())?.extensionCount ?? 0), { timeout: 30_000 }).toBe(1)
+      const afterFirst = await getInstance()
+      expect(afterFirst?.extensionsRemaining).toBe(1)
+      const secondExpiry = new Date(String(afterFirst?.expiresAt)).getTime()
+      expect(secondExpiry - firstExpiry).toBe(900_000)
+
+      // Second extension consumes the last credit, then the button is disabled
+      // with the server reason (a real cap, not an intercepted response).
+      await section.getByRole('button', { name: /Extend \+15 min/ }).click()
+      await expect.poll(async () => Number((await getInstance())?.extensionCount ?? 0), { timeout: 30_000 }).toBe(2)
+      const capped = await getInstance()
+      expect(capped?.extensionsRemaining).toBe(0)
+      expect(capped?.canExtend).toBe(false)
+      const extendButton = section.getByRole('button', { name: /Extend \+15 min/ })
+      await expect(extendButton).toBeDisabled()
+      await expect(section.getByText('No extensions left')).toBeVisible()
+
+      // Reset keeps the expiry and the consumed credits.
+      const beforeResetExpiry = new Date(String((await getInstance())?.expiresAt)).getTime()
+      const resetResponse = studentPage.waitForResponse(
+        (response) =>
+          response.url().includes(`/tasks/${taskUuid}/instance/actions`) &&
+          response.request().method() === 'POST',
+      )
+      await section.getByRole('button', { name: 'Reset', exact: true }).click()
+      expect((await resetResponse).status()).toBe(202)
+      await expect.poll(async () => (await getInstance())?.status ?? 'missing', { timeout: 60_000 }).toBe('RUNNING')
+      const afterReset = await getInstance()
+      expect(new Date(String(afterReset?.expiresAt)).getTime()).toBe(beforeResetExpiry)
+      expect(afterReset?.extensionCount).toBe(2)
+
+      await studentPage.screenshot({ path: testInfo.outputPath('instance-lifetime.png'), fullPage: true })
+
+      await section.getByRole('button', { name: 'Destroy', exact: true }).click()
+      const destroyDialog = studentPage.getByRole('dialog')
+      await destroyDialog.getByRole('button', { name: 'Destroy instance' }).click()
+      await expect.poll(async () => (await getInstance())?.status ?? 'gone', { timeout: 60_000 }).toMatch(/EXPIRED|gone/)
+    } finally {
+      const leftover = await getInstance()
+      if (leftover && leftover.status !== 'EXPIRED') {
+        await page.request.post(`${base}${instancePath}/actions`, {
+          headers: {
+            Authorization: `Bearer ${instanceToken}`,
+            'Content-Type': 'application/json',
+            'Idempotency-Key': randomUUID(),
+          },
+          data: JSON.stringify({ action: 'DESTROY' }),
+        }).catch(() => undefined)
+        await expect.poll(async () => (await getInstance())?.status ?? 'gone', { timeout: 30_000 }).toMatch(/EXPIRED|gone/).catch(() => undefined)
+      }
+      await studentContext.close()
+    }
+  })
 })
 
 async function signIn(page: Page, username: string, password: string) {
