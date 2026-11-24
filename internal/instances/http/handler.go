@@ -589,6 +589,18 @@ func toInstanceModel(instance *instances.Instance) *models.Instance {
 		expires := strfmt.DateTime(*instance.ExpiresAt)
 		model.ExpiresAt = &expires
 	}
+	canExtend := instance.CanExtend
+	canReset := instance.CanReset
+	model.CanExtend = &canExtend
+	model.CanReset = &canReset
+	if instance.ExtensionSeconds != nil {
+		step := *instance.ExtensionSeconds
+		model.ExtensionSeconds = &step
+	}
+	if instance.ExtensionsRemaining != nil {
+		remainingExtensions := *instance.ExtensionsRemaining
+		model.ExtensionsRemaining = &remainingExtensions
+	}
 	scopeUUID := models.UUID(instance.ScopeUUID.String())
 	model.ScopeUUID.UUID = scopeUUID
 	for index := range instance.Nodes {

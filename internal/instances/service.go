@@ -272,12 +272,21 @@ func (s *Service) start(ctx context.Context, actor authorization.Principal, scop
 	if err != nil {
 		return nil, err
 	}
-	expiresAt, ttl := s.expiryFor(source)
+	policy, err := ResolveLifecycle(source.TaskOverrides, source.ModuleSettings, s.options)
+	if err != nil {
+		return nil, instanceError(CodeInternal, "instance lifetime configuration is invalid", 500)
+	}
+	var expiresAt *time.Time
+	var clamp *ttlClamp
 	if scope == ScopePentest {
 		// Pentest has no independent TTL: the effective module/board end is
 		// authoritative.
 		expiresAt = earliest(source.BoardEndsAt, source.ModuleEndsAt)
-		ttl = 0
+	} else {
+		clamp = &ttlClamp{
+			InitialSeconds:  policy.InitialTTLSeconds,
+			MaxTotalSeconds: policy.MaxTotalTTLSeconds,
+		}
 	}
 	snapshot := DesiredSnapshot{
 		Version:           1,
@@ -286,7 +295,11 @@ func (s *Service) start(ctx context.Context, actor authorization.Principal, scop
 		BindingID:         binding.ID,
 		Parameters:        binding.Parameters,
 		Generated:         generatedRefs(binding.Manifest),
-		TTLSeconds:        int64(ttl / time.Second),
+		TTLSeconds:        policy.InitialTTLSeconds,
+	}
+	if scope == ScopeTask {
+		frozen := policy
+		snapshot.Lifecycle = &frozen
 	}
 	for _, node := range binding.Manifest.Nodes {
 		integrationID, ok := binding.Targets[node.Kind]
@@ -368,7 +381,9 @@ func (s *Service) start(ctx context.Context, actor authorization.Principal, scop
 		SubjectType: subjectType, SubjectID: subjectID, IdempotencyKey: idempotencyKey,
 		BindingID: &binding.ID, VersionID: &binding.VersionID, Snapshot: snapshotJSON,
 		Authorized: authorized, Nodes: snapshot.Nodes, ExpiresAt: expiresAt,
-		EndpointPlans: endpointPlans, Leases: leases,
+		EndpointPlans: endpointPlans, Leases: leases, TTLClamp: clamp,
+		MaxConcurrent: policy.MaxConcurrent,
+		boardEndsAt:   source.BoardEndsAt, moduleEndsAt: source.ModuleEndsAt,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -408,16 +423,10 @@ func (s *Service) applyAction(ctx context.Context, actor authorization.Principal
 	}
 	switch action {
 	case ActionExtend:
-		if target.Status != StatusRunning {
-			return nil, conflict(CodeActionNotAllowed, "only a running instance can be extended")
+		if scope == ScopePentest {
+			return nil, validation("action", "only RESET and DESTROY are supported for a pentest environment")
 		}
-		if target.ExpiresAt != nil && !target.ExpiresAt.After(time.Now()) {
-			return nil, conflict(CodeExpired, "instance has expired")
-		}
-		if err := s.store.extendInstance(ctx, target.UUID, s.options.ExtensionTTL, s.options.MaxExtensions, s.options.MaxTtl()); err != nil {
-			return nil, err
-		}
-		return s.store.getInstance(ctx, target.UUID)
+		return s.extendInstance(ctx, actor.UserID, target.UUID, idempotencyKey)
 	case ActionReset:
 		if target.Status == StatusDestroying || target.Status == StatusExpired || target.RemovedAt != nil {
 			return nil, conflict(CodeActionNotAllowed, "instance cannot be reset")
@@ -427,6 +436,12 @@ func (s *Service) applyAction(ctx context.Context, actor authorization.Principal
 		}
 		if scope == ScopePentest && !source.PentestResetEnabled {
 			return nil, instanceError(CodeActionNotAllowed, "reset is disabled for this pentest", 422)
+		}
+		if scope == ScopeTask {
+			policy := policyForSnapshot(target.Lifecycle, s.options)
+			if !policy.ResetEnabled {
+				return nil, instanceError(CodeActionNotAllowed, "reset is disabled for this module", 422)
+			}
 		}
 		authorized := AuthorizedContext{ActorUserID: actor.UserID, BoardID: boardID, ModuleID: moduleID, Scope: scope,
 			ScopeUUID: target.ScopeUUID, SubjectType: subjectType, SubjectID: subjectID,
@@ -484,23 +499,6 @@ func (s *Service) enqueue(ctx context.Context, job Job) {
 	if err := s.publisher.PublishJob(ctx, job); err != nil && s.logger != nil {
 		s.logger.Warn("instance job publish failed", "instanceId", job.InstanceID.String(), "error", err.Error())
 	}
-}
-
-func (s *Service) expiryFor(source *sourceContext) (*time.Time, time.Duration) {
-	ttl := s.options.DefaultTTL
-	expiresAt := time.Now().Add(ttl)
-	if maximum := earliest(source.BoardEndsAt, source.ModuleEndsAt); maximum != nil && maximum.Before(expiresAt) {
-		expiresAt = *maximum
-		ttl = time.Until(expiresAt)
-		if ttl < 0 {
-			ttl = 0
-		}
-	}
-	if s.options.MaxTTL > 0 && time.Until(expiresAt) > s.options.MaxTTL {
-		expiresAt = time.Now().Add(s.options.MaxTTL)
-		ttl = s.options.MaxTTL
-	}
-	return &expiresAt, ttl
 }
 
 func earliest(values ...*time.Time) *time.Time {

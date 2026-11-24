@@ -74,6 +74,17 @@ type Instance struct {
 	VersionID      *uuid.UUID
 	RemovedAt      *time.Time
 	Nodes          []Node
+
+	// Lifecycle is the frozen policy stored on the instance snapshot (nil for
+	// instances created before the policy existed).
+	Lifecycle *LifecyclePolicy
+
+	// Server-computed capabilities for the caller. They are never derived from
+	// client input.
+	CanExtend           bool
+	CanReset            bool
+	ExtensionSeconds    *int64
+	ExtensionsRemaining *int64
 }
 
 // RemainingSeconds is clamped at zero.
@@ -128,6 +139,10 @@ type DesiredSnapshot struct {
 	Nodes               []SnapshotNode    `json:"nodes"`
 	TTLSeconds          int64             `json:"ttlSeconds,omitempty"`
 	RequestHash         string            `json:"requestHash,omitempty"`
+	// Lifecycle is the effective lifetime policy frozen at creation. Instances
+	// created before this field existed have no block and fall back to the
+	// global defaults.
+	Lifecycle *LifecyclePolicy `json:"lifecycle,omitempty"`
 }
 
 // GeneratedRef references a generated value by key and rotation policy.

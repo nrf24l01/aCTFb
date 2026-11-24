@@ -31,6 +31,13 @@ type leasePlan struct {
 	Claim         runtime.NetworkClaim
 }
 
+// ttlClamp carries the task-scope lifetime in seconds. The database computes the
+// expiry from its own clock so created_at and the anchor are the same instant.
+type ttlClamp struct {
+	InitialSeconds  int64
+	MaxTotalSeconds int64
+}
+
 type createParams struct {
 	InstanceID     uuid.UUID
 	BoardID        uuid.UUID
@@ -48,6 +55,10 @@ type createParams struct {
 	ExpiresAt      *time.Time
 	EndpointPlans  []endpointPlan
 	Leases         []leasePlan
+	TTLClamp       *ttlClamp
+	MaxConcurrent  int
+	boardEndsAt    *time.Time
+	moduleEndsAt   *time.Time
 }
 
 // createInstance writes the instance, nodes, operations, network leases and
@@ -60,7 +71,46 @@ func (s *store) createInstance(ctx context.Context, p createParams) (uuid.UUID, 
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := tx.Exec(ctx, `
+	if p.MaxConcurrent > 0 {
+		// Serialize per module+subject so two parallel task starts cannot both
+		// pass the limit. Live rows count as allocated until cleanup is
+		// confirmed, which is exactly removed_at IS NULL.
+		lockKey := fmt.Sprintf("actfb:instance-concurrency:v1:%s:%s:%s", p.ModuleID, p.SubjectType, p.SubjectID)
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, lockKey); err != nil {
+			return uuid.Nil, nil, err
+		}
+		var live int
+		if err := tx.QueryRow(ctx, `
+			SELECT count(*) FROM instances
+			WHERE module_id = $1 AND subject_type = $2 AND subject_id = $3 AND removed_at IS NULL
+		`, p.ModuleID, p.SubjectType, p.SubjectID).Scan(&live); err != nil {
+			return uuid.Nil, nil, err
+		}
+		if live >= p.MaxConcurrent {
+			return uuid.Nil, nil, instanceError(CodeLimitReached, "the concurrent instance limit for this subject is reached", 409)
+		}
+	}
+	if p.TTLClamp != nil {
+		// LEAST ignores NULLs, so a missing board/module end does not remove the
+		// lifetime cap. created_at defaults to NOW(), the same statement clock.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO instances
+				(id, board_id, module_id, scope, scope_uuid, subject_type, subject_id, status,
+				 expires_at, generation, idempotency_key, binding_id, template_version_id,
+				 desired_snapshot, request_actor_id)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,'PROVISIONING',
+			        LEAST(NOW() + make_interval(secs => $8),
+			              NOW() + make_interval(secs => $9),
+			              $10, $11),
+			        1,$12,$13,$14,$15,$16)
+		`, p.InstanceID, p.BoardID, p.ModuleID, string(p.Scope), p.ScopeUUID, p.SubjectType, p.SubjectID,
+			float64(p.TTLClamp.InitialSeconds), float64(p.TTLClamp.MaxTotalSeconds),
+			p.boardEndsAt, p.moduleEndsAt,
+			p.IdempotencyKey, p.BindingID, p.VersionID, p.Snapshot, p.Authorized.ActorUserID,
+		); err != nil {
+			return uuid.Nil, nil, err
+		}
+	} else if _, err := tx.Exec(ctx, `
 		INSERT INTO instances
 			(id, board_id, module_id, scope, scope_uuid, subject_type, subject_id, status,
 			 expires_at, generation, idempotency_key, binding_id, template_version_id,
@@ -355,40 +405,6 @@ func (s *store) destroyInstance(ctx context.Context, instanceID uuid.UUID, autho
 		return 0, nil, err
 	}
 	return generation, operations, nil
-}
-
-// extendInstance adds TTL and enforces the configured extension policy.
-func (s *store) extendInstance(ctx context.Context, instanceID uuid.UUID, add time.Duration, maxExtensions int, maxLifetime time.Duration) error {
-	var expiresAt *time.Time
-	var startedAt *time.Time
-	var extensionCount int64
-	var createdAt time.Time
-	if err := s.db.Pool.QueryRow(ctx, `
-		SELECT expires_at, started_at, extension_count, created_at FROM instances WHERE id = $1 AND removed_at IS NULL
-	`, instanceID).Scan(&expiresAt, &startedAt, &extensionCount, &createdAt); err != nil {
-		return err
-	}
-	if maxExtensions > 0 && extensionCount >= int64(maxExtensions) {
-		return conflict(CodeExtensionLimit, "instance extension limit reached")
-	}
-	base := time.Now()
-	if expiresAt != nil {
-		base = *expiresAt
-	}
-	next := base.Add(add)
-	if maxLifetime > 0 {
-		anchor := createdAt
-		if startedAt != nil {
-			anchor = *startedAt
-		}
-		if next.After(anchor.Add(maxLifetime)) {
-			return conflict(CodeMaxLifetime, "instance maximum lifetime reached")
-		}
-	}
-	_, err := s.db.Pool.Exec(ctx, `
-		UPDATE instances SET expires_at = $2, extension_count = extension_count + 1 WHERE id = $1
-	`, instanceID, next)
-	return err
 }
 
 // workerInstance is the trusted worker view: snapshot plus live status.

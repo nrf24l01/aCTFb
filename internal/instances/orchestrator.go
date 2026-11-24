@@ -93,6 +93,25 @@ func (o *Orchestrator) HandleJob(ctx context.Context, job Job) error {
 	}
 	previousStatus := instance.Status
 
+	// Re-read the authoritative deadline before any provider call. A job that is
+	// already past its deadline must not provision anything.
+	destroyOnly := true
+	for _, operation := range operations {
+		if operation.Kind != runtime.OperationDestroy {
+			destroyOnly = false
+			break
+		}
+	}
+	if !destroyOnly {
+		state, err := o.store.liveDeadline(ctx, instance.ID)
+		if err != nil {
+			return o.failAll(ctx, instance, operations, err)
+		}
+		if blocked := state.blocked(time.Now()); blocked != nil {
+			return o.abortExpired(ctx, instance, operations, blocked)
+		}
+	}
+
 	snapshot := instance.Snapshot
 	binding, err := o.store.loadBindingForApply(ctx, snapshot.BindingID)
 	if err != nil {
@@ -238,6 +257,19 @@ func (o *Orchestrator) applyOperation(ctx context.Context, instance *workerInsta
 	}
 	if resource.State != runtime.NodeStateRunning {
 		return fmt.Errorf("%w: provider did not confirm RUNNING", runtime.ErrProviderUnavailable)
+	}
+	// A provider call can outlive the deadline. Re-check before advertising
+	// RUNNING; if it passed, destroy what was just created instead of leaking an
+	// unreachable instance and its published port.
+	if state, err := o.store.liveDeadline(ctx, instance.ID); err != nil {
+		return err
+	} else if blocked := state.blocked(time.Now()); blocked != nil {
+		if resource.ProviderID != "" {
+			if destroyErr := driver.Destroy(ctx, targetRuntime, resource.ProviderID, runtimeOp); destroyErr != nil {
+				return destroyErr
+			}
+		}
+		return blocked
 	}
 	return o.store.nodeResult(ctx, instance.ID, operation.NodeKey, operation.Generation, target.Driver, resource)
 }

@@ -42,6 +42,10 @@ type sourceContext struct {
 	PentestResetEnabled     bool
 	PentestMaxResets        int
 	PentestSubmissionPolicy json.RawMessage
+	// ModuleSettings is the persisted module instance policy (nil = legacy).
+	ModuleSettings *ModuleInstanceSettings
+	// TaskOverrides are the nullable per-task lifetime overrides.
+	TaskOverrides TaskLifetimeOverrides
 }
 
 func (s *store) loadSource(ctx context.Context, scope Scope, boardID, moduleID uuid.UUID, taskID *uuid.UUID) (*sourceContext, error) {
@@ -61,6 +65,9 @@ func (s *store) loadSource(ctx context.Context, scope Scope, boardID, moduleID u
 		}
 		return nil, err
 	}
+	if err := s.loadModuleSettings(ctx, moduleID, source); err != nil {
+		return nil, err
+	}
 	switch scope {
 	case ScopeTask:
 		if taskID == nil {
@@ -69,14 +76,27 @@ func (s *store) loadSource(ctx context.Context, scope Scope, boardID, moduleID u
 		if source.ModuleType != "TASKS" {
 			return nil, conflict(CodeModuleTypeMismatch, "module is not a TASKS module")
 		}
+		var initialTTL, maxTTL, extensionSeconds, extensionMaxCount *int
+		var extensionEnabled *bool
 		if err := s.db.Pool.QueryRow(ctx, `
-			SELECT instance_enabled, deployment_binding_id
+			SELECT instance_enabled, deployment_binding_id,
+			       instance_ttl_seconds, instance_max_ttl_seconds,
+			       instance_extension_enabled, instance_extension_seconds, instance_extension_max_count
 			FROM tasks WHERE board_id = $1 AND module_id = $2 AND id = $3
-		`, boardID, moduleID, *taskID).Scan(&source.TaskInstanceEnabled, &source.TaskBindingID); err != nil {
+		`, boardID, moduleID, *taskID).Scan(&source.TaskInstanceEnabled, &source.TaskBindingID,
+			&initialTTL, &maxTTL, &extensionEnabled, &extensionSeconds, &extensionMaxCount,
+		); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil, notFound(CodeNotFound)
 			}
 			return nil, err
+		}
+		source.TaskOverrides = TaskLifetimeOverrides{
+			InitialTTLSeconds: initialTTL,
+			MaxTTLSeconds:     maxTTL,
+			ExtensionEnabled:  extensionEnabled,
+			ExtensionSeconds:  extensionSeconds,
+			ExtensionMaxCount: extensionMaxCount,
 		}
 	case ScopePentest:
 		if source.ModuleType != "PENTEST" {
@@ -376,17 +396,24 @@ func (s *store) findByIdempotencyKey(ctx context.Context, key string) (*liveInst
 
 func (s *store) getInstance(ctx context.Context, id uuid.UUID) (*Instance, error) {
 	instance := &Instance{}
+	var snapshotRaw []byte
+	var boardEndsAt, moduleEndsAt *time.Time
 	err := s.db.Pool.QueryRow(ctx, `
 		SELECT i.id, i.board_id, i.module_id, i.scope, i.scope_uuid, i.subject_type, i.subject_id,
 		       u.username, i.status, i.created_at, i.started_at, i.expires_at, i.extension_count,
-		       i.generation, i.binding_id, i.template_version_id, i.removed_at
-		FROM instances i LEFT JOIN users u ON u.id = i.subject_id
+		       i.generation, i.binding_id, i.template_version_id, i.removed_at,
+		       i.desired_snapshot, b.ends_at, m.ends_at
+		FROM instances i
+		LEFT JOIN users u ON u.id = i.subject_id
+		LEFT JOIN boards b ON b.id = i.board_id
+		LEFT JOIN modules m ON m.board_id = i.board_id AND m.id = i.module_id
 		WHERE i.id = $1
 	`, id).Scan(
 		&instance.UUID, &instance.BoardID, &instance.ModuleID, &instance.Scope, &instance.ScopeUUID,
 		&instance.SubjectType, &instance.SubjectID, &instance.SubjectName, &instance.Status,
 		&instance.CreatedAt, &instance.StartedAt, &instance.ExpiresAt, &instance.ExtensionCount,
 		&instance.Generation, &instance.BindingID, &instance.VersionID, &instance.RemovedAt,
+		&snapshotRaw, &boardEndsAt, &moduleEndsAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -394,6 +421,12 @@ func (s *store) getInstance(ctx context.Context, id uuid.UUID) (*Instance, error
 		}
 		return nil, err
 	}
+	var snapshot DesiredSnapshot
+	if len(snapshotRaw) > 0 {
+		_ = json.Unmarshal(snapshotRaw, &snapshot)
+	}
+	instance.Lifecycle = snapshot.Lifecycle
+	instance.applyLifecycle(boardEndsAt, moduleEndsAt, time.Now())
 	nodes, err := s.loadNodes(ctx, id)
 	if err != nil {
 		return nil, err
@@ -486,4 +519,102 @@ func (s *store) operations(ctx context.Context, instanceID uuid.UUID, ids []uuid
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// loadModuleSettings reads modules.task_instance_settings into the source
+// context. An absent document keeps the legacy global-default behaviour.
+func (s *store) loadModuleSettings(ctx context.Context, moduleID uuid.UUID, source *sourceContext) error {
+	var raw []byte
+	if err := s.db.Pool.QueryRow(ctx, `
+		SELECT task_instance_settings FROM modules WHERE id = $1
+	`, moduleID).Scan(&raw); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return notFound(CodeNotFound)
+		}
+		return err
+	}
+	settings, err := decodeModuleInstanceSettings(raw)
+	if err != nil {
+		return instanceError(CodeInternal, "stored module instance settings are invalid", 500)
+	}
+	source.ModuleSettings = settings
+	return nil
+}
+
+// moduleInstanceSettingsWire mirrors the JSONB document written by the boards
+// lane. Unknown fields are ignored so a future additive key cannot break the
+// worker.
+type moduleInstanceSettingsWire struct {
+	DefaultTTLSeconds                *int   `json:"defaultTtlSeconds"`
+	MaxTTLSeconds                    *int   `json:"maxTtlSeconds"`
+	MaxConcurrentInstancesPerSubject *int   `json:"maxConcurrentInstancesPerSubject"`
+	ResetEnabled                     *bool  `json:"resetEnabled"`
+	Extension                        *struct {
+		Enabled  *bool `json:"enabled"`
+		Seconds  *int  `json:"seconds"`
+		MaxCount *int  `json:"maxCount"`
+	} `json:"extension"`
+}
+
+func decodeModuleInstanceSettings(raw []byte) (*ModuleInstanceSettings, error) {
+	if len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
+		return nil, nil
+	}
+	var wire moduleInstanceSettingsWire
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return nil, err
+	}
+	settings := &ModuleInstanceSettings{}
+	if wire.DefaultTTLSeconds != nil {
+		settings.DefaultTTLSeconds = *wire.DefaultTTLSeconds
+	}
+	if wire.MaxTTLSeconds != nil {
+		settings.MaxTTLSeconds = *wire.MaxTTLSeconds
+	}
+	if wire.MaxConcurrentInstancesPerSubject != nil {
+		settings.MaxConcurrentInstancesPerSubject = *wire.MaxConcurrentInstancesPerSubject
+	}
+	if wire.ResetEnabled != nil {
+		settings.ResetEnabled = *wire.ResetEnabled
+	}
+	if wire.Extension != nil {
+		extension := &ModuleExtensionSettings{}
+		if wire.Extension.Enabled != nil {
+			extension.Enabled = *wire.Extension.Enabled
+		}
+		if wire.Extension.Seconds != nil {
+			extension.Seconds = *wire.Extension.Seconds
+		}
+		if wire.Extension.MaxCount != nil {
+			extension.MaxCount = *wire.Extension.MaxCount
+		}
+		settings.Extension = extension
+	}
+	return settings, nil
+}
+
+// applyLifecycle fills the server-computed capability fields. Clients never
+// derive these: the UI only renders what the server allows.
+func (i *Instance) applyLifecycle(boardEndsAt, moduleEndsAt *time.Time, now time.Time) {
+	if i.Lifecycle == nil {
+		// Legacy instance without a frozen policy: report no extension
+		// capability rather than inventing one the service would not honour.
+		i.CanExtend = false
+		i.CanReset = i.Status != StatusDestroying && i.Status != StatusExpired && i.RemovedAt == nil
+		return
+	}
+	policy := *i.Lifecycle
+	remaining := int64(policy.ExtendMaxCount) - i.ExtensionCount
+	if remaining < 0 {
+		remaining = 0
+	}
+	step := policy.ExtendSeconds
+	i.ExtensionSeconds = &step
+	i.ExtensionsRemaining = &remaining
+	live := i.RemovedAt == nil && i.Status == StatusRunning && i.ExpiresAt != nil && i.ExpiresAt.After(now)
+	if live && policy.ExtendEnabled && remaining > 0 {
+		deadline := hardDeadline(i.CreatedAt, time.Duration(policy.MaxTotalTTLSeconds)*time.Second, boardEndsAt, moduleEndsAt)
+		i.CanExtend = deadline.After(*i.ExpiresAt)
+	}
+	i.CanReset = i.RemovedAt == nil && i.Status != StatusDestroying && i.Status != StatusExpired && policy.ResetEnabled
 }
