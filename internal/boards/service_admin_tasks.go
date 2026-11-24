@@ -60,7 +60,7 @@ func (s *Service) AdminCreateTask(
 	if err := validateSubmissionPolicy(input.Submission, input.Type); err != nil {
 		return nil, err
 	}
-	if err := validateInstanceInput(input.Instance); err != nil {
+	if err := validateInstanceInput(input.Instance, module); err != nil {
 		return nil, err
 	}
 	if input.Type == TaskTypeInstance {
@@ -102,6 +102,7 @@ func (s *Service) AdminCreateTask(
 	if err != nil {
 		return nil, err
 	}
+	overrides := input.Instance.lifetimeOverrides()
 	created, err := s.store.CreateTask(ctx, CreateTaskParams{
 		BoardID: boardID, ModuleID: moduleID, Title: task.Title, Category: task.Category,
 		Description: task.Description, Type: task.Type, Points: task.Points, Visible: task.Visible,
@@ -109,6 +110,11 @@ func (s *Service) AdminCreateTask(
 		ExtensionKey: task.ExtensionKey, CheckerKey: task.CheckerKey,
 		InstanceEnabled: task.InstanceEnabled, AnswerHashes: hashes,
 		TextPolicy: task.TextPolicy, FilesPolicy: task.FilesPolicy, CreatedBy: principal.UserID,
+		InstanceTTLSeconds:        overrides.InitialTTLSeconds,
+		InstanceMaxTTLSeconds:     overrides.MaxTTLSeconds,
+		InstanceExtensionEnabled:  overrides.ExtensionEnabled,
+		InstanceExtensionSeconds:  overrides.ExtensionSeconds,
+		InstanceExtensionMaxCount: overrides.ExtensionMaxCount,
 	}, auditEvent(principal, &boardID, &moduleID, "task.create", "task", nil, map[string]any{"type": task.Type}))
 	if err != nil {
 		return nil, err
@@ -217,10 +223,19 @@ func (s *Service) AdminUpdateTask(
 		}
 	}
 	if input.Instance != nil {
-		if err := validateInstanceInput(*input.Instance); err != nil {
+		if err := validateInstanceInput(*input.Instance, module); err != nil {
 			return nil, err
 		}
 		merged.InstanceEnabled = input.Instance.Enabled
+		mergeTaskLifetimeOverrides(&merged, *input.Instance)
+		if !merged.InstanceEnabled {
+			// A task that no longer requires an instance must not keep a
+			// lifetime override; the database enforces the same rule.
+			clearTaskLifetimeOverrides(&merged)
+		}
+		if err := validateTaskLifetimeOverrides(taskLifetimeOverrides(merged), moduleSettingsFor(module), merged.InstanceEnabled); err != nil {
+			return nil, err
+		}
 	}
 	replaceAnswers := input.AcceptedAnswers.Set
 	if replaceAnswers {
@@ -253,6 +268,11 @@ func (s *Service) AdminUpdateTask(
 		CheckerKey: merged.CheckerKey, InstanceEnabled: merged.InstanceEnabled,
 		ReplaceAnswers: replaceAnswers, AnswerHashes: hashes,
 		TextPolicy: merged.TextPolicy, FilesPolicy: merged.FilesPolicy,
+		InstanceTTLSeconds:        merged.InstanceTTLSeconds,
+		InstanceMaxTTLSeconds:     merged.InstanceMaxTTLSeconds,
+		InstanceExtensionEnabled:  merged.InstanceExtensionEnabled,
+		InstanceExtensionSeconds:  merged.InstanceExtensionSeconds,
+		InstanceExtensionMaxCount: merged.InstanceExtensionMaxCount,
 	}, auditEvent(principal, &boardID, &moduleID, "task.update", "task", &taskID, map[string]any{}))
 	if err != nil {
 		return nil, err

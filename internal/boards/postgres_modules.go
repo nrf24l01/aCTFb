@@ -12,11 +12,13 @@ import (
 
 const moduleColumns = `m.id, m.board_id, m.name, m.description, m.type, COALESCE(m.extension_key, ''),
 	m.allowed_task_types, COALESCE((SELECT string_agg(ma.audience_id::text, ',' ORDER BY ma.audience_id::text) FROM module_audiences ma WHERE ma.board_id=m.board_id AND ma.module_id=m.id), ''),
-	m.enabled, m.sort_order, m.starts_at, m.ends_at, m.created_by, m.created_at, m.updated_at`
+	m.enabled, m.sort_order, m.starts_at, m.ends_at, m.created_by, m.created_at, m.updated_at,
+	m.task_instance_settings`
 
 func scanModuleRow(row boardScanner) (*Module, error) {
 	var module Module
 	var audienceCSV string
+	var instanceSettingsRaw []byte
 	if err := row.Scan(
 		&module.ID,
 		&module.BoardID,
@@ -33,9 +35,15 @@ func scanModuleRow(row boardScanner) (*Module, error) {
 		&module.CreatedBy,
 		&module.CreatedAt,
 		&module.UpdatedAt,
+		&instanceSettingsRaw,
 	); err != nil {
 		return nil, err
 	}
+	settings, err := decodeTaskInstanceSettings(instanceSettingsRaw)
+	if err != nil {
+		return nil, fmt.Errorf("decode module instance settings: %w", err)
+	}
+	module.TaskInstanceSettings = settings
 	for _, raw := range strings.Split(audienceCSV, ",") {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
@@ -150,11 +158,12 @@ func (s *PostgresStore) CreateModule(ctx context.Context, in CreateModuleParams,
 	defer func() { _ = tx.Rollback(ctx) }()
 	module, err := scanModuleRow(tx.QueryRow(ctx, `
 		INSERT INTO modules AS m (board_id, name, description, type, extension_key, allowed_task_types,
-			audience_uuids, enabled, sort_order, starts_at, ends_at, created_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+			audience_uuids, enabled, sort_order, starts_at, ends_at, created_by, task_instance_settings)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		RETURNING `+moduleColumns,
 		in.BoardID, in.Name, in.Description, in.Type, emptyToNil(in.ExtensionKey), in.AllowedTaskTypes,
 		audiences, in.Enabled, in.SortOrder, in.StartsAt, in.EndsAt, in.CreatedBy,
+		instanceSettingsJSON(in.InstanceSettings),
 	))
 	if isUniqueViolation(err) {
 		return nil, ErrModuleNameAlreadyExists
@@ -195,11 +204,13 @@ func (s *PostgresStore) UpdateModule(ctx context.Context, boardID, moduleID uuid
 	}
 	module, err := scanModuleRow(tx.QueryRow(ctx, `
 		UPDATE modules AS m SET name=$3, description=$4, extension_key=$5, allowed_task_types=$6,
-			audience_uuids=$7, enabled=$8, sort_order=$9, starts_at=$10, ends_at=$11, updated_at=NOW()
+			audience_uuids=$7, enabled=$8, sort_order=$9, starts_at=$10, ends_at=$11,
+			task_instance_settings=$12, updated_at=NOW()
 		WHERE board_id=$1 AND id=$2
 		RETURNING `+moduleColumns,
 		boardID, moduleID, in.Name, in.Description, emptyToNil(in.ExtensionKey), in.AllowedTaskTypes, audiences,
 		in.Enabled, in.SortOrder, in.StartsAt, in.EndsAt,
+		instanceSettingsJSON(in.InstanceSettings),
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrModuleNotFound

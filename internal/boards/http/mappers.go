@@ -177,8 +177,9 @@ func adminModuleModel(module boards.Module) *oapimodels.AdminModule {
 		Order:            base.Order,
 		StartsAt:         base.StartsAt,
 		EndsAt:           base.EndsAt,
-		Enabled:          &enabled,
-		LegacyMixed:      module.Type == boards.ModuleTypeTasks && len(module.AllowedTaskTypes) > 1,
+		Enabled:              &enabled,
+		LegacyMixed:          module.Type == boards.ModuleTypeTasks && len(module.AllowedTaskTypes) > 1,
+		TaskInstanceSettings: taskInstanceSettingsModel(module.TaskInstanceSettings),
 	}
 	return admin
 }
@@ -287,6 +288,7 @@ func taskModel(task boards.Task) *oapimodels.Task {
 	instanceStatus := "NOT_CREATED"
 	instance := &oapimodels.TaskInstanceSummary{
 		Required: &requiredInstance, Status: &instanceStatus, CanStart: &canStart,
+		TTLSeconds: effectiveInitialTTL(task),
 	}
 	result := &oapimodels.Task{
 		UUID:             &uuidValue,
@@ -319,7 +321,22 @@ func adminTaskModel(task boards.Task) *oapimodels.AdminTask {
 	visible := task.Visible
 	configured := task.AcceptedAnswersCount > 0
 	count := int64(task.AcceptedAnswersCount)
-	instance := &oapimodels.TaskInstanceConfig{Enabled: boolValue(false)}
+	instance := &oapimodels.TaskInstanceConfig{
+		Enabled:       boolValue(task.InstanceEnabled),
+		TTLSeconds:    int64Pointer(task.InstanceTTLSeconds),
+		MaxTTLSeconds: int64Pointer(task.InstanceMaxTTLSeconds),
+	}
+	if task.InstanceExtensionSeconds != nil && task.InstanceExtensionMaxCount != nil {
+		enabled := true
+		if task.InstanceExtensionEnabled != nil {
+			enabled = *task.InstanceExtensionEnabled
+		}
+		instance.Extension = &oapimodels.TaskInstanceModuleSettingsExtension{
+			Enabled:  boolValue(enabled),
+			Seconds:  int64Pointer(task.InstanceExtensionSeconds),
+			MaxCount: int64Pointer(task.InstanceExtensionMaxCount),
+		}
+	}
 	return &oapimodels.AdminTask{
 		UUID:             base.UUID,
 		ModuleUUID:       base.ModuleUUID,
@@ -645,4 +662,25 @@ func scoreAdjustmentModel(item boards.ScoreAdjustment) *oapimodels.ScoreAdjustme
 		result.ModuleUUID = &moduleID
 	}
 	return result
+}
+
+// effectiveInitialTTL is the participant-facing effective initial lifetime for a
+// new instance. It resolves task override -> module default -> global default,
+// matching the instances service precedence.
+func effectiveInitialTTL(task boards.Task) *int64 {
+	seconds := boards.EffectiveInstanceInitialTTLSeconds(task, boards.DefaultInstanceInitialTTLSeconds)
+	if seconds == nil {
+		return nil
+	}
+	value := int64(*seconds)
+	return &value
+}
+
+// int64Pointer converts a nullable int override to the generated model type.
+func int64Pointer(value *int) *int64 {
+	if value == nil {
+		return nil
+	}
+	converted := int64(*value)
+	return &converted
 }

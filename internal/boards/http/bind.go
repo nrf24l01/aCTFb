@@ -282,6 +282,19 @@ func optionalInt(value int, present bool) boards.OptionalInt {
 
 func intValue(value int) *int { return &value }
 
+// optionalInt64 marks a generated *int64 field as present. A nil pointer means
+// the client sent an explicit null, which resets the override to inherit.
+func optionalInt64(value *int64, present bool) boards.OptionalInt {
+	if !present {
+		return boards.OptionalInt{}
+	}
+	result := boards.OptionalInt{Set: true}
+	if value != nil {
+		result.Value = intValue(int(*value))
+	}
+	return result
+}
+
 func optionalBool(value bool, present bool) boards.OptionalBool {
 	if !present {
 		return boards.OptionalBool{}
@@ -290,6 +303,8 @@ func optionalBool(value bool, present bool) boards.OptionalBool {
 }
 
 func boolValue(value bool) *bool { return &value }
+
+func int64Value(value int64) *int64 { return &value }
 
 func isNull(raw rawBody, key string) bool {
 	body, present := raw[key]

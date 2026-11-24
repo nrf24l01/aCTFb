@@ -34,7 +34,7 @@ type TaskInstanceSummary struct {
 	// Enum: ["NOT_CREATED","PROVISIONING","RUNNING","RESETTING","DESTROYING","ERROR","EXPIRED"]
 	Status *string `json:"status"`
 
-	// ttl seconds
+	// Effective initial lifetime in seconds for a new instance of this task, resolved from the task override, then the module default, then the global default. Null when instances are not enabled.
 	// Minimum: 60
 	TTLSeconds *int64 `json:"ttlSeconds,omitempty"`
 }

@@ -66,7 +66,7 @@ func (h *Handler) AdminCreateTask(c *echo.Context) error {
 		return problem.write(c)
 	}
 	policy := submissionPolicyInput(request.Submission, nestedRaw(raw, "submission"))
-	instance := taskInstanceInput(request.Instance)
+	instance := taskInstanceInput(request.Instance, raw)
 	extensionKey := ""
 	if request.ExtensionKey != nil {
 		extensionKey = strings.TrimSpace(*request.ExtensionKey)
@@ -143,7 +143,7 @@ func (h *Handler) AdminUpdateTask(c *echo.Context) error {
 		if request.Instance == nil || isNull(raw, "instance") {
 			return validationProblem(boards.Invalid("body.instance", "must not be null", "INVALID_VALUE")).write(c)
 		}
-		instance := taskInstanceInput(request.Instance)
+		instance := taskInstanceInput(request.Instance, raw)
 		input.Instance = &instance
 	}
 	if isPresent(raw, "acceptedAnswers") {

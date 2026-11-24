@@ -27089,6 +27089,26 @@ definitions:
       extensionCount:
         type: integer
         minimum: 0
+      canExtend:
+        type: boolean
+        x-nullable: true
+        description: Server-computed. True only when the caller may extend now (RUNNING, not expired,
+          extension policy enabled, credits remaining and a later hard deadline exists). Clients must
+          not recompute this.
+      extensionSeconds:
+        type: integer
+        minimum: 60
+        x-nullable: true
+        description: Server-resolved extension step for this instance, frozen at creation.
+      extensionsRemaining:
+        type: integer
+        minimum: 0
+        x-nullable: true
+        description: Remaining extension credits. Zero means none left; it never means unlimited.
+      canReset:
+        type: boolean
+        x-nullable: true
+        description: Server-computed. True only when the caller may reset now.
       nodes:
         type: array
         items:
@@ -27181,6 +27201,9 @@ definitions:
         type: integer
         minimum: 60
         x-nullable: true
+        description: Effective initial lifetime in seconds for a new instance of this task, resolved from
+          the task override, then the module default, then the global default. Null when instances are
+          not enabled.
       canStart:
         type: boolean
       cannotStartReason:
@@ -27957,6 +27980,24 @@ definitions:
         minimum: 60
         maximum: 604800
         x-nullable: true
+        description: Initial lifetime of a new instance, measured from the request (allocation) time;
+          provisioning time counts. Must not exceed the module maximum. Absent or null inherits the
+          module default.
+      maxTtlSeconds:
+        type: integer
+        minimum: 60
+        maximum: 604800
+        x-nullable: true
+        description: Maximum total lifetime of a new instance, measured from the request (allocation)
+          time. Must not exceed module.taskInstanceSettings.maxTtlSeconds. Absent or null inherits the
+          module maximum. This is a total, never a per-extension amount.
+      extension:
+        allOf:
+        - $ref: '#/definitions/TaskInstanceModuleSettingsExtension'
+        - x-nullable: true
+        description: Student extension policy override for new instances. Absent or null inherits the
+          module extension policy. enabled=true is rejected when the module disables extensions, and
+          seconds/maxCount may not exceed the module limits.
       nodes:
         type: array
         minItems: 1
@@ -27968,6 +28009,10 @@ definitions:
     - enabled=false requires providerIntegrationUuid/nodes absent
     - enabled=true requires providerIntegrationUuid and at least one node
     - ttlSeconds must be <= module.taskInstanceSettings.maxTtlSeconds; absent uses module default
+    - maxTtlSeconds must be <= module.taskInstanceSettings.maxTtlSeconds and >= the effective initial TTL
+    - extension.enabled requires the module extension policy to be enabled
+    - extension.seconds/maxCount must not exceed the module extension limits
+    - null or omitted override fields inherit; an explicit null in PATCH resets to inherit
   AdminTaskCreateRequest:
     type: object
     required:
@@ -29422,25 +29467,38 @@ definitions:
       resetEnabled:
         type: boolean
       extension:
-        type: object
-        required:
-        - enabled
-        - seconds
-        - maxCount
-        additionalProperties: false
-        properties:
-          enabled:
-            type: boolean
-          seconds:
-            type: integer
-            minimum: 60
-            maximum: 86400
-          maxCount:
-            type: integer
-            minimum: 0
-            maximum: 100
+        $ref: '#/definitions/TaskInstanceModuleSettingsExtension'
     x-validation-rules:
     - maxTtlSeconds must be >= defaultTtlSeconds
+    - maxTtlSeconds must not exceed the deployment global hard maximum (7 days)
+    - defaultTtlSeconds is the initial lifetime of a new instance; it is measured from the request
+      (allocation) time, so provisioning time counts.
+    - maxTtlSeconds is the maximum total lifetime, not a per-extension amount.
+    - extension.maxCount=0 means extensions are unavailable; it never means unlimited.
+  TaskInstanceModuleSettingsExtension:
+    type: object
+    required:
+    - enabled
+    - seconds
+    - maxCount
+    additionalProperties: false
+    properties:
+      enabled:
+        type: boolean
+      seconds:
+        type: integer
+        minimum: 60
+        maximum: 86400
+        description: One extension step in seconds. The student never chooses the duration.
+      maxCount:
+        type: integer
+        minimum: 0
+        maximum: 100
+        description: Number of extension steps available per instance. Zero disables extensions; it never
+          means unlimited.
+    x-validation-rules:
+    - maxCount=0 disables extensions regardless of enabled
+    - Task overrides may not exceed these module limits
   PentestModuleInfo:
     type: object
     required:

@@ -16,12 +16,22 @@ const taskColumns = `t.id, t.board_id, t.module_id, t.title, t.category, t.descr
 	COALESCE(t.extension_key, ''), COALESCE(t.checker_key, ''), t.instance_enabled,
 	t.submission_text_policy, t.submission_files_policy,
 	t.created_by, t.created_at, t.updated_at,
+	t.instance_ttl_seconds, t.instance_max_ttl_seconds, t.instance_extension_enabled,
+	t.instance_extension_seconds, t.instance_extension_max_count,
+	(SELECT m.task_instance_settings FROM modules m WHERE m.board_id = t.board_id AND m.id = t.module_id),
 	(SELECT count(*) FROM task_flags f WHERE f.task_id = t.id)`
 
-func scanTaskRow(row boardScanner) (*Task, error) {
-	var task Task
-	var textRaw, filesRaw []byte
-	if err := row.Scan(
+// taskScanBuffers holds the nullable lifetime columns plus the JSON policy
+// blobs that are decoded after scanning.
+type taskScanBuffers struct {
+	textRaw, filesRaw, moduleSettingsRaw                 []byte
+	initialTTL, maxTTL, extensionSeconds, extensionMaxCount *int
+	extensionEnabled                                     *bool
+}
+
+// taskScanDest returns the scan destinations for taskColumns, in column order.
+func taskScanDest(task *Task, buf *taskScanBuffers) []any {
+	return []any{
 		&task.ID,
 		&task.BoardID,
 		&task.ModuleID,
@@ -36,19 +46,58 @@ func scanTaskRow(row boardScanner) (*Task, error) {
 		&task.ExtensionKey,
 		&task.CheckerKey,
 		&task.InstanceEnabled,
-		&textRaw,
-		&filesRaw,
+		&buf.textRaw,
+		&buf.filesRaw,
 		&task.CreatedBy,
 		&task.CreatedAt,
 		&task.UpdatedAt,
+		&buf.initialTTL,
+		&buf.maxTTL,
+		&buf.extensionEnabled,
+		&buf.extensionSeconds,
+		&buf.extensionMaxCount,
+		&buf.moduleSettingsRaw,
 		&task.AcceptedAnswersCount,
-	); err != nil {
+	}
+}
+
+// applyTaskScanBuffers finishes a scan: it copies the nullable overrides and
+// decodes the parent module policy and submission policies.
+func applyTaskScanBuffers(task *Task, buf *taskScanBuffers) error {
+	task.InstanceTTLSeconds = buf.initialTTL
+	task.InstanceMaxTTLSeconds = buf.maxTTL
+	task.InstanceExtensionEnabled = buf.extensionEnabled
+	task.InstanceExtensionSeconds = buf.extensionSeconds
+	task.InstanceExtensionMaxCount = buf.extensionMaxCount
+	settings, err := decodeTaskInstanceSettings(buf.moduleSettingsRaw)
+	if err != nil {
+		return fmt.Errorf("decode module instance settings: %w", err)
+	}
+	task.ModuleInstanceSettings = settings
+	return applyTaskPolicies(task, buf.textRaw, buf.filesRaw)
+}
+
+func scanTaskRow(row boardScanner) (*Task, error) {
+	task := &Task{}
+	buf := &taskScanBuffers{}
+	if err := row.Scan(taskScanDest(task, buf)...); err != nil {
 		return nil, err
 	}
-	if err := applyTaskPolicies(&task, textRaw, filesRaw); err != nil {
+	if err := applyTaskScanBuffers(task, buf); err != nil {
 		return nil, err
 	}
-	return &task, nil
+	return task, nil
+}
+
+// scanTaskRowInto scans taskColumns plus caller-supplied trailing destinations
+// (for example the solved/solves_count projections) into task.
+func scanTaskRowInto(row boardScanner, task *Task, extras ...any) error {
+	buf := &taskScanBuffers{}
+	dest := append(taskScanDest(task, buf), extras...)
+	if err := row.Scan(dest...); err != nil {
+		return err
+	}
+	return applyTaskScanBuffers(task, buf)
 }
 
 func applyTaskPolicies(task *Task, textRaw, filesRaw []byte) error {
@@ -129,20 +178,9 @@ func (s *PostgresStore) ListTasks(ctx context.Context, boardID, moduleID uuid.UU
 	defer rows.Close()
 	items := make([]Task, 0, filter.Limit)
 	for rows.Next() {
-		var task Task
-		var textRaw, filesRaw []byte
-		if err := rows.Scan(
-			&task.ID, &task.BoardID, &task.ModuleID, &task.Title, &task.Category,
-			&task.Description, &task.Type, &task.Points, &task.Visible,
-			&task.SubmissionMode, &task.SubmissionChecker, &task.ExtensionKey, &task.CheckerKey,
-			&task.InstanceEnabled, &textRaw, &filesRaw,
-			&task.CreatedBy, &task.CreatedAt, &task.UpdatedAt,
-			&task.AcceptedAnswersCount, &task.Solved, &task.SolvesCount,
-		); err != nil {
+		task := Task{}
+		if err := scanTaskRowInto(rows, &task, &task.Solved, &task.SolvesCount); err != nil {
 			return nil, 0, fmt.Errorf("scan task: %w", err)
-		}
-		if err := applyTaskPolicies(&task, textRaw, filesRaw); err != nil {
-			return nil, 0, err
 		}
 		items = append(items, task)
 	}
@@ -183,13 +221,17 @@ func (s *PostgresStore) CreateTask(ctx context.Context, in CreateTaskParams, aud
 	task, err := scanTaskRow(tx.QueryRow(ctx, `
 		INSERT INTO tasks AS t (board_id, module_id, title, category, description, type,
 			points, visible, submission_mode, submission_checker, extension_key, checker_key,
-			instance_enabled, submission_text_policy, submission_files_policy, created_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+			instance_enabled, submission_text_policy, submission_files_policy, created_by,
+			instance_ttl_seconds, instance_max_ttl_seconds, instance_extension_enabled,
+			instance_extension_seconds, instance_extension_max_count)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
 		RETURNING `+taskColumns,
 		in.BoardID, in.ModuleID, in.Title, in.Category, in.Description, in.Type,
 		in.Points, in.Visible, in.SubmissionMode, in.SubmissionChecker,
 		emptyToNil(in.ExtensionKey), emptyToNil(in.CheckerKey), in.InstanceEnabled,
 		taskTextPolicyJSON(in.TextPolicy), taskFilesPolicyJSON(in.FilesPolicy), in.CreatedBy,
+		in.InstanceTTLSeconds, in.InstanceMaxTTLSeconds, in.InstanceExtensionEnabled,
+		in.InstanceExtensionSeconds, in.InstanceExtensionMaxCount,
 	))
 	if err != nil {
 		if isForeignKeyViolation(err) {
@@ -230,13 +272,18 @@ func (s *PostgresStore) UpdateTask(ctx context.Context, boardID, moduleID, taskI
 		UPDATE tasks AS t SET title=$4, category=$5, description=$6, points=$7,
 			visible=$8, submission_mode=$9, submission_checker=$10,
 			extension_key=$11, checker_key=$12, instance_enabled=$13,
-			submission_text_policy=$14, submission_files_policy=$15, updated_at=NOW()
+			submission_text_policy=$14, submission_files_policy=$15,
+			instance_ttl_seconds=$16, instance_max_ttl_seconds=$17,
+			instance_extension_enabled=$18, instance_extension_seconds=$19,
+			instance_extension_max_count=$20, updated_at=NOW()
 		WHERE board_id=$1 AND module_id=$2 AND id=$3
 		RETURNING `+taskColumns,
 		boardID, moduleID, taskID, in.Title, in.Category, in.Description,
 		in.Points, in.Visible, in.SubmissionMode, in.SubmissionChecker,
 		emptyToNil(in.ExtensionKey), emptyToNil(in.CheckerKey), in.InstanceEnabled,
 		taskTextPolicyJSON(in.TextPolicy), taskFilesPolicyJSON(in.FilesPolicy),
+		in.InstanceTTLSeconds, in.InstanceMaxTTLSeconds, in.InstanceExtensionEnabled,
+		in.InstanceExtensionSeconds, in.InstanceExtensionMaxCount,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrTaskNotFound

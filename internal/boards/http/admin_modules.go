@@ -53,15 +53,12 @@ func (h *Handler) AdminCreateModule(c *echo.Context) error {
 		return problem.write(c)
 	}
 	var request oapimodels.AdminModuleCreateRequest
-	raw, problem := bindJSON(c, &request)
-	if problem != nil {
-		return problem.write(c)
+	_, bindProblem := bindJSON(c, &request)
+	if bindProblem != nil {
+		return bindProblem.write(c)
 	}
 	if problem := validateGenerated(&request); problem != nil {
 		return problem.write(c)
-	}
-	if nonEmptyObject(raw, "taskInstanceSettings") {
-		return validationProblem(boards.Unsupported("body.taskInstanceSettings", "task instances are not implemented in the first slice")).write(c)
 	}
 	enabled := true
 	if request.Enabled != nil {
@@ -81,6 +78,7 @@ func (h *Handler) AdminCreateModule(c *echo.Context) error {
 		AllowedTaskTypes: taskTypes(request.AllowedTaskTypes), AudienceUUIDs: uuidList(request.AudienceUuids),
 		Enabled: enabled, SortOrder: order,
 		StartsAt: dateTimePointer(request.StartsAt), EndsAt: dateTimePointer(request.EndsAt),
+		InstanceSettings: moduleInstanceSettings(request.TaskInstanceSettings),
 	})
 	if err != nil {
 		return writeAdminError(c, err)
@@ -114,9 +112,6 @@ func (h *Handler) AdminUpdateModule(c *echo.Context) error {
 	}
 	if problem := validateGenerated(&request); problem != nil {
 		return problem.write(c)
-	}
-	if nonEmptyObject(raw, "taskInstanceSettings") {
-		return validationProblem(boards.Unsupported("body.taskInstanceSettings", "task instances are not implemented in the first slice")).write(c)
 	}
 	input := boards.UpdateModuleInput{
 		Name:        optionalString(request.Name, isPresent(raw, "name")),
@@ -159,6 +154,14 @@ func (h *Handler) AdminUpdateModule(c *echo.Context) error {
 	input.EndsAt, problem = parsePresenceTime(raw, "endsAt", request.EndsAt)
 	if problem != nil {
 		return problem.write(c)
+	}
+	// taskInstanceSettings is presence-aware: omitted preserves, an explicit
+	// null clears back to the global defaults, an object replaces the policy.
+	if isPresent(raw, "taskInstanceSettings") {
+		input.InstanceSettingsSet = true
+		if !isNull(raw, "taskInstanceSettings") {
+			input.InstanceSettings = moduleInstanceSettings(request.TaskInstanceSettings)
+		}
 	}
 	module, err := h.service.AdminUpdateModule(c.Request().Context(), principal, boardID, moduleID, input)
 	if err != nil {

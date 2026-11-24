@@ -65,6 +65,7 @@ func (s *Service) AdminCreateModule(ctx context.Context, principal authorization
 		ExtensionKey:     input.ExtensionKey,
 		AllowedTaskTypes: input.AllowedTaskTypes, AudienceUUIDs: input.AudienceUUIDs,
 		Enabled: input.Enabled, SortOrder: input.SortOrder, StartsAt: input.StartsAt, EndsAt: input.EndsAt,
+		TaskInstanceSettings: input.InstanceSettings,
 	}
 	if err := validateModuleInput(module, *board); err != nil {
 		return nil, err
@@ -86,6 +87,7 @@ func (s *Service) AdminCreateModule(ctx context.Context, principal authorization
 		AllowedTaskTypes: module.AllowedTaskTypes, AudienceUUIDs: module.AudienceUUIDs,
 		Enabled: module.Enabled, SortOrder: module.SortOrder,
 		StartsAt: module.StartsAt, EndsAt: module.EndsAt, CreatedBy: principal.UserID,
+		InstanceSettings: module.TaskInstanceSettings,
 	}, auditEvent(principal, &boardID, nil, "module.create", "module", nil, map[string]any{"type": module.Type}))
 	if err != nil {
 		return nil, err
@@ -150,6 +152,7 @@ func (s *Service) AdminUpdateModule(
 		AllowedTaskTypes: merged.AllowedTaskTypes,
 		AudienceUUIDs:    merged.AudienceUUIDs, Enabled: merged.Enabled, SortOrder: merged.SortOrder,
 		StartsAt: merged.StartsAt, EndsAt: merged.EndsAt,
+		InstanceSettings: merged.TaskInstanceSettings,
 	}, auditEvent(principal, &boardID, &moduleID, "module.update", "module", &moduleID, map[string]any{}))
 	if err != nil {
 		return nil, err
@@ -215,6 +218,9 @@ func mergeModule(current *Module, input UpdateModuleInput) (Module, []string, er
 			return Module{}, nil, Invalid("body.order", "must not be null", "INVALID_VALUE")
 		}
 		merged.SortOrder = *input.SortOrder.Value
+	}
+	if input.InstanceSettingsSet {
+		merged.TaskInstanceSettings = input.InstanceSettings
 	}
 	if input.StartsAt.Set {
 		merged.StartsAt = input.StartsAt.Value

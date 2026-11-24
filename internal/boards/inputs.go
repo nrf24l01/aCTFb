@@ -92,6 +92,9 @@ type CreateModuleInput struct {
 	SortOrder        int
 	StartsAt         *time.Time
 	EndsAt           *time.Time
+	// InstanceSettings is the optional per-module instance policy. Nil keeps
+	// the legacy global-default behaviour.
+	InstanceSettings *TaskInstanceSettings
 }
 
 // UpdateModuleInput merges onto the current module. Type remains immutable.
@@ -105,6 +108,11 @@ type UpdateModuleInput struct {
 	SortOrder        OptionalInt
 	StartsAt         OptionalTime
 	EndsAt           OptionalTime
+	// InstanceSettingsSet distinguishes "field omitted" (preserve the stored
+	// policy) from an explicit null (clear it). InstanceSettings is only read
+	// when Set is true.
+	InstanceSettingsSet bool
+	InstanceSettings    *TaskInstanceSettings
 }
 
 // SubmissionPolicyInput is the narrow supported policy: text + automatic only.
@@ -125,8 +133,9 @@ type SubmissionPolicyInput struct {
 	AllowedContentTypes []string
 }
 
-// TaskInstanceInput mirrors the generated instance object only far enough to
-// reject every non-default value explicitly.
+// TaskInstanceInput mirrors the generated instance object. Legacy provider/node
+// fields are still rejected explicitly; the lifetime fields are presence-aware
+// so an omitted override inherits and an explicit null resets to inherit.
 type TaskInstanceInput struct {
 	Enabled                bool
 	DeploymentTemplateID   *uuid.UUID
@@ -134,12 +143,41 @@ type TaskInstanceInput struct {
 	Parameters             map[string]string
 	SecretParameters       map[string]string
 	HasProviderIntegration bool
-	HasTTLSeconds          bool
 	HasNodes               bool
 	HasDeploymentTemplate  bool
 	HasTemplateVersion     bool
 	HasParameters          bool
 	HasSecretParameters    bool
+
+	// Lifetime overrides. Set=false means "omitted" (inherit on create, preserve
+	// on patch); Set=true with a nil Value means an explicit null (reset to
+	// inherit); Set=true with a value is an explicit admin choice.
+	TTLSeconds       OptionalInt
+	MaxTTLSeconds    OptionalInt
+	ExtensionEnabled OptionalBool
+	ExtensionSeconds OptionalInt
+	ExtensionMaxCount OptionalInt
+}
+
+// lifetimeOverrides projects the presence-aware input onto the persisted shape.
+func (in TaskInstanceInput) lifetimeOverrides() TaskLifetimeOverrides {
+	overrides := TaskLifetimeOverrides{}
+	if in.TTLSeconds.Set {
+		overrides.InitialTTLSeconds = in.TTLSeconds.Value
+	}
+	if in.MaxTTLSeconds.Set {
+		overrides.MaxTTLSeconds = in.MaxTTLSeconds.Value
+	}
+	if in.ExtensionEnabled.Set {
+		overrides.ExtensionEnabled = in.ExtensionEnabled.Value
+	}
+	if in.ExtensionSeconds.Set {
+		overrides.ExtensionSeconds = in.ExtensionSeconds.Value
+	}
+	if in.ExtensionMaxCount.Set {
+		overrides.ExtensionMaxCount = in.ExtensionMaxCount.Value
+	}
+	return overrides
 }
 
 // CreateTaskInput is the supported FLAG task creation payload. AcceptedAnswers
@@ -268,6 +306,9 @@ type CreateModuleParams struct {
 	StartsAt         *time.Time
 	EndsAt           *time.Time
 	CreatedBy        uuid.UUID
+	// InstanceSettings is the optional per-module instance policy. Nil keeps
+	// the legacy global-default behaviour.
+	InstanceSettings *TaskInstanceSettings
 }
 
 // UpdateModuleParams is the store-level full replacement of mutable module
@@ -282,6 +323,8 @@ type UpdateModuleParams struct {
 	SortOrder        int
 	StartsAt         *time.Time
 	EndsAt           *time.Time
+	// InstanceSettings replaces the stored policy; nil clears it.
+	InstanceSettings *TaskInstanceSettings
 }
 
 // CreateTaskParams is the store-level task insert. AnswerHashes are Argon2id
@@ -304,6 +347,12 @@ type CreateTaskParams struct {
 	TextPolicy        *DraftPolicy
 	FilesPolicy       *DraftPolicy
 	CreatedBy         uuid.UUID
+	// Instance lifetime overrides; nil means "inherit the module setting".
+	InstanceTTLSeconds        *int
+	InstanceMaxTTLSeconds     *int
+	InstanceExtensionEnabled  *bool
+	InstanceExtensionSeconds  *int
+	InstanceExtensionMaxCount *int
 }
 
 // UpdateTaskParams replaces mutable task fields. AnswerHashes replaces the
@@ -323,6 +372,12 @@ type UpdateTaskParams struct {
 	AnswerHashes      []string
 	TextPolicy        *DraftPolicy
 	FilesPolicy       *DraftPolicy
+	// Instance lifetime overrides; nil means "inherit the module setting".
+	InstanceTTLSeconds        *int
+	InstanceMaxTTLSeconds     *int
+	InstanceExtensionEnabled  *bool
+	InstanceExtensionSeconds  *int
+	InstanceExtensionMaxCount *int
 }
 
 // SubmissionParams is a fully computed submission row. RequestHash is an HMAC

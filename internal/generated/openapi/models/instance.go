@@ -25,6 +25,12 @@ type Instance struct {
 	// Format: uuid
 	BoardUUID *UUID `json:"boardUuid"`
 
+	// Server-computed. True only when the caller may extend now (RUNNING, not expired, extension policy enabled, credits remaining and a later hard deadline exists). Clients must not recompute this.
+	CanExtend *bool `json:"canExtend,omitempty"`
+
+	// Server-computed. True only when the caller may reset now.
+	CanReset *bool `json:"canReset,omitempty"`
+
 	// created at
 	// Required: true
 	// Format: date-time
@@ -37,6 +43,14 @@ type Instance struct {
 	// extension count
 	// Minimum: 0
 	ExtensionCount *int64 `json:"extensionCount,omitempty"`
+
+	// Server-resolved extension step for this instance, frozen at creation.
+	// Minimum: 60
+	ExtensionSeconds *int64 `json:"extensionSeconds,omitempty"`
+
+	// Remaining extension credits. Zero means none left; it never means unlimited.
+	// Minimum: 0
+	ExtensionsRemaining *int64 `json:"extensionsRemaining,omitempty"`
 
 	// module Uuid
 	// Required: true
@@ -96,6 +110,14 @@ func (m *Instance) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateExtensionCount(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateExtensionSeconds(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateExtensionsRemaining(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -196,6 +218,30 @@ func (m *Instance) validateExtensionCount(formats strfmt.Registry) error {
 	}
 
 	if err := validate.MinimumInt("extensionCount", "body", *m.ExtensionCount, 0, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Instance) validateExtensionSeconds(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.ExtensionSeconds) { // not required
+		return nil
+	}
+
+	if err := validate.MinimumInt("extensionSeconds", "body", *m.ExtensionSeconds, 60, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Instance) validateExtensionsRemaining(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.ExtensionsRemaining) { // not required
+		return nil
+	}
+
+	if err := validate.MinimumInt("extensionsRemaining", "body", *m.ExtensionsRemaining, 0, false); err != nil {
 		return err
 	}
 

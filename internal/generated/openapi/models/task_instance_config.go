@@ -27,6 +27,14 @@ type TaskInstanceConfig struct {
 	// Required: true
 	Enabled *bool `json:"enabled"`
 
+	// Student extension policy override for new instances. Absent or null inherits the module extension policy. enabled=true is rejected when the module disables extensions, and seconds/maxCount may not exceed the module limits.
+	Extension *TaskInstanceModuleSettingsExtension `json:"extension,omitempty"`
+
+	// Maximum total lifetime of a new instance, measured from the request (allocation) time. Must not exceed module.taskInstanceSettings.maxTtlSeconds. Absent or null inherits the module maximum. This is a total, never a per-extension amount.
+	// Maximum: 604800
+	// Minimum: 60
+	MaxTTLSeconds *int64 `json:"maxTtlSeconds,omitempty"`
+
 	// nodes
 	// Max Items: 20
 	// Min Items: 1
@@ -46,7 +54,7 @@ type TaskInstanceConfig struct {
 	// Minimum: 1
 	TemplateVersion *int64 `json:"templateVersion,omitempty"`
 
-	// ttl seconds
+	// Initial lifetime of a new instance, measured from the request (allocation) time; provisioning time counts. Must not exceed the module maximum. Absent or null inherits the module default.
 	// Maximum: 604800
 	// Minimum: 60
 	TTLSeconds *int64 `json:"ttlSeconds,omitempty"`
@@ -61,6 +69,14 @@ func (m *TaskInstanceConfig) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateEnabled(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateExtension(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateMaxTTLSeconds(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -112,6 +128,45 @@ func (m *TaskInstanceConfig) validateDeploymentTemplateUUID(formats strfmt.Regis
 func (m *TaskInstanceConfig) validateEnabled(formats strfmt.Registry) error {
 
 	if err := validate.Required("enabled", "body", m.Enabled); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *TaskInstanceConfig) validateExtension(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.Extension) { // not required
+		return nil
+	}
+
+	if m.Extension != nil {
+		if err := m.Extension.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("extension")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("extension")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *TaskInstanceConfig) validateMaxTTLSeconds(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.MaxTTLSeconds) { // not required
+		return nil
+	}
+
+	if err := validate.MinimumInt("maxTtlSeconds", "body", *m.MaxTTLSeconds, 60, false); err != nil {
+		return err
+	}
+
+	if err := validate.MaximumInt("maxTtlSeconds", "body", *m.MaxTTLSeconds, 604800, false); err != nil {
 		return err
 	}
 
@@ -217,6 +272,10 @@ func (m *TaskInstanceConfig) ContextValidate(ctx context.Context, formats strfmt
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateExtension(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateNodes(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -247,6 +306,31 @@ func (m *TaskInstanceConfig) contextValidateDeploymentTemplateUUID(ctx context.C
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
 				return ce.ValidateName("deploymentTemplateUuid")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *TaskInstanceConfig) contextValidateExtension(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Extension != nil {
+
+		if typeutils.IsZero(m.Extension) { // not required
+			return nil
+		}
+
+		if err := m.Extension.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("extension")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("extension")
 			}
 
 			return err

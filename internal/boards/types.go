@@ -213,6 +213,10 @@ type Module struct {
 	TaskTypeConflicts bool
 	ExtensionKey      string
 
+	// TaskInstanceSettings is the persisted per-module instance policy. Nil
+	// keeps the legacy behaviour: the instances service global defaults apply.
+	TaskInstanceSettings *TaskInstanceSettings
+
 	Status string
 }
 
@@ -251,6 +255,17 @@ type Task struct {
 
 	TextPolicy  *DraftPolicy
 	FilesPolicy *DraftPolicy
+
+	// Instance lifetime overrides. Nil means "inherit the module setting".
+	InstanceTTLSeconds        *int
+	InstanceMaxTTLSeconds     *int
+	InstanceExtensionEnabled  *bool
+	InstanceExtensionSeconds  *int
+	InstanceExtensionMaxCount *int
+	// ModuleInstanceSettings is the persisted parent module policy, loaded with
+	// the task so the read model can resolve the effective lifetime without an
+	// extra query per task. It is never mutated through the task.
+	ModuleInstanceSettings *TaskInstanceSettings
 }
 
 // Participant is a board_participants row.

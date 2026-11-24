@@ -69,7 +69,7 @@ func submissionPolicyInput(policy *oapimodels.SubmissionPolicy, raw rawBody) boa
 	return input
 }
 
-func taskInstanceInput(instance *oapimodels.TaskInstanceConfig) boards.TaskInstanceInput {
+func taskInstanceInput(instance *oapimodels.TaskInstanceConfig, raw rawBody) boards.TaskInstanceInput {
 	input := boards.TaskInstanceInput{}
 	if instance == nil {
 		return input
@@ -78,7 +78,6 @@ func taskInstanceInput(instance *oapimodels.TaskInstanceConfig) boards.TaskInsta
 	if instance.ProviderIntegrationUUID != nil {
 		input.HasProviderIntegration = strings.TrimSpace(string(*instance.ProviderIntegrationUUID)) != ""
 	}
-	input.HasTTLSeconds = instance.TTLSeconds != nil
 	input.HasNodes = len(instance.Nodes) > 0
 	if instance.DeploymentTemplateUUID != nil {
 		input.HasDeploymentTemplate = true
@@ -105,6 +104,34 @@ func taskInstanceInput(instance *oapimodels.TaskInstanceConfig) boards.TaskInsta
 			input.SecretParameters[key] = value
 		}
 	}
+	// The generated model collapses absent and null, so presence for the
+	// lifetime overrides comes from the raw nested body. An explicit null must
+	// reset the override to inherit rather than be treated as omitted.
+	nested := nestedRaw(raw, "instance")
+	if nested != nil {
+		if _, present := nested["ttlSeconds"]; present {
+			input.TTLSeconds = optionalInt64(instance.TTLSeconds, true)
+		}
+		if _, present := nested["maxTtlSeconds"]; present {
+			input.MaxTTLSeconds = optionalInt64(instance.MaxTTLSeconds, true)
+		}
+		if _, present := nested["extension"]; present {
+			input.ExtensionEnabled = boards.OptionalBool{Set: true}
+			input.ExtensionSeconds = boards.OptionalInt{Set: true}
+			input.ExtensionMaxCount = boards.OptionalInt{Set: true}
+			if extension := instance.Extension; extension != nil {
+				if extension.Enabled != nil {
+					input.ExtensionEnabled.Value = boolValue(*extension.Enabled)
+				}
+				if extension.Seconds != nil {
+					input.ExtensionSeconds.Value = intValue(int(*extension.Seconds))
+				}
+				if extension.MaxCount != nil {
+					input.ExtensionMaxCount.Value = intValue(int(*extension.MaxCount))
+				}
+			}
+		}
+	}
 	return input
 }
 
@@ -119,4 +146,60 @@ func validSubmissionStatus(value string) bool {
 
 func parseUUID(value string) (uuid.UUID, error) {
 	return uuid.Parse(value)
+}
+
+// moduleInstanceSettings converts the generated TaskInstanceModuleSettings into
+// the persisted domain policy. The generated model is flat and closed, so an
+// unknown field is already rejected by bindJSON.
+func moduleInstanceSettings(settings *oapimodels.TaskInstanceModuleSettings) *boards.TaskInstanceSettings {
+	if settings == nil {
+		return nil
+	}
+	policy := &boards.TaskInstanceSettings{}
+	if settings.DefaultTTLSeconds != nil {
+		policy.DefaultTTLSeconds = int(*settings.DefaultTTLSeconds)
+	}
+	if settings.MaxTTLSeconds != nil {
+		policy.MaxTTLSeconds = int(*settings.MaxTTLSeconds)
+	}
+	if settings.MaxConcurrentInstancesPerSubject != nil {
+		policy.MaxConcurrentInstancesPerSubject = int(*settings.MaxConcurrentInstancesPerSubject)
+	}
+	if settings.ResetEnabled != nil {
+		policy.ResetEnabled = *settings.ResetEnabled
+	}
+	if extension := settings.Extension; extension != nil {
+		policy.Extension = &boards.TaskInstanceExtensionSettings{}
+		if extension.Enabled != nil {
+			policy.Extension.Enabled = *extension.Enabled
+		}
+		if extension.Seconds != nil {
+			policy.Extension.Seconds = int(*extension.Seconds)
+		}
+		if extension.MaxCount != nil {
+			policy.Extension.MaxCount = int(*extension.MaxCount)
+		}
+	}
+	return policy
+}
+
+// taskInstanceSettingsModel is the reverse projection used by admin responses.
+func taskInstanceSettingsModel(settings *boards.TaskInstanceSettings) *oapimodels.TaskInstanceModuleSettings {
+	if settings == nil {
+		return nil
+	}
+	model := &oapimodels.TaskInstanceModuleSettings{
+		DefaultTTLSeconds:                int64Value(int64(settings.DefaultTTLSeconds)),
+		MaxTTLSeconds:                    int64Value(int64(settings.MaxTTLSeconds)),
+		MaxConcurrentInstancesPerSubject: int64Value(int64(settings.MaxConcurrentInstancesPerSubject)),
+		ResetEnabled:                     boolValue(settings.ResetEnabled),
+	}
+	if extension := settings.Extension; extension != nil {
+		model.Extension = &oapimodels.TaskInstanceModuleSettingsExtension{
+			Enabled:  boolValue(extension.Enabled),
+			Seconds:  int64Value(int64(extension.Seconds)),
+			MaxCount: int64Value(int64(extension.MaxCount)),
+		}
+	}
+	return model
 }

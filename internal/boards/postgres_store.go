@@ -569,3 +569,13 @@ func emptyToNil(value string) any {
 	}
 	return value
 }
+
+// instanceSettingsJSON stores a nil policy as SQL NULL so "no module settings"
+// stays distinguishable from an explicit zero-valued document.
+func instanceSettingsJSON(settings *TaskInstanceSettings) any {
+	raw, err := encodeTaskInstanceSettings(settings)
+	if err != nil || len(raw) == 0 {
+		return nil
+	}
+	return string(raw)
+}

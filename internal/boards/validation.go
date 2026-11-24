@@ -119,6 +119,13 @@ func validateModuleInput(module Module, board Board) error {
 			}
 		}
 	}
+	if err := validateTaskInstanceSettings(module.TaskInstanceSettings); err != nil {
+		return err
+	}
+	if module.TaskInstanceSettings != nil && module.Type != ModuleTypeTasks {
+		return Invalid("body.taskInstanceSettings",
+			"instance settings are only supported for TASKS modules", "INVALID_VALUE")
+	}
 	if module.SortOrder < 0 || module.SortOrder > 1_000_000 {
 		return Invalid("body.order", "must be between 0 and 1000000", "OUT_OF_RANGE")
 	}
@@ -297,13 +304,17 @@ func validateSubmissionPolicy(policy SubmissionPolicyInput, taskType string) err
 	return nil
 }
 
-func validateInstanceInput(instance TaskInstanceInput) error {
-	if instance.HasProviderIntegration || instance.HasTTLSeconds || instance.HasNodes {
+func validateInstanceInput(instance TaskInstanceInput, module *Module) error {
+	if instance.HasProviderIntegration || instance.HasNodes {
 		return Unsupported("body.instance", "legacy provider/node instance configuration is not supported; use an approved deployment-template version")
 	}
+	overrides := instance.lifetimeOverrides()
 	if !instance.Enabled {
 		if instance.HasDeploymentTemplate || instance.HasTemplateVersion || instance.HasParameters || instance.HasSecretParameters {
 			return Unsupported("body.instance", "instance binding configuration requires instance.enabled=true")
+		}
+		if !overrides.empty() {
+			return Invalid("body.instance", "lifetime overrides require instance.enabled=true", "INVALID_VALUE")
 		}
 		return nil
 	}
@@ -315,7 +326,11 @@ func validateInstanceInput(instance TaskInstanceInput) error {
 	if len(instance.Parameters) > 64 || len(instance.SecretParameters) > 64 {
 		return Invalid("body.instance", "too many binding parameters", "OUT_OF_RANGE")
 	}
-	return nil
+	var settings *TaskInstanceSettings
+	if module != nil {
+		settings = module.TaskInstanceSettings
+	}
+	return validateTaskLifetimeOverrides(overrides, settings, true)
 }
 
 func validateAcceptedAnswers(answers []string) error {
