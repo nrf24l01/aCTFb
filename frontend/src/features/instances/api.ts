@@ -66,8 +66,11 @@ export const instancesApi = {
     moduleUuid: string,
     taskUuid: string,
     action: InstanceActionRequest['action'],
+    idempotencyKey?: string,
   ): Promise<Instance> {
-    const key = createIdempotencyKey()
+    // A retry of the same failed attempt reuses the key so the server can never
+    // consume a second extension credit for one user intent.
+    const key = idempotencyKey ?? createIdempotencyKey()
     return apiRequest<Instance>(
       `/boards/${boardUuid}/modules/${moduleUuid}/tasks/${taskUuid}/instance/actions`,
       { method: 'POST', body: { action }, headers: { 'Idempotency-Key': key } },
@@ -92,8 +95,12 @@ export const instancesApi = {
     return apiRequest<Instance>(`/admin/instances/${instanceUuid}`)
   },
 
-  adminAction(instanceUuid: string, action: InstanceActionRequest['action']): Promise<Instance> {
-    const key = createIdempotencyKey()
+  adminAction(
+    instanceUuid: string,
+    action: InstanceActionRequest['action'],
+    idempotencyKey?: string,
+  ): Promise<Instance> {
+    const key = idempotencyKey ?? createIdempotencyKey()
     return apiRequest<Instance>(`/admin/instances/${instanceUuid}/actions`, {
       method: 'POST',
       body: { action },

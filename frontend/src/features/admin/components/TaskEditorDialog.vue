@@ -36,7 +36,13 @@ import { isApiError } from '@/shared/api/errors'
 import { useDiscardGuard } from '@/features/admin/useDiscardGuard'
 import { renderMarkdown } from '@/shared/lib/markdown'
 import { taskTypeLabel } from '@/features/boards/format'
-import type { AdminTask, SubmissionMode, TaskInstanceConfig, TaskType } from '@/shared/types/api'
+import type {
+  AdminTask,
+  SubmissionMode,
+  TaskInstanceConfig,
+  TaskInstanceModuleSettings,
+  TaskType,
+} from '@/shared/types/api'
 
 const props = defineProps<{
   open: boolean
@@ -44,6 +50,8 @@ const props = defineProps<{
   moduleUuid: string
   task?: AdminTask | null
   allowedTaskTypes?: TaskType[]
+  /** Persisted module policy, used to show the real inherited values. */
+  instanceSettings?: TaskInstanceModuleSettings | null
 }>()
 
 const emit = defineEmits<{
@@ -93,6 +101,13 @@ const form = reactive({
   templateVersion: 1,
   parameters: {} as Record<string, string>,
   secretParameters: {} as Record<string, string>,
+  lifetimeMode: 'INHERIT' as 'INHERIT' | 'CUSTOM',
+  lifetimeUnit: 'minutes' as 'minutes' | 'hours',
+  lifetimeInitial: 30,
+  lifetimeMaxTotal: 120,
+  extendEnabled: true,
+  extendStep: 15,
+  extendMaxCount: 6,
 })
 const {
   discardOpen: discardConfirmOpen,
@@ -122,6 +137,57 @@ const parameterFields = ref<TemplateParameterField[]>([])
 const unsupportedPolicy = ref(false)
 const templateHasNoParameters = ref(false)
 
+// The inherited values come from the persisted module policy, never from a
+// guessed global, so the helper text cannot promise a lifetime the server would
+// reject.
+const modulePolicy = computed(() => props.instanceSettings ?? null)
+const moduleDefaultSeconds = computed(() => modulePolicy.value?.defaultTtlSeconds ?? 3600)
+const moduleMaxSeconds = computed(() => modulePolicy.value?.maxTtlSeconds ?? 604800)
+const moduleExtension = computed(
+  () => modulePolicy.value?.extension ?? { enabled: true, seconds: 1800, maxCount: 3 },
+)
+
+/** Converts the visible values when the unit changes so the duration is stable. */
+function setLifetimeUnit(next: 'minutes' | 'hours') {
+  if (next === form.lifetimeUnit) return
+  const factor = next === 'hours' ? 1 / 60 : 60
+  form.lifetimeInitial = Math.round(form.lifetimeInitial * factor * 100) / 100
+  form.lifetimeMaxTotal = Math.round(form.lifetimeMaxTotal * factor * 100) / 100
+  form.extendStep = Math.round(form.extendStep * factor * 100) / 100
+  form.lifetimeUnit = next
+}
+
+function unitSeconds(): number {
+  return form.lifetimeUnit === 'hours' ? 3600 : 60
+}
+
+function secondsToInput(seconds: number): number {
+  return Math.round((seconds / unitSeconds()) * 100) / 100
+}
+
+function inputToSeconds(value: number): number {
+  return Math.round(value * unitSeconds())
+}
+
+/** Human duration for helper text, e.g. "30 min", "1 h 30 min". */
+function formatDuration(seconds: number): string {
+  const safe = Math.max(0, Math.round(seconds))
+  const hours = Math.floor(safe / 3600)
+  const minutes = Math.round((safe % 3600) / 60)
+  if (hours > 0 && minutes > 0) return `${hours} h ${minutes} min`
+  if (hours > 0) return `${hours} h`
+  return `${minutes} min`
+}
+
+const inheritedSummary = computed(
+  () =>
+    `Module defaults: ${formatDuration(moduleDefaultSeconds.value)} initial, ` +
+    `${formatDuration(moduleMaxSeconds.value)} maximum total, ` +
+    (moduleExtension.value.enabled
+      ? `+${formatDuration(moduleExtension.value.seconds)} × ${moduleExtension.value.maxCount} extensions.`
+      : 'extensions disabled.'),
+)
+
 watch(
   () => [props.open, props.task] as const,
   ([open, task]) => {
@@ -146,6 +212,17 @@ watch(
     form.templateVersion = task?.instanceConfig?.templateVersion ?? 1
     form.parameters = {}
     form.secretParameters = {}
+    const config = task?.instanceConfig
+    const hasOverride =
+      config?.ttlSeconds != null || config?.maxTtlSeconds != null || config?.extension != null
+    form.lifetimeMode = hasOverride ? 'CUSTOM' : 'INHERIT'
+    form.lifetimeUnit = 'minutes'
+    form.lifetimeInitial = secondsToInput(config?.ttlSeconds ?? moduleDefaultSeconds.value)
+    form.lifetimeMaxTotal = secondsToInput(config?.maxTtlSeconds ?? moduleMaxSeconds.value)
+    const extension = config?.extension ?? moduleExtension.value
+    form.extendEnabled = extension.enabled
+    form.extendStep = secondsToInput(extension.seconds)
+    form.extendMaxCount = extension.maxCount
     parameterFields.value = []
     unsupportedPolicy.value = false
     templateHasNoParameters.value = false
@@ -241,16 +318,60 @@ function toStringMap(values: Record<string, string>): Record<string, string> {
 }
 
 function instanceProblem(): string | undefined {
-  if (form.type !== 'INSTANCE' || isEdit.value) return undefined
-  if (!form.deploymentTemplateUuid) return 'Choose an approved template version.'
-  if (!Number.isInteger(form.templateVersion) || form.templateVersion < 1) return 'Choose a valid template version.'
-  for (const field of parameterFields.value) {
-    const value = field.secret ? form.secretParameters[field.key] : form.parameters[field.key]
-    if (field.required && !String(value ?? '').trim()) {
-      return `${field.label} is required.`
+  if (form.type !== 'INSTANCE') return undefined
+  if (!isEdit.value) {
+    if (!form.deploymentTemplateUuid) return 'Choose an approved template version.'
+    if (!Number.isInteger(form.templateVersion) || form.templateVersion < 1) return 'Choose a valid template version.'
+    for (const field of parameterFields.value) {
+      const value = field.secret ? form.secretParameters[field.key] : form.parameters[field.key]
+      if (field.required && !String(value ?? '').trim()) {
+        return `${field.label} is required.`
+      }
     }
   }
+  if (form.lifetimeMode !== 'CUSTOM') return undefined
+  const initial = inputToSeconds(form.lifetimeInitial)
+  const maxTotal = inputToSeconds(form.lifetimeMaxTotal)
+  const step = inputToSeconds(form.extendStep)
+  if (!Number.isFinite(initial) || initial < 60) return 'Initial lifetime must be at least 1 minute.'
+  if (!Number.isFinite(maxTotal) || maxTotal < 60) return 'Maximum total lifetime must be at least 1 minute.'
+  if (maxTotal < initial) return 'Maximum total lifetime must be at least the initial lifetime.'
+  if (maxTotal > moduleMaxSeconds.value) {
+    return `Maximum total lifetime must not exceed the module maximum of ${formatDuration(moduleMaxSeconds.value)}.`
+  }
+  if (!form.extendEnabled) return undefined
+  if (!moduleExtension.value.enabled) {
+    return 'This module disables student extensions; remove the extension override.'
+  }
+  if (!Number.isFinite(step) || step < 60 || step > 86400) {
+    return 'One extension step must be between 1 minute and 24 hours.'
+  }
+  if (!Number.isInteger(form.extendMaxCount) || form.extendMaxCount < 0 || form.extendMaxCount > 100) {
+    return 'Max extensions must be a whole number between 0 and 100.'
+  }
+  if (form.extendMaxCount > moduleExtension.value.maxCount) {
+    return `Max extensions must not exceed the module maximum of ${moduleExtension.value.maxCount}.`
+  }
   return undefined
+}
+
+/**
+ * Lifetime overrides for the wire. Inherit sends explicit nulls so a PATCH
+ * really clears the override instead of leaving a stale value behind.
+ */
+function lifetimePayload(): Pick<TaskInstanceConfig, 'ttlSeconds' | 'maxTtlSeconds' | 'extension'> {
+  if (form.lifetimeMode !== 'CUSTOM') {
+    return { ttlSeconds: null, maxTtlSeconds: null, extension: null }
+  }
+  return {
+    ttlSeconds: inputToSeconds(form.lifetimeInitial),
+    maxTtlSeconds: inputToSeconds(form.lifetimeMaxTotal),
+    extension: {
+      enabled: form.extendEnabled,
+      seconds: inputToSeconds(form.extendStep),
+      maxCount: form.extendMaxCount,
+    },
+  }
 }
 
 async function submit() {
@@ -294,15 +415,18 @@ async function submit() {
       type: form.type,
       submission: policy,
     }
+    // The template binding is immutable after creation, so an edit sends only
+    // the lifetime policy and never touches the binding or its parameters.
     const instance: TaskInstanceConfig = form.type === 'INSTANCE'
       ? (props.task
-          ? { enabled: true }
+          ? { enabled: true, ...lifetimePayload() }
           : {
               enabled: true,
               deploymentTemplateUuid: form.deploymentTemplateUuid,
               templateVersion: form.templateVersion,
               ...(Object.keys(form.parameters).length > 0 ? { parameters: toStringMap(form.parameters) } : {}),
               ...(Object.keys(form.secretParameters).length > 0 ? { secretParameters: toStringMap(form.secretParameters) } : {}),
+              ...lifetimePayload(),
             })
       : { enabled: false }
     if (props.task) {
@@ -565,9 +689,105 @@ async function submit() {
                 <p v-else-if="templateHasNoParameters" class="text-xs text-muted-foreground">
                   This template declares no parameters, so the task binds with its defaults.
                 </p>
-                <p v-if="problems.instance" class="text-xs text-love">{{ problems.instance }}</p>
               </template>
             </template>
+
+            <div class="space-y-3 border-t border-border pt-3">
+              <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Lifetime</p>
+              <div class="flex flex-wrap gap-2" role="group" aria-label="Lifetime policy">
+                <Button
+                  type="button"
+                  size="sm"
+                  :variant="form.lifetimeMode === 'INHERIT' ? 'default' : 'outline'"
+                  @click="form.lifetimeMode = 'INHERIT'"
+                >
+                  Inherit module defaults
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  :variant="form.lifetimeMode === 'CUSTOM' ? 'default' : 'outline'"
+                  @click="form.lifetimeMode = 'CUSTOM'"
+                >
+                  Custom
+                </Button>
+              </div>
+              <p class="text-xs text-muted-foreground">{{ inheritedSummary }}</p>
+              <p class="text-xs text-muted-foreground">
+                Lifetime begins when the environment is requested; startup time is included.
+              </p>
+
+              <template v-if="form.lifetimeMode === 'CUSTOM'">
+                <FormField label="Initial lifetime" for-id="task-lifetime-initial">
+                  <div class="flex gap-2">
+                    <Input
+                      id="task-lifetime-initial"
+                      v-model.number="form.lifetimeInitial"
+                      type="number"
+                      min="1"
+                      step="1"
+                    />
+                    <select
+                      :value="form.lifetimeUnit"
+                      class="h-9 border border-border bg-black px-2 text-sm"
+                      aria-label="Lifetime unit"
+                      @change="setLifetimeUnit(($event.target as HTMLSelectElement).value as 'minutes' | 'hours')"
+                    >
+                      <option value="minutes">minutes</option>
+                      <option value="hours">hours</option>
+                    </select>
+                  </div>
+                </FormField>
+
+                <details class="border border-border">
+                  <summary class="cursor-pointer px-3 py-2 text-sm font-medium">Advanced</summary>
+                  <div class="space-y-3 border-t border-border p-3">
+                    <FormField label="Maximum total lifetime" for-id="task-lifetime-max">
+                      <Input
+                        id="task-lifetime-max"
+                        v-model.number="form.lifetimeMaxTotal"
+                        type="number"
+                        min="1"
+                        step="1"
+                      />
+                    </FormField>
+                    <label class="flex min-h-11 items-center gap-2 text-sm">
+                      <Checkbox v-model="form.extendEnabled" />
+                      Allow student extensions
+                    </label>
+                    <div class="grid gap-3 sm:grid-cols-2">
+                      <FormField label="One extension step" for-id="task-extension-step">
+                        <Input
+                          id="task-extension-step"
+                          v-model.number="form.extendStep"
+                          type="number"
+                          min="1"
+                          step="1"
+                          :disabled="!form.extendEnabled"
+                        />
+                      </FormField>
+                      <FormField label="Max extensions" for-id="task-extension-count">
+                        <Input
+                          id="task-extension-count"
+                          v-model.number="form.extendMaxCount"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="1"
+                          :disabled="!form.extendEnabled"
+                        />
+                      </FormField>
+                    </div>
+                    <p class="text-xs text-muted-foreground">
+                      Participants extend by the step you set; they never choose a duration. The maximum total
+                      lifetime is a hard cap measured from the request time.
+                    </p>
+                  </div>
+                </details>
+              </template>
+            </div>
+
+            <p v-if="problems.instance" class="text-xs text-love">{{ problems.instance }}</p>
           </div>
 
           <label class="flex min-h-11 items-center gap-2 text-sm">

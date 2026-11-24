@@ -360,6 +360,12 @@ export interface AdminModule extends Module {
   legacyMixed?: boolean
 }
 
+export interface TaskInstanceExtensionPolicy {
+  enabled: boolean
+  seconds: number
+  maxCount: number
+}
+
 export interface TaskInstanceConfig {
   enabled: boolean
   providerIntegrationUuid?: string | null
@@ -367,7 +373,12 @@ export interface TaskInstanceConfig {
   templateVersion?: number | null
   parameters?: Record<string, string>
   secretParameters?: Record<string, string>
+  /** Initial lifetime override. null/omitted inherits the module default. */
   ttlSeconds?: number | null
+  /** Maximum total lifetime override. null/omitted inherits the module maximum. */
+  maxTtlSeconds?: number | null
+  /** Student extension override. null/omitted inherits the module policy. */
+  extension?: TaskInstanceExtensionPolicy | null
   nodes?: InstanceNodeConfig[]
 }
 
@@ -686,11 +697,7 @@ export interface TaskInstanceModuleSettings {
   defaultTtlSeconds: number
   maxTtlSeconds: number
   resetEnabled: boolean
-  extension?: {
-    enabled: boolean
-    seconds: number
-    maxCount: number
-  }
+  extension?: TaskInstanceExtensionPolicy
 }
 
 export interface InstanceNodeConfig {
@@ -759,6 +766,11 @@ export interface Instance {
   expiresAt?: string | null
   remainingSeconds?: number | null
   extensionCount?: number
+  /** Server-computed; never recompute authorization in the client. */
+  canExtend?: boolean | null
+  canReset?: boolean | null
+  extensionSeconds?: number | null
+  extensionsRemaining?: number | null
   nodes: InstanceNode[]
 }
 

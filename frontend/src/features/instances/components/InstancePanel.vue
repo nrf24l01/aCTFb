@@ -21,13 +21,52 @@ const busy = ref(false)
 const error = ref<unknown>(null)
 const destroyOpen = ref(false)
 let pollTimer: ReturnType<typeof setTimeout> | null = null
+let tickTimer: ReturnType<typeof setInterval> | null = null
 let alive = true
+// One key per action intent; kept across a failed attempt so a retry can never
+// consume a second extension credit, cleared after success.
+const retryKeys: Record<string, string | undefined> = {}
+const now = ref(Date.now())
 
 const transient = computed(() =>
   instance.value ? ['PROVISIONING', 'RESETTING', 'DESTROYING'].includes(instance.value.status) : false,
 )
 const canStart = computed(() => !instance.value && props.task.instance.canStart)
 const canAct = computed(() => instance.value?.status === 'RUNNING')
+
+/** Live countdown from the server expiry, clamped at zero. */
+const remaining = computed(() => {
+  if (!instance.value?.expiresAt) return null
+  const expires = new Date(instance.value.expiresAt).getTime()
+  if (Number.isNaN(expires)) return null
+  return Math.max(0, Math.floor((expires - now.value) / 1000))
+})
+
+const extensionLabel = computed(() => {
+  const step = instance.value?.extensionSeconds
+  if (!step) return 'Extend'
+  if (step % 3600 === 0) return `Extend +${step / 3600} h`
+  return `Extend +${Math.round(step / 60)} min`
+})
+
+/** Why the server refuses an extension right now. Never guessed client-side. */
+const extendDisabledReason = computed(() => {
+  const current = instance.value
+  if (!current) return 'No instance'
+  if (current.status !== 'RUNNING') return `Instance is ${current.status}`
+  if (remaining.value !== null && remaining.value <= 0) return 'Instance has expired'
+  if (current.canExtend) return undefined
+  if (current.extensionsRemaining === 0) return 'No extensions left'
+  return 'No further extension budget before the deadline'
+})
+
+function formatRemaining(seconds: number): string {
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = seconds % 60
+  if (hours > 0) return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s`
+  return `${minutes}m ${String(secs).padStart(2, '0')}s`
+}
 
 function stopPoll() {
   if (pollTimer) clearTimeout(pollTimer)
@@ -76,12 +115,16 @@ async function start() {
 async function action(next: 'RESET' | 'DESTROY' | 'EXTEND') {
   busy.value = true
   error.value = null
+  const key = retryKeys[next]
   try {
-    instance.value = await instancesApi.taskAction(props.boardUuid, props.moduleUuid, props.task.uuid, next)
+    instance.value = await instancesApi.taskAction(props.boardUuid, props.moduleUuid, props.task.uuid, next, key)
+    delete retryKeys[next]
     destroyOpen.value = false
     schedulePoll()
     emit('changed')
   } catch (caught) {
+    // Keep the key so the next attempt is a safe retry of the same intent.
+    if (next === 'EXTEND') retryKeys[next] = key ?? retryKeys[next]
     error.value = caught
   } finally {
     busy.value = false
@@ -92,9 +135,14 @@ function copy(value: string) {
   void navigator.clipboard?.writeText(value)
 }
 
+tickTimer = setInterval(() => {
+  now.value = Date.now()
+}, 1000)
+
 onUnmounted(() => {
   alive = false
   stopPoll()
+  if (tickTimer) clearInterval(tickTimer)
 })
 
 void load()
@@ -129,8 +177,13 @@ void load()
           </div>
           <div class="grid gap-2 text-sm sm:grid-cols-3">
             <p>Expires: {{ formatDateTime(instance.expiresAt) }}</p>
-            <p>Remaining: {{ instance.remainingSeconds ?? '—' }} s</p>
-            <p>Extensions: {{ instance.extensionCount ?? 0 }}</p>
+            <p>Remaining: {{ remaining === null ? '—' : formatRemaining(remaining) }}</p>
+            <p>
+              Extensions used: {{ instance.extensionCount ?? 0 }}
+              <span v-if="instance.extensionsRemaining != null" class="text-muted-foreground">
+                · {{ instance.extensionsRemaining }} left
+              </span>
+            </p>
           </div>
           <div class="space-y-2">
             <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Endpoints</p>
@@ -144,11 +197,25 @@ void load()
               </div>
             </div>
           </div>
-          <div class="flex flex-wrap gap-2 border-t border-border pt-3">
-            <Button v-if="canAct" variant="outline" size="sm" :disabled="busy" @click="action('RESET')">Reset</Button>
-            <Button v-if="canAct" variant="outline" size="sm" :disabled="busy" @click="action('EXTEND')">Extend</Button>
+          <div class="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            <Button v-if="canAct" variant="outline" size="sm" :disabled="busy || !instance.canReset" @click="action('RESET')">Reset</Button>
+            <Button
+              v-if="instance.status === 'RUNNING' || instance.status === 'ERROR'"
+              variant="outline"
+              size="sm"
+              :disabled="busy || !instance.canExtend"
+              @click="action('EXTEND')"
+            >
+              {{ busy ? 'Extending…' : extensionLabel }}
+            </Button>
             <Button v-if="instance.status !== 'DESTROYING'" variant="destructive" size="sm" :disabled="busy" @click="destroyOpen = true">Destroy</Button>
           </div>
+          <p
+            v-if="(instance.status === 'RUNNING' || instance.status === 'ERROR') && extendDisabledReason"
+            class="text-xs text-muted-foreground"
+          >
+            {{ extendDisabledReason }}
+          </p>
           <Alert class="rounded-none border-border bg-black">
             <AlertTitle>Instance logs</AlertTitle>
             <AlertDescription>No log endpoint exists in the current Swagger; the UI does not fabricate logs. Provider status/endpoints above are real.</AlertDescription>

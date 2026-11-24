@@ -204,6 +204,7 @@ void load()
       :board-uuid="boardUuid"
       :module-uuid="module.uuid"
       :allowed-task-types="module.allowedTaskTypes"
+      :instance-settings="module.taskInstanceSettings"
       @saved="onSaved"
     />
     <TaskEditorDialog
@@ -212,6 +213,7 @@ void load()
       :module-uuid="module.uuid"
       :task="editTarget"
       :allowed-task-types="module.allowedTaskTypes"
+      :instance-settings="module.taskInstanceSettings"
       @update:open="(open) => { if (!open) editTarget = null }"
       @saved="onSaved"
     />

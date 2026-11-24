@@ -76,6 +76,9 @@ const form = reactive({
   instanceDefaultTtlHours: 1,
   instanceMaxTtlHours: 4,
   instanceResetEnabled: true,
+  instanceExtensionEnabled: true,
+  instanceExtensionMinutes: 30,
+  instanceExtensionMaxCount: 3,
 })
 const {
   discardOpen: discardConfirmOpen,
@@ -120,6 +123,9 @@ watch(
     form.instanceDefaultTtlHours = (module?.taskInstanceSettings?.defaultTtlSeconds ?? 3600) / 3600
     form.instanceMaxTtlHours = (module?.taskInstanceSettings?.maxTtlSeconds ?? 14400) / 3600
     form.instanceResetEnabled = module?.taskInstanceSettings?.resetEnabled ?? true
+    form.instanceExtensionEnabled = module?.taskInstanceSettings?.extension?.enabled ?? true
+    form.instanceExtensionMinutes = (module?.taskInstanceSettings?.extension?.seconds ?? 1800) / 60
+    form.instanceExtensionMaxCount = module?.taskInstanceSettings?.extension?.maxCount ?? 3
     form.startsAt = module?.startsAt ? formatDateTimeLocal(new Date(module.startsAt)) : ''
     form.endsAt = module?.endsAt ? formatDateTimeLocal(new Date(module.endsAt)) : ''
     problems.value = {}
@@ -148,6 +154,16 @@ function validateSettings(): string | undefined {
     }
     if (form.instanceDefaultTtlHours < 1 / 60 || form.instanceMaxTtlHours > 168) {
       return 'Instance TTL must be between 1 minute and 168 hours.'
+    }
+    if (form.instanceExtensionMinutes < 1 || form.instanceExtensionMinutes > 1440) {
+      return 'One extension step must be between 1 minute and 24 hours.'
+    }
+    if (
+      !Number.isInteger(form.instanceExtensionMaxCount) ||
+      form.instanceExtensionMaxCount < 0 ||
+      form.instanceExtensionMaxCount > 100
+    ) {
+      return 'Extensions per participant must be a whole number between 0 and 100.'
     }
   }
   return undefined
@@ -184,6 +200,11 @@ async function submit() {
           defaultTtlSeconds: Math.round(form.instanceDefaultTtlHours * 3600),
           maxTtlSeconds: Math.round(form.instanceMaxTtlHours * 3600),
           resetEnabled: form.instanceResetEnabled,
+          extension: {
+            enabled: form.instanceExtensionEnabled,
+            seconds: Math.round(form.instanceExtensionMinutes * 60),
+            maxCount: form.instanceExtensionMaxCount,
+          },
         }
       : null
     const body = {
@@ -348,6 +369,24 @@ async function submit() {
                   <Checkbox v-model="form.instanceResetEnabled" />
                   Allow participants to reset
                 </label>
+                <div class="space-y-3 border-t border-border pt-3">
+                  <label class="flex min-h-11 items-center gap-2 text-sm">
+                    <Checkbox v-model="form.instanceExtensionEnabled" />
+                    Allow participants to extend
+                  </label>
+                  <div class="grid gap-3 sm:grid-cols-2">
+                    <FormField label="Extension step (minutes)" for-id="module-instance-extension-minutes">
+                      <Input id="module-instance-extension-minutes" v-model.number="form.instanceExtensionMinutes" type="number" min="1" max="1440" step="1" />
+                    </FormField>
+                    <FormField label="Max extensions per participant" for-id="module-instance-extension-count">
+                      <Input id="module-instance-extension-count" v-model.number="form.instanceExtensionMaxCount" type="number" min="0" max="100" step="1" />
+                    </FormField>
+                  </div>
+                  <p class="text-xs text-muted-foreground">
+                    Lifetime starts when the environment is requested; provisioning time counts. Tasks can
+                    lower these limits but never raise them.
+                  </p>
+                </div>
               </div>
             </div>
           </details>
