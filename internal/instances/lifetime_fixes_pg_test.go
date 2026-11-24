@@ -627,6 +627,19 @@ type countingDestroyDriver struct {
 	calls  int
 }
 
+// Apply delegates to the shared fake but drops the "web" endpoint for nodes that
+// declare none, so a multi-node fixture stays consistent with its manifest.
+func (d *countingDestroyDriver) Apply(ctx context.Context, target runtime.Target, node deployment.Node, op runtime.Operation) (runtime.ProviderResource, error) {
+	resource, err := d.fakeDriver.Apply(ctx, target, node, op)
+	if err != nil {
+		return resource, err
+	}
+	if node.Key != "web" {
+		resource.Endpoints = nil
+	}
+	return resource, nil
+}
+
 func (d *countingDestroyDriver) Destroy(_ context.Context, _ runtime.Target, providerID string, _ runtime.Operation) error {
 	d.calls++
 	d.ids = append(d.ids, providerID)
@@ -832,4 +845,258 @@ func TestFailedDestroyStaysRetryableRealPostgres(t *testing.T) {
 	if len(driver.ids) < 2 {
 		t.Fatalf("expected two destroy attempts, got %v", driver.ids)
 	}
+}
+
+// addManifestNode appends a node to the immutable published version so a test can
+// build a multi-node instance. The immutability trigger is bypassed only inside
+// the test's own isolated schema.
+func addManifestNode(t *testing.T, db *postgres.DB, versionID uuid.UUID, key string) {
+	t.Helper()
+	ctx := context.Background()
+	var manifestRaw []byte
+	if err := db.Pool.QueryRow(ctx, `SELECT manifest FROM deployment_template_versions WHERE id=$1`, versionID).Scan(&manifestRaw); err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	nodes, _ := manifest["nodes"].([]any)
+	manifest["nodes"] = append(nodes, map[string]any{
+		"key": key, "name": key, "kind": "CONTAINER",
+		"source":    map[string]any{"type": "OCI_IMAGE", "ref": "nginx@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11"},
+		"resources": map[string]any{"cpuMillicores": 100, "memoryMiB": 64, "diskMiB": 32},
+	})
+	updated, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `ALTER TABLE deployment_template_versions DISABLE TRIGGER deployment_template_versions_immutable`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `UPDATE deployment_template_versions SET manifest=$2 WHERE id=$1`, versionID, updated); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `ALTER TABLE deployment_template_versions ENABLE TRIGGER deployment_template_versions_immutable`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// seedTwoNodeDestroyState drives an instance to RUNNING with two nodes, then puts
+// it in DESTROYING with one queued DESTROY op per node. Only the nodes named in
+// keepProviderIDs retain a provider id.
+func seedTwoNodeDestroyState(t *testing.T, db *postgres.DB, service *Service, orchestrator *Orchestrator, publisher *fakePublisher, actor authorization.Principal, ids seedIDs, secondKey string, keepProviderIDs map[string]bool, key string) *Instance {
+	t.Helper()
+	ctx := context.Background()
+	addManifestNode(t, db, ids.VersionID, secondKey)
+	instance, err := service.StartTask(ctx, actor, ids.BoardID, ids.ModuleID, ids.TaskID, key)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := orchestrator.HandleJob(ctx, publisher.last(t)); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	// Clear the provider id of nodes that must look like "never provisioned".
+	for _, node := range []string{"web", secondKey} {
+		if keepProviderIDs[node] {
+			continue
+		}
+		if _, err := db.Pool.Exec(ctx, `UPDATE instance_nodes SET provider_resource_id=NULL WHERE instance_id=$1 AND key=$2`, instance.UUID, node); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Pool.Exec(ctx, `UPDATE instances SET status='DESTROYING' WHERE id=$1`, instance.UUID); err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range []string{"web", secondKey} {
+		if _, err := db.Pool.Exec(ctx, `
+			INSERT INTO instance_operations
+				(id, instance_id, node_key, operation, generation, idempotency_key, status, authorized_context)
+			VALUES ($1,$2,$3,'DESTROY',1,$4,'QUEUED',$5)
+		`, uuid.New(), instance.UUID, node, fmt.Sprintf("%s:%s:1:DESTROY", instance.UUID, node),
+			[]byte(`{"system":true,"permission":"system.expire"}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return instance
+}
+
+// runDestroyScheduler runs the reconcile entry points and applies every job for the
+// instance, exactly as the worker loop does.
+func runDestroyScheduler(t *testing.T, orchestrator *Orchestrator, instanceID uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	expired, err := orchestrator.ExpiredJobs(ctx, 50)
+	if err != nil {
+		t.Fatalf("expired jobs: %v", err)
+	}
+	pending, err := orchestrator.PendingJobs(ctx, 50)
+	if err != nil {
+		t.Fatalf("pending jobs: %v", err)
+	}
+	for _, job := range append(expired, pending...) {
+		if job.InstanceID != instanceID {
+			continue
+		}
+		if err := orchestrator.HandleJob(ctx, job); err != nil {
+			t.Fatalf("handle job: %v", err)
+		}
+	}
+}
+
+// N-A: a DESTROY op for a node that never had a provider object must become
+// terminal, not stay QUEUED forever, and the expiry event must be emitted exactly
+// once. Node keys are ordered, so "web" (with an id) completes before "zed" (no id).
+func TestNoProviderDestroyOpSettlesAndEventIsEmittedOnceRealPostgres(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+	ids := seedInstanceFixture(t, db)
+	ctx := context.Background()
+	driver := &countingDestroyDriver{}
+	registry, err := runtime.NewRegistry(driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher := &fakePublisher{}
+	auth := authorization.NewAuthorizer(db)
+	service, err := NewService(db, auth, registry, testSealer(t), 1, WithPublisher(publisher))
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator, err := NewOrchestrator(db, registry, auth, testSealer(t), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := authorization.Principal{UserID: ids.UserID}
+	instance := seedTwoNodeDestroyState(t, db, service, orchestrator, publisher, actor, ids,
+		"zed", map[string]bool{"web": true}, "no-provider-op-0001")
+
+	runDestroyScheduler(t, orchestrator, instance.UUID)
+
+	final, err := service.Get(ctx, actor, instance.UUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Status != StatusExpired || final.RemovedAt == nil {
+		t.Fatalf("instance not released: %+v", final)
+	}
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_operations WHERE instance_id=$1 AND status IN ('QUEUED','RUNNING')`, 0, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_endpoints WHERE instance_id=$1 AND released_at IS NULL`, 0, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_network_leases WHERE instance_id=$1 AND released_at IS NULL`, 0, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM events_outbox WHERE type='instance.expired'`, 1)
+	if driver.calls != 1 {
+		t.Fatalf("provider Destroy called %d times, want exactly 1 (only the node with an id)", driver.calls)
+	}
+	if len(driver.ids) != 1 || driver.ids[0] == "" {
+		t.Fatalf("provider Destroy ids = %v, want one non-empty id", driver.ids)
+	}
+
+	// Further reconcile passes must not add work or a duplicate expiry event.
+	runDestroyScheduler(t, orchestrator, instance.UUID)
+	runDestroyScheduler(t, orchestrator, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_operations WHERE instance_id=$1 AND status IN ('QUEUED','RUNNING')`, 0, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM events_outbox WHERE type='instance.expired'`, 1)
+	if driver.calls != 1 {
+		t.Fatalf("further passes called provider Destroy again: %d", driver.calls)
+	}
+}
+
+// N-A robustness: the same must hold when the node with the provider id sorts
+// AFTER the node without one, so the no-op is processed first.
+func TestNoProviderDestroyOpSettlesRegardlessOfNodeOrderRealPostgres(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+	ids := seedInstanceFixture(t, db)
+	ctx := context.Background()
+	driver := &countingDestroyDriver{}
+	registry, err := runtime.NewRegistry(driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher := &fakePublisher{}
+	auth := authorization.NewAuthorizer(db)
+	service, err := NewService(db, auth, registry, testSealer(t), 1, WithPublisher(publisher))
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator, err := NewOrchestrator(db, registry, auth, testSealer(t), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := authorization.Principal{UserID: ids.UserID}
+	// "aaa" sorts before "web", so the provider-less node is processed first.
+	instance := seedTwoNodeDestroyState(t, db, service, orchestrator, publisher, actor, ids,
+		"aaa", map[string]bool{"web": true}, "no-provider-order-0001")
+
+	runDestroyScheduler(t, orchestrator, instance.UUID)
+	final, err := service.Get(ctx, actor, instance.UUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Status != StatusExpired || final.RemovedAt == nil {
+		t.Fatalf("instance not released: %+v", final)
+	}
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_operations WHERE instance_id=$1 AND status IN ('QUEUED','RUNNING')`, 0, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM events_outbox WHERE type='instance.expired'`, 1)
+	if driver.calls != 1 {
+		t.Fatalf("provider Destroy called %d times, want 1", driver.calls)
+	}
+}
+
+// N-A: a job for an already-released instance (the worker crashed before the
+// settling pass) must terminalize the operation without emitting a second
+// instance.expired event.
+func TestSettlingJobOnReleasedInstanceEmitsNoDuplicateEventRealPostgres(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+	ids := seedInstanceFixture(t, db)
+	ctx := context.Background()
+	driver := &countingDestroyDriver{}
+	registry, err := runtime.NewRegistry(driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher := &fakePublisher{}
+	auth := authorization.NewAuthorizer(db)
+	service, err := NewService(db, auth, registry, testSealer(t), 1, WithPublisher(publisher))
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator, err := NewOrchestrator(db, registry, auth, testSealer(t), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := authorization.Principal{UserID: ids.UserID}
+	instance, err := service.StartTask(ctx, actor, ids.BoardID, ids.ModuleID, ids.TaskID, "already-released-01")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := orchestrator.HandleJob(ctx, publisher.last(t)); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	// Seed the state after a confirmed release whose settling pass never ran: the
+	// row is removed and its provider object is gone, but one DESTROY op is queued.
+	if err := orchestrator.store.releaseResources(ctx, instance.UUID); err != nil {
+		t.Fatalf("seed release: %v", err)
+	}
+	assertCount(t, db, `SELECT COUNT(*) FROM events_outbox WHERE type='instance.expired'`, 0)
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO instance_operations
+			(id, instance_id, node_key, operation, generation, idempotency_key, status, authorized_context)
+		VALUES ($1,$2,'web','DESTROY',1,$3,'QUEUED',$4)
+	`, uuid.New(), instance.UUID, fmt.Sprintf("%s:web:1:DESTROY", instance.UUID),
+		[]byte(`{"system":true,"permission":"system.expire"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	runDestroyScheduler(t, orchestrator, instance.UUID)
+
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_operations WHERE instance_id=$1 AND status IN ('QUEUED','RUNNING')`, 0, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM events_outbox WHERE type='instance.expired'`, 0)
+	if driver.calls != 0 {
+		t.Fatalf("a released instance must not reach the provider: %d destroy calls", driver.calls)
+	}
+	// A further pass must stay quiet as well.
+	runDestroyScheduler(t, orchestrator, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM events_outbox WHERE type='instance.expired'`, 0)
 }

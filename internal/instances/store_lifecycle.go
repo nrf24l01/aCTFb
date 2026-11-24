@@ -625,8 +625,12 @@ func releaseResourcesTx(ctx context.Context, tx pgx.Tx, instanceID uuid.UUID) er
 	`, instanceID); err != nil {
 		return err
 	}
+	// A released instance owns nothing: clearing the ids keeps the invariant that
+	// "removed_at is set" implies no node can still be destroyed, so a late job for
+	// a released row is a pure bookkeeping no-op.
 	if _, err := tx.Exec(ctx, `
-		UPDATE instance_nodes SET status = 'DESTROYED' WHERE instance_id = $1
+		UPDATE instance_nodes SET status = 'DESTROYED', provider_resource_id = NULL
+		WHERE instance_id = $1
 	`, instanceID); err != nil {
 		return err
 	}
@@ -762,6 +766,19 @@ func (s *store) completeStagedDestroy(ctx context.Context, instanceID uuid.UUID,
 		return false, err
 	}
 	if removedAt != nil {
+		// The instance was already released by an earlier node in the same job (or
+		// an earlier pass). This operation's own node has no provider object left,
+		// so it must be settled here: leaving it claimable would make the worker
+		// re-run a no-op destroy every reconcile tick forever.
+		if _, err := tx.Exec(ctx, `
+			UPDATE instance_operations
+			SET status = 'SUCCEEDED', error = NULL, finished_at = NOW()
+			WHERE id = $1 AND instance_id = $2 AND node_key = $3
+			  AND operation = 'DESTROY' AND generation = $4
+			  AND status IN ('QUEUED','RUNNING')
+		`, operationID, instanceID, nodeKey, generation); err != nil {
+			return false, err
+		}
 		return false, tx.Commit(ctx)
 	}
 	if instanceGeneration != generation {
@@ -792,6 +809,27 @@ func (s *store) completeStagedDestroy(ctx context.Context, instanceID uuid.UUID,
 	released := remaining == 0
 	if released {
 		if err := releaseResourcesTx(ctx, tx, instanceID); err != nil {
+			return false, err
+		}
+		// Every node is now finished, so any sibling DESTROY operation in this
+		// generation is a no-op destroy of an object that no longer exists. Settle
+		// them all here: otherwise the worker would claim them again on every tick,
+		// find the instance already released and leave them queued forever. The
+		// filter is exact (this instance, this generation, DESTROY only, no
+		// remaining provider object) so no other work is touched.
+		if _, err := tx.Exec(ctx, `
+			UPDATE instance_operations o
+			SET status = 'SUCCEEDED', error = NULL, finished_at = NOW()
+			WHERE o.instance_id = $1 AND o.generation = $2
+			  AND o.operation = 'DESTROY'
+			  AND o.status IN ('QUEUED','RUNNING')
+			  AND NOT EXISTS (
+			      SELECT 1 FROM instance_nodes n
+			      WHERE n.instance_id = o.instance_id
+			        AND n.key = o.node_key
+			        AND COALESCE(n.provider_resource_id,'') <> ''
+			  )
+		`, instanceID, generation); err != nil {
 			return false, err
 		}
 	}

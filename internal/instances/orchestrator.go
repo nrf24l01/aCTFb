@@ -159,6 +159,9 @@ func (o *Orchestrator) HandleJob(ctx context.Context, job Job) error {
 	}
 
 	destroyAll := true
+	// releasedNow records the transition to EXPIRED during this job, so the event
+	// is emitted exactly once and never replayed for an already-released row.
+	releasedNow := false
 	for _, operation := range operations {
 		if operation.Kind != runtime.OperationDestroy {
 			destroyAll = false
@@ -194,6 +197,12 @@ func (o *Orchestrator) HandleJob(ctx context.Context, job Job) error {
 				return err
 			}
 			if released {
+				// This call performed the release: the reservation is gone, so any
+				// remaining operation in this job can no longer resolve its lease.
+				// It stays claimable and is settled by the next reconcile pass,
+				// which finds the row already removed and only marks the operation
+				// terminal (see completeStagedDestroy). The event is emitted once,
+				// here, on the actual transition.
 				o.store.syncPentestEnvironmentStatus(ctx, instance.ID, StatusExpired)
 				o.enqueueEvent(ctx, instance, events.EventInstanceExpired, "EXPIRED")
 				return nil
@@ -224,9 +233,12 @@ func (o *Orchestrator) HandleJob(ctx context.Context, job Job) error {
 			if err := o.store.releaseResources(ctx, instance.ID); err != nil {
 				return err
 			}
+			releasedNow = true
 		}
 		o.store.syncPentestEnvironmentStatus(ctx, instance.ID, StatusExpired)
-		o.enqueueEvent(ctx, instance, events.EventInstanceExpired, "EXPIRED")
+		if releasedNow {
+			o.enqueueEvent(ctx, instance, events.EventInstanceExpired, "EXPIRED")
+		}
 		return nil
 	}
 	if err := o.store.finalizeInstance(ctx, instance.ID, instance.Generation, true); err != nil {
@@ -244,6 +256,14 @@ func (o *Orchestrator) HandleJob(ctx context.Context, job Job) error {
 }
 
 func (o *Orchestrator) applyOperation(ctx context.Context, instance *workerInstance, operation Operation, snapshotNode SnapshotNode, node deployment.Node, rendered deployment.RenderedNode, target integrationTarget, providerID string) error {
+	// A DESTROY for a node that owns no provider object is a no-op: there is
+	// nothing to call and no lease/credential is needed. Checking it before the
+	// lease lookup matters because the lease may already have been released by a
+	// sibling node in the same instance, and this operation must still reach
+	// completeStagedDestroy so it can be marked terminal.
+	if operation.Kind == runtime.OperationDestroy && strings.TrimSpace(providerID) == "" {
+		return nil
+	}
 	driver, ok := o.registry.Get(target.Driver)
 	if !ok {
 		return &runtime.CapabilityError{Driver: target.Driver, Capability: "driver"}
