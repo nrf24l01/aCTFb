@@ -304,6 +304,100 @@ Docs and `deploy/config.yaml` now state the presence rule.
 directly (frozen policy wins; a legacy row takes the operator options plus the live module reset switch), so
 there is exactly one legacy entry point.
 
+## Round-3 scoped re-review (N-A, N-B)
+
+Two small Important regressions were introduced by the round-2 fixes. Both are fixed here, plus the requested
+compatibility sentence. No other scope was touched: no new index, no migration, no API or UI change.
+
+### N-A — a released instance could leave a sibling DESTROY op permanently queued (Important)
+
+**Root cause.** `completeStagedDestroy` returned early when the instance was already released:
+
+```go
+if removedAt != nil {
+    return false, tx.Commit(ctx)   // committed without settling the operation
+}
+```
+
+When one node's completion released the instance, `HandleJob` returned immediately, so any DESTROY op later in
+the same job was never settled. On the next pass that op was claimed again, `applyOperation` was a no-op for an
+empty provider id, the completion took the branch above, `destroyAll` skipped the release because `removed_at`
+was set — and then emitted `instance.expired` **again**. Result: a permanently non-terminal operation, a full
+destroy job every 30 s, and one duplicate outbox row per pass. Reachable when a job carries a DESTROY op for a
+node that never got a provider object and a sibling node releases first — i.e. it depends on node-name ordering,
+which is why the existing two-node tests (`db` before `web`) missed it.
+
+**Fix (three narrow changes, all inside the same transaction or the same job):**
+
+1. **Settle in the already-released branch.** `completeStagedDestroy` now marks the *exact* matching operation
+   (`id`, `instance_id`, `node_key`, `operation='DESTROY'`, `generation`) `SUCCEEDED` before committing. It never
+   touches a newer generation or an unrelated operation.
+2. **Settle the sibling no-op destroys on release.** When a completion performs the release, it also marks every
+   `DESTROY` op of the same instance+generation `SUCCEEDED` whose node no longer owns a provider object. The
+   filter is exact (`DESTROY` only, this instance, this generation, `NOT EXISTS` a remaining provider id), so no
+   other work is affected. This is what makes the *same* job's remaining ops terminal instead of waiting a tick.
+3. **Event emitted once, on the transition only.** `destroyAll` now emits `instance.expired` only when this pass
+   actually released the row (`releasedNow`); a job that merely settles operations on an already-released
+   instance stays silent. The outbox still uses a fresh event id per real transition, so the existing delivery
+   and dedup requirements are untouched.
+
+Two supporting corrections found while fixing it:
+
+- `applyOperation` short-circuits a DESTROY with an empty provider id **before** the lease lookup. After a
+  sibling released the lease, the old order failed with "no rows in result set" and the op could never reach
+  completion — the other half of the same "stuck forever" failure.
+- `releaseResourcesTx` now also clears `provider_resource_id`, so "released" really means "owns nothing" and a
+  late job for a released row is a pure bookkeeping no-op.
+
+**RED → GREEN.**
+
+| Test | Before the fix |
+|---|---|
+| `TestNoProviderDestroyOpSettlesAndEventIsEmittedOnceRealPostgres` | **failed**: `count(... status IN ('QUEUED','RUNNING')) = 1, want 0` — the `zed` op stayed queued forever |
+| `TestSettlingJobOnReleasedInstanceEmitsNoDuplicateEventRealPostgres` | **failed**: with the event gate reverted it emitted `count(instance.expired) = 1, want 0`; without the `applyOperation` short-circuit it failed earlier with "no rows in result set" |
+| `TestNoProviderDestroyOpSettlesRegardlessOfNodeOrderRealPostgres` | passes in both orders, proving the fix is not tuned to one node-name ordering |
+
+All three run the real scheduler (`ExpiredJobs` + `PendingJobs` + `HandleJob`), never a helper directly. They
+assert: `EXPIRED` with `removed_at` set, zero `QUEUED`/`RUNNING` operations, zero live endpoints/leases, exactly
+one `instance.expired` row, exactly one provider `Destroy` call with a non-empty id, and that a second and third
+reconcile pass add no work and no event.
+
+### N-B — the zero-budget guard rejected overrides that grant nothing (Important)
+
+**Root cause.** The round-2 guard fired for *any* extension override over a module with `maxCount == 0`,
+including `{enabled:false, seconds:900, maxCount:0}`. That payload grants nothing and is a legitimate narrowing,
+and it is exactly what the task editor's `Custom` mode sends. Consequences: a custom initial/max lifetime could
+not be saved on such a task at all, and a module could not be switched to "no extensions" while any task held
+an extension override.
+
+**Fix.** Gate on the budget actually granted: `module.Extension.MaxCount == 0 && count > 0`. `{enabled:true,
+maxCount:1}` is still rejected; `{enabled:false, maxCount:0}` is accepted; a task with no override still inherits
+the zero budget. Deliberately kept strict per the review: `count > 0` is rejected even with `enabled:false`,
+because the count is the budget and a task may never raise a module ceiling, active or not.
+
+**RED → GREEN.**
+
+| Test | Before the fix |
+|---|---|
+| `TestZeroBudgetModuleAcceptsNarrowingExtensionOverride` | **failed**: `a narrowing extension override must be accepted: ... the module grants no extensions (maxCount is 0)` |
+| `TestModuleUpdateToZeroBudgetAllowedWhenTasksNarrow` | **failed**: same message, `(task "NarrowOnly")` |
+| `TestHTTPZeroBudgetModuleAcceptsNarrowingTaskOverride` (real HTTP + real PG) | **failed**: `POST .../tasks status = 422, want 201: {"field":"body.instance.extension.maxCount","issue":"the module grants no extensions (maxCount is 0)"}` — the reviewer's repro, reproduced and then fixed |
+| `TestTaskCannotRaiseExtensionsOverZeroModuleBudget` | still passes (the N3 case stays closed) |
+
+The HTTP test covers create **and** the module `PATCH` to `maxCount: 0`, and asserts the negative 422 in the same
+run, so the server-side rule is proven over the real API without any UI change.
+
+### Compatibility sentence (Minor)
+
+`docs/configuration.md` now tells an operator upgrading an environment-based deployment that the shipped
+`allowed_hosts: []` is authoritative: they must list their existing hostnames in `allowed_hosts` rather than
+replace a configured `config.yaml` blindly, otherwise remote providers fail closed.
+
+### Not changed
+
+The recovery-sweep index suggestion was not applied (out of scope for this round, no migration added). No
+provider, port, lease or event-delivery behaviour was reworked beyond the three narrow points above.
+
 ## Commands run for this round
 
 ```text
@@ -322,6 +416,23 @@ scripts/test-production-packaging.sh                      267 checks passed, 0 f
 Frontend is unchanged in this round (`git diff --stat` over `frontend/` is empty), so its 25 files / 118 tests
 and the 19/19 browser result from `2d2461d` stand as previously reported; the browser suite was **not** re-run
 for pure DB bookkeeping changes. Swagger and generated models are unchanged (no regeneration).
+
+### Round-3 gate output (N-A, N-B)
+
+```text
+gofmt -l internal/ cmd/                                   (empty)
+go build ./...                                            OK
+go vet ./...                                              OK
+go test ./... -count=1                                    exit 0, 50 packages ok, 0 FAIL
+go test -race -p 1 ./internal/instances ./internal/boards ./internal/boards/http
+                                                          ok / ok / ok
+go test ./internal/instances -run TestRealDockerExpiryCleanupAndExtend
+                                                          PASS 6.25s, Docker networks 31 -> 31,
+                                                          0 owned containers
+migration 019 down -> 18, up -> 19                        clean
+scripts/test-production-packaging.sh                      267 checks passed, 0 failed
+docs/swagger.yaml + internal/generated + frontend diffs   0 lines
+```
 
 ## Corrections to my earlier report
 

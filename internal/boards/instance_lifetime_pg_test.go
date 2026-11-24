@@ -594,3 +594,102 @@ func TestTaskCannotRaiseExtensionsOverZeroModuleBudget(t *testing.T) {
 		t.Fatalf("unexpected override persisted: %+v", inheriting.InstanceExtensionMaxCount)
 	}
 }
+
+// N-B: over a zero-budget module, an override that grants nothing is a legitimate
+// narrowing and must be accepted; an override that grants credits must not.
+func TestZeroBudgetModuleAcceptsNarrowingExtensionOverride(t *testing.T) {
+	service, db, admin, board := newLifetimeBoardService(t)
+	ctx := context.Background()
+	module, err := service.AdminCreateModule(ctx, admin, board.ID, CreateModuleInput{
+		Name: "ZeroBudgetNarrow", Type: ModuleTypeTasks, AllowedTaskTypes: []string{TaskTypeInstance}, Enabled: true,
+		InstanceSettings: settingsFixture(3600, 14400, 2, true, true, 900, 0),
+	})
+	if err != nil {
+		t.Fatalf("create zero-budget module: %v", err)
+	}
+	templateID := uuid.New()
+	build := func(title string, instance TaskInstanceInput) (*Task, error) {
+		instance.Enabled = true
+		instance.HasDeploymentTemplate = true
+		instance.HasTemplateVersion = true
+		instance.DeploymentTemplateID = &templateID
+		instance.TemplateVersion = intPtr(1)
+		return service.AdminCreateTask(ctx, admin, board.ID, module.ID, CreateTaskInput{
+			Title: title, Type: TaskTypeInstance, Category: "web", Description: "d",
+			Points: 10, Visible: true,
+			Submission: SubmissionPolicyInput{Mode: SubmissionModeText, Checker: SubmissionCheckerManual},
+			Instance:   instance,
+		})
+	}
+
+	// A custom initial/max lifetime with extensions explicitly off (maxCount 0) is
+	// accepted: it grants nothing.
+	narrowed, err := build("NarrowedOff", TaskInstanceInput{
+		TTLSeconds:        OptionalInt{Set: true, Value: intPtr(1800)},
+		MaxTTLSeconds:     OptionalInt{Set: true, Value: intPtr(3600)},
+		ExtensionEnabled:  OptionalBool{Set: true, Value: boolPtr(false)},
+		ExtensionSeconds:  OptionalInt{Set: true, Value: intPtr(900)},
+		ExtensionMaxCount: OptionalInt{Set: true, Value: intPtr(0)},
+	})
+	if err != nil {
+		t.Fatalf("a narrowing extension override must be accepted: %v", err)
+	}
+	if narrowed.InstanceExtensionMaxCount == nil || *narrowed.InstanceExtensionMaxCount != 0 {
+		t.Fatalf("override not persisted: %+v", narrowed.InstanceExtensionMaxCount)
+	}
+
+	// Granting one credit is still rejected, even with enabled=false: the count is
+	// the budget, and a task may never raise it.
+	before := taskCount(t, ctx, db, board.ID)
+	_, err = build("GrantsOne", TaskInstanceInput{
+		ExtensionEnabled:  OptionalBool{Set: true, Value: boolPtr(false)},
+		ExtensionSeconds:  OptionalInt{Set: true, Value: intPtr(900)},
+		ExtensionMaxCount: OptionalInt{Set: true, Value: intPtr(1)},
+	})
+	if err == nil {
+		t.Fatal("a task must not grant extension credits over a zero module budget")
+	}
+	if after := taskCount(t, ctx, db, board.ID); after != before {
+		t.Fatalf("rejected task was persisted: before=%d after=%d", before, after)
+	}
+}
+
+// N-B: setting a module to maxCount 0 must be allowed when every task override
+// merely narrows to "extensions off".
+func TestModuleUpdateToZeroBudgetAllowedWhenTasksNarrow(t *testing.T) {
+	service, _, admin, board := newLifetimeBoardService(t)
+	ctx := context.Background()
+	module, err := service.AdminCreateModule(ctx, admin, board.ID, CreateModuleInput{
+		Name: "ZeroUpdate", Type: ModuleTypeTasks, AllowedTaskTypes: []string{TaskTypeInstance}, Enabled: true,
+		InstanceSettings: settingsFixture(3600, 14400, 2, true, true, 900, 3),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	templateID := uuid.New()
+	if _, err := service.AdminCreateTask(ctx, admin, board.ID, module.ID, CreateTaskInput{
+		Title: "NarrowOnly", Type: TaskTypeInstance, Category: "web", Description: "d",
+		Points: 10, Visible: true,
+		Submission: SubmissionPolicyInput{Mode: SubmissionModeText, Checker: SubmissionCheckerManual},
+		Instance: TaskInstanceInput{
+			Enabled: true, HasDeploymentTemplate: true, HasTemplateVersion: true,
+			DeploymentTemplateID: &templateID, TemplateVersion: intPtr(1),
+			ExtensionEnabled:  OptionalBool{Set: true, Value: boolPtr(false)},
+			ExtensionSeconds:  OptionalInt{Set: true, Value: intPtr(900)},
+			ExtensionMaxCount: OptionalInt{Set: true, Value: intPtr(0)},
+		},
+	}); err != nil {
+		t.Fatalf("create narrowing task: %v", err)
+	}
+
+	updated, err := service.AdminUpdateModule(ctx, admin, board.ID, module.ID, UpdateModuleInput{
+		InstanceSettingsSet: true,
+		InstanceSettings:    settingsFixture(3600, 14400, 2, true, true, 900, 0),
+	})
+	if err != nil {
+		t.Fatalf("disabling extensions module-wide must be allowed when tasks only narrow: %v", err)
+	}
+	if updated.TaskInstanceSettings.Extension.MaxCount != 0 {
+		t.Fatalf("maxCount 0 was not persisted: %+v", updated.TaskInstanceSettings.Extension)
+	}
+}

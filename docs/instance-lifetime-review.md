@@ -396,3 +396,153 @@ fails against the current code and passes after either fix.
   is correctly retired.
 - Not re-audited: plugins, AD, pentest submissions, packaging runtime scripts, and the rest of the product.
   This round covers I1–I5, M1–M7, the allowlist change and regressions in the 36 changed files.
+
+---
+
+# Round 3 scoped re-review: final fixes `2d2461d..a97f7f2` (15 files, +1074/−51)
+
+Date: 2026-11-24
+Fix report: `docs/instance-lifetime-review-fixes.md` (section "Round-2 scoped review (N1–N5)")
+Scope: N1 (Important) and N2–N5 (Minor) only, plus any regression introduced by those fixes. Read-only static
+review of the diff and the current code at every changed site; no builds, tests, Docker, servers or browser, no
+subagents. The reported Go 50-package / `-race` / real-PostgreSQL / real-Docker results are the implementer's.
+
+## Verdict: NOT APPROVED — 2 open Important, 0 Critical
+
+N1's core requirement is met (one transaction, generation-scoped, lease released only when no node owns a
+provider object, failed DESTROY re-queued, rollback on the last statement, narrow recovery). N2–N5 are closed.
+Two new regressions inside this fix block approval; each is a small, bounded change.
+
+## Confirmed correct (the items I was asked to verify)
+
+- **`completeStagedDestroy` is atomic and correctly scoped** (`internal/instances/store_lifecycle.go:750-806`):
+  `SELECT … FOR UPDATE` on the instance, then node clear at `generation = $3`, then the DESTROY op at the same
+  generation and only from `QUEUED`/`RUNNING`, then `remaining` = nodes with a provider id, then
+  `releaseResourcesTx` **only when `remaining == 0`**, then commit. Every statement is in one transaction, so a
+  crash at any point rolls back and leaves the op claimable with its id.
+- **Lease/port release can never happen early**: `remaining` is computed after the current node is cleared and
+  covers every node of the instance; the `destroyAll` block (`orchestrator.go:208-231`) additionally refuses to
+  release while `liveProviderNodeCount > 0` or `removed_at` is already set.
+- **Failed DESTROY stays retryable** (`store_lifecycle.go:895-911`): `failOperation` re-queues only
+  `operation = 'DESTROY'` and leaves CREATE/RESET `FAILED`; `TestPartialFailureDoesNotClobberCleanupQueue…`
+  proves a failing RESET job does not clobber a queued cleanup op.
+- **Recovery is exact and generation-safe** (`store_lifecycle.go:813-833`): only `operation='DESTROY'` +
+  `status='SUCCEEDED'`, requires the node `DESTROYING` **with** a provider id, the node generation, the instance
+  generation and `removed_at IS NULL` to all agree. It cannot re-dispatch APPLY/RESET, cannot touch a newer
+  generation, and is idempotent. A stale DESTROY op from an older generation is still cancelled by
+  `claimOperations`, never executed.
+- **Rollback on the last statement**: `TestStagedDestroyCompletionRollsBackOnDBErrorRealPostgres` fails the lease
+  release (the final write) and shows lease held, id intact, op not `SUCCEEDED`, then a clean retry.
+- **N4 semantics**: `IntegrationsConfig.UnmarshalYAML` records key presence (`internal/config/config.go:447-479`),
+  `ProviderAllowedHosts` uses the YAML list whenever the key is present — including `[]` — and falls back to the
+  env value only when it is absent (`internal/config/load.go:296-315`). Backend and worker both resolve through
+  it, tests load real YAML, and the SSRF guard, credentials handling and deny-by-default are unchanged. No
+  subtle default/`loadPresence`/reset divergence found.
+- **N5**: `policyForSnapshot` is deleted; the test now asserts `resolveInstancePolicy` (frozen wins, legacy takes
+  operator options + live module reset). Non-functional, exactly one legacy entry point.
+
+## N-A (open, Important) — a released instance can leave a sibling DESTROY op permanently queued
+
+`internal/instances/store_lifecycle.go:764-766`
+
+```go
+if removedAt != nil {
+    return false, tx.Commit(ctx)
+}
+```
+
+When a node's completion releases the instance (it was the last node owning a provider object),
+`HandleJob` returns immediately (`internal/instances/orchestrator.go:196-200`), so any DESTROY op that follows
+in the same job is never settled. On the next pass that op is claimed again, `applyOperation` is a no-op for the
+empty provider id (`orchestrator.go:285-287`), `completeStagedDestroy` takes the `removedAt != nil` branch and
+commits **without marking the op**, and the `destroyAll` block skips the release because `removed_at` is set —
+then emits `instance.expired` again.
+
+Reachable whenever a job carries a DESTROY op for a node that never got a provider object (failed/never-run
+apply) **and** another node in the same job releases first; ops are ordered by `node_key`, so this depends on
+node names, which is why the two-node tests (keys `db`/`web`, `db` first) do not hit it. `repairStuckStagedDestroys`
+cannot heal it: after release every node is `DESTROYED` with no id, and the predicate requires `DESTROYING` + id.
+Nothing else cancels the op (`pendingJobs` has no `removed_at` filter, `store_lifecycle.go:699-709`).
+
+Effect: a permanently non-terminal operation, a full destroy job every 30 s forever, and one duplicate
+`instance.expired` outbox row per pass (no dedupe: `events_outbox` has only a PK). No provider, port or lease
+leak — the reservation is released correctly.
+
+Minimal fix (keep it inside the same transaction):
+
+```go
+if removedAt != nil {
+    // Already released by another node; settle this no-op so it cannot stay claimable.
+    _, err := tx.Exec(ctx, `UPDATE instance_operations SET status = 'SUCCEEDED', error = NULL, finished_at = NOW()
+                            WHERE id = $1 AND status IN ('QUEUED','RUNNING')`, operationID)
+    if err != nil {
+        return false, err
+    }
+    return false, tx.Commit(ctx)
+}
+```
+
+Smallest regression test: two-node instance, node `web` with a provider id and node `zed` without one, instance
+`DESTROYING`, one DESTROY op per node; run `PendingJobs` + `HandleJob`; assert the instance is `EXPIRED` **and**
+`SELECT count(*) FROM instance_operations WHERE status IN ('QUEUED','RUNNING')` is 0, and that a second
+`ExpiredJobs` + `PendingJobs` + `HandleJob` pass adds no new `instance.expired` row.
+
+## N-B (open, Important) — the zero-budget guard rejects overrides that grant nothing
+
+`internal/boards/instance_settings.go:239-242`
+
+```go
+if module.Extension.MaxCount == 0 {
+    return Invalid("body.instance.extension.maxCount",
+        "the module grants no extensions (maxCount is 0)", "INVALID_VALUE")
+}
+```
+
+This fires for **any** extension override, including `{enabled:false, seconds:900, maxCount:0}`, which grants
+nothing and is a legitimate narrowing. Two consequences:
+
+1. **Task editor dead-end.** For a module with `extension.maxCount = 0` (a valid admin choice: the module editor
+   allows `0`), the task editor's `Custom` mode always sends the `extension` object with `maxCount: 0`
+   (`TaskEditorDialog.vue` `lifetimePayload()`), and `instanceProblem()` passes it — `enabled:false` returns
+   early, and `0 > 0` is false. The server then answers 422, and no combination the form can produce is
+   accepted, so a custom initial/max lifetime cannot be saved on such a task at all.
+2. **Module-wide "disable extensions" blocked.** `validateModuleLifetimeTx` (`instance_policy_tx.go:96-101`)
+   re-validates every instance-enabled task, so setting a module to `maxCount: 0` is rejected while any task
+   holds an extension override — even one that only says "extensions off". The admin must edit each task to
+   `Inherit` first.
+
+Design §2 only requires that a task "may not exceed the module limits" and that `enabled: true` is rejected when
+the module disables extensions; rejecting a narrowing override contradicts "an override may only narrow".
+Before this fix these payloads were accepted, so it is a regression introduced here.
+
+Minimal fix: gate on the budget actually granted.
+
+```go
+if module.Extension.MaxCount == 0 && count > 0 {
+    return Invalid("body.instance.extension.maxCount", "the module grants no extensions (maxCount is 0)", "INVALID_VALUE")
+}
+```
+
+`{enabled:true, maxCount:1}` (the N3 case) is still rejected, `{enabled:false, maxCount:0}` is accepted, and the
+existing test keeps passing. Smallest regression test: in `TestTaskCannotRaiseExtensionsOverZeroModuleBudget`,
+also create a task with `ExtensionEnabled=false, ExtensionSeconds=900, ExtensionMaxCount=0` over the same
+zero-budget module and expect success; and assert a module update to `maxCount: 0` is accepted when the only
+task override is that narrowing pair.
+
+## Closed in this round
+
+N2 (report now says 50 packages — matches the tree), N3 (intent achieved; see N-B for the over-broad part),
+N4 (presence-aware allowlist, tests load real YAML), N5 (dead helper removed).
+
+## Minor (not blocking)
+
+- **Shipped-config migration note.** `deploy/config.yaml:108` now writes `allowed_hosts: []`, which is
+  authoritative, so an existing deployment that relied on `ACTFB_PROVIDER_ALLOWED_HOSTS` and adopts the new
+  `config.yaml` silently loses remote providers (fail-closed, "provider base URL is not allowed").
+  `docs/configuration.md:212-217` says this only for "a fresh deployment"; one sentence telling existing
+  env-based deployments to move the host into `allowed_hosts` would close it. Not a security regression.
+- **Recovery sweep has no supporting index.** `repairStuckStagedDestroys` (`store_lifecycle.go:813-833`) filters
+  `operation`/`status` with a correlated `EXISTS`, and `instance_operations` only has the PK and the
+  `(instance_id, node_key, generation, operation)` unique constraint. It runs twice per 30 s tick
+  (`expireDue` + `pendingJobs`) as a sequential scan over a table that only grows. Cheap today, worth a partial
+  index on `(status) WHERE operation='DESTROY'` before the table gets large.

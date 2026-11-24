@@ -218,6 +218,10 @@ integrations:
   authoritative, so an inherited environment can neither widen nor silently re-open a policy the operator wrote
   down. New deployments should use the YAML field; the environment variable is documented as `ENV = —` for
   production.
+- **Upgrading an env-based deployment:** the shipped `deploy/config.yaml` now writes `allowed_hosts: []`, which
+  is authoritative, so if you previously relied on `ACTFB_PROVIDER_ALLOWED_HOSTS` you must list those hostnames
+  in `allowed_hosts` when you adopt the new `config.yaml` — otherwise remote providers fail closed with
+  "provider base URL is not allowed". Do not replace a configured `config.yaml` blindly; copy your hosts across.
 - The backend (integration CRUD validation) and `instance-worker` (connection test and provider calls) resolve
   the same list, so a host approved in the UI is also reachable by the worker.
 - Provider **credentials** are never part of this file; they are write-only admin integration records sealed
