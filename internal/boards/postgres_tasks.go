@@ -24,9 +24,9 @@ const taskColumns = `t.id, t.board_id, t.module_id, t.title, t.category, t.descr
 // taskScanBuffers holds the nullable lifetime columns plus the JSON policy
 // blobs that are decoded after scanning.
 type taskScanBuffers struct {
-	textRaw, filesRaw, moduleSettingsRaw                 []byte
+	textRaw, filesRaw, moduleSettingsRaw                    []byte
 	initialTTL, maxTTL, extensionSeconds, extensionMaxCount *int
-	extensionEnabled                                     *bool
+	extensionEnabled                                        *bool
 }
 
 // taskScanDest returns the scan destinations for taskColumns, in column order.
@@ -218,6 +218,19 @@ func (s *PostgresStore) CreateTask(ctx context.Context, in CreateTaskParams, aud
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Serialize with a concurrent module policy update and re-check the lifetime
+	// combination against the committed module policy.
+	if err := lockModuleInstancePolicy(ctx, tx, in.ModuleID); err != nil {
+		return nil, err
+	}
+	if err := validateTaskLifetimeTx(ctx, tx, in.BoardID, in.ModuleID, TaskLifetimeOverrides{
+		InitialTTLSeconds: in.InstanceTTLSeconds, MaxTTLSeconds: in.InstanceMaxTTLSeconds,
+		ExtensionEnabled: in.InstanceExtensionEnabled, ExtensionSeconds: in.InstanceExtensionSeconds,
+		ExtensionMaxCount: in.InstanceExtensionMaxCount,
+	}, in.InstanceEnabled); err != nil {
+		return nil, err
+	}
+
 	task, err := scanTaskRow(tx.QueryRow(ctx, `
 		INSERT INTO tasks AS t (board_id, module_id, title, category, description, type,
 			points, visible, submission_mode, submission_checker, extension_key, checker_key,
@@ -267,6 +280,17 @@ func (s *PostgresStore) UpdateTask(ctx context.Context, boardID, moduleID, taskI
 		return nil, fmt.Errorf("begin update task: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lockModuleInstancePolicy(ctx, tx, moduleID); err != nil {
+		return nil, err
+	}
+	if err := validateTaskLifetimeTx(ctx, tx, boardID, moduleID, TaskLifetimeOverrides{
+		InitialTTLSeconds: in.InstanceTTLSeconds, MaxTTLSeconds: in.InstanceMaxTTLSeconds,
+		ExtensionEnabled: in.InstanceExtensionEnabled, ExtensionSeconds: in.InstanceExtensionSeconds,
+		ExtensionMaxCount: in.InstanceExtensionMaxCount,
+	}, in.InstanceEnabled); err != nil {
+		return nil, err
+	}
 
 	task, err := scanTaskRow(tx.QueryRow(ctx, `
 		UPDATE tasks AS t SET title=$4, category=$5, description=$6, points=$7,

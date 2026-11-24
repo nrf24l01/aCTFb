@@ -152,10 +152,10 @@ type TaskInstanceInput struct {
 	// Lifetime overrides. Set=false means "omitted" (inherit on create, preserve
 	// on patch); Set=true with a nil Value means an explicit null (reset to
 	// inherit); Set=true with a value is an explicit admin choice.
-	TTLSeconds       OptionalInt
-	MaxTTLSeconds    OptionalInt
-	ExtensionEnabled OptionalBool
-	ExtensionSeconds OptionalInt
+	TTLSeconds        OptionalInt
+	MaxTTLSeconds     OptionalInt
+	ExtensionEnabled  OptionalBool
+	ExtensionSeconds  OptionalInt
 	ExtensionMaxCount OptionalInt
 }
 

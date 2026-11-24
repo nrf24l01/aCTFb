@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -332,3 +333,202 @@ func TestDisablingInstanceClearsLifetimeOverrides(t *testing.T) {
 
 func stringPtr(value string) *string { return &value }
 func boolPtr(value bool) *bool       { return &value }
+
+// I3: the effective pair, not just two overrides, must be valid at save time.
+func TestEffectiveLifetimeValidatedAtTaskSave(t *testing.T) {
+	service, _, admin, board := newLifetimeBoardService(t)
+	ctx := context.Background()
+	module, err := service.AdminCreateModule(ctx, admin, board.ID, CreateModuleInput{
+		Name: "Instances", Type: ModuleTypeTasks, AllowedTaskTypes: []string{TaskTypeInstance}, Enabled: true,
+		InstanceSettings: settingsFixture(3600, 14400, 2, true, true, 900, 3),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	templateID := uuid.New()
+	build := func(title string, instance TaskInstanceInput) (*Task, error) {
+		instance.Enabled = true
+		instance.HasDeploymentTemplate = true
+		instance.HasTemplateVersion = true
+		instance.DeploymentTemplateID = &templateID
+		instance.TemplateVersion = intPtr(1)
+		return service.AdminCreateTask(ctx, admin, board.ID, module.ID, CreateTaskInput{
+			Title: title, Type: TaskTypeInstance, Category: "web", Description: "d",
+			Points: 10, Visible: true,
+			Submission: SubmissionPolicyInput{Mode: SubmissionModeText, Checker: SubmissionCheckerManual},
+			Instance:   instance,
+		})
+	}
+
+	// Only maxTtlSeconds set: the initial lifetime is inherited from the module
+	// default (3600), which is larger. Saving this must fail now, not at start.
+	_, err = build("InheritedInitialTooLong", TaskInstanceInput{
+		MaxTTLSeconds: OptionalInt{Set: true, Value: intPtr(1800)},
+	})
+	if err == nil {
+		t.Fatal("effective initial > effective max must be rejected at save")
+	}
+	var invalid *ValidationError
+	if !errors.As(err, &invalid) || len(invalid.Fields) == 0 {
+		t.Fatalf("expected a validation error, got %T: %v", err, err)
+	}
+	if !strings.Contains(invalid.Fields[0].Field, "maxTtlSeconds") {
+		t.Fatalf("field = %q, want maxTtlSeconds", invalid.Fields[0].Field)
+	}
+
+	// Valid counterexample: an explicit shorter initial lifetime.
+	if _, err := build("ExplicitShorter", TaskInstanceInput{
+		TTLSeconds:    OptionalInt{Set: true, Value: intPtr(900)},
+		MaxTTLSeconds: OptionalInt{Set: true, Value: intPtr(1800)},
+	}); err != nil {
+		t.Fatalf("a consistent explicit pair must be accepted: %v", err)
+	}
+}
+
+// I3: lowering the module ceiling must not strand an existing task.
+func TestModuleUpdateRejectsStrandingTask(t *testing.T) {
+	service, _, admin, board := newLifetimeBoardService(t)
+	ctx := context.Background()
+	module, err := service.AdminCreateModule(ctx, admin, board.ID, CreateModuleInput{
+		Name: "Instances", Type: ModuleTypeTasks, AllowedTaskTypes: []string{TaskTypeInstance}, Enabled: true,
+		InstanceSettings: settingsFixture(3600, 14400, 2, true, true, 1800, 6),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	templateID := uuid.New()
+	task, err := service.AdminCreateTask(ctx, admin, board.ID, module.ID, CreateTaskInput{
+		Title: "LongLab", Type: TaskTypeInstance, Category: "web", Description: "d",
+		Points: 10, Visible: true,
+		Submission: SubmissionPolicyInput{Mode: SubmissionModeText, Checker: SubmissionCheckerManual},
+		Instance: TaskInstanceInput{
+			Enabled: true, HasDeploymentTemplate: true, HasTemplateVersion: true,
+			DeploymentTemplateID: &templateID, TemplateVersion: intPtr(1),
+			TTLSeconds: OptionalInt{Set: true, Value: intPtr(7200)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Lowering the module max below the task's override must fail and name the task.
+	_, err = service.AdminUpdateModule(ctx, admin, board.ID, module.ID, UpdateModuleInput{
+		InstanceSettingsSet: true,
+		InstanceSettings:    settingsFixture(900, 1800, 2, true, true, 900, 3),
+	})
+	if err == nil {
+		t.Fatal("a module update that strands an instance task must be rejected")
+	}
+	var invalid *ValidationError
+	if !errors.As(err, &invalid) || len(invalid.Fields) == 0 {
+		t.Fatalf("expected a validation error, got %T: %v", err, err)
+	}
+	if !strings.Contains(invalid.Fields[0].Issue, task.Title) {
+		t.Fatalf("message %q must name the offending task %q", invalid.Fields[0].Issue, task.Title)
+	}
+
+	// The module was not changed.
+	current, err := service.AdminGetModule(ctx, admin, board.ID, module.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.TaskInstanceSettings == nil || current.TaskInstanceSettings.MaxTTLSeconds != 14400 {
+		t.Fatalf("rejected update changed the module: %+v", current.TaskInstanceSettings)
+	}
+
+	// The same guard covers extension limits: a task that asked for a larger step
+	// must block a module update that lowers the step below it.
+	if _, err := service.AdminUpdateTask(ctx, admin, board.ID, module.ID, task.ID, UpdateTaskInput{
+		Instance: &TaskInstanceInput{
+			Enabled:           true,
+			ExtensionEnabled:  OptionalBool{Set: true, Value: boolPtr(true)},
+			ExtensionSeconds:  OptionalInt{Set: true, Value: intPtr(1800)},
+			ExtensionMaxCount: OptionalInt{Set: true, Value: intPtr(3)},
+		},
+	}); err != nil {
+		t.Fatalf("task extension override inside the module limits must be accepted: %v", err)
+	}
+	_, err = service.AdminUpdateModule(ctx, admin, board.ID, module.ID, UpdateModuleInput{
+		InstanceSettingsSet: true,
+		InstanceSettings:    settingsFixture(3600, 14400, 2, true, true, 900, 3),
+	})
+	if err == nil {
+		t.Fatal("a module update that lowers the extension step below a task override must be rejected")
+	}
+	if !strings.Contains(err.Error(), task.Title) {
+		t.Fatalf("message %q must name the offending task %q", err.Error(), task.Title)
+	}
+}
+
+// I3 race: a task lifetime edit and a module policy update must serialize on the
+// same module lock, so the committed state is never an invalid combination that
+// the service would reject at start.
+func TestTaskEditAndModuleUpdateSerializeRealPostgres(t *testing.T) {
+	service, db, admin, board := newLifetimeBoardService(t)
+	ctx := context.Background()
+	templateID := uuid.New()
+
+	for iteration := 0; iteration < 6; iteration++ {
+		module, err := service.AdminCreateModule(ctx, admin, board.ID, CreateModuleInput{
+			Name: "Race" + string(rune('A'+iteration)), Type: ModuleTypeTasks,
+			AllowedTaskTypes: []string{TaskTypeInstance}, Enabled: true,
+			InstanceSettings: settingsFixture(3600, 14400, 2, true, true, 1800, 6),
+		})
+		if err != nil {
+			t.Fatalf("iteration %d: create module: %v", iteration, err)
+		}
+		task, err := service.AdminCreateTask(ctx, admin, board.ID, module.ID, CreateTaskInput{
+			Title: "RaceLab", Type: TaskTypeInstance, Category: "web", Description: "d",
+			Points: 10, Visible: true,
+			Submission: SubmissionPolicyInput{Mode: SubmissionModeText, Checker: SubmissionCheckerManual},
+			Instance: TaskInstanceInput{
+				Enabled: true, HasDeploymentTemplate: true, HasTemplateVersion: true,
+				DeploymentTemplateID: &templateID, TemplateVersion: intPtr(1),
+				TTLSeconds: OptionalInt{Set: true, Value: intPtr(1800)},
+			},
+		})
+		if err != nil {
+			t.Fatalf("iteration %d: create task: %v", iteration, err)
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			// Lower the module ceiling.
+			_, _ = service.AdminUpdateModule(ctx, admin, board.ID, module.ID, UpdateModuleInput{
+				InstanceSettingsSet: true,
+				InstanceSettings:    settingsFixture(900, 1200, 2, true, true, 900, 3),
+			})
+		}()
+		go func() {
+			defer wg.Done()
+			// Raise the task initial lifetime.
+			_, _ = service.AdminUpdateTask(ctx, admin, board.ID, module.ID, task.ID, UpdateTaskInput{
+				Instance: &TaskInstanceInput{
+					Enabled:    true,
+					TTLSeconds: OptionalInt{Set: true, Value: intPtr(7200)},
+				},
+			})
+		}()
+		wg.Wait()
+
+		// Whatever committed, the pair must be usable: the service must accept it.
+		var settingsRaw []byte
+		if err := db.Pool.QueryRow(ctx, `SELECT task_instance_settings FROM modules WHERE id=$1`, module.ID).Scan(&settingsRaw); err != nil {
+			t.Fatal(err)
+		}
+		settings, err := decodeTaskInstanceSettings(settingsRaw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		current, err := service.AdminGetTask(ctx, admin, board.ID, module.ID, task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		initial, max := EffectiveLifetimeSeconds(taskLifetimeOverrides(*current), settings)
+		if initial > max {
+			t.Fatalf("iteration %d committed an invalid pair: initial=%d max=%d", iteration, initial, max)
+		}
+	}
+}

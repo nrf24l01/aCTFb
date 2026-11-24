@@ -198,6 +198,15 @@ func (s *PostgresStore) UpdateModule(ctx context.Context, boardID, moduleID uuid
 		return nil, fmt.Errorf("begin update module: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	// Same lock as every task lifetime mutation in this module: the check below
+	// and a concurrent task edit are serialized, so neither can commit a
+	// combination the other would have rejected.
+	if err := lockModuleInstancePolicy(ctx, tx, moduleID); err != nil {
+		return nil, err
+	}
+	if err := validateModuleLifetimeTx(ctx, tx, boardID, moduleID, in.InstanceSettings); err != nil {
+		return nil, err
+	}
 	audiences := in.AudienceUUIDs
 	if audiences == nil {
 		audiences = []uuid.UUID{}

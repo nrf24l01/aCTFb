@@ -53,10 +53,10 @@ type taskInstanceExtensionWire struct {
 }
 
 type taskInstanceSettingsWire struct {
-	DefaultTTLSeconds                *int                        `json:"defaultTtlSeconds"`
-	MaxTTLSeconds                    *int                        `json:"maxTtlSeconds"`
-	MaxConcurrentInstancesPerSubject *int                        `json:"maxConcurrentInstancesPerSubject"`
-	ResetEnabled                     *bool                       `json:"resetEnabled"`
+	DefaultTTLSeconds                *int                       `json:"defaultTtlSeconds"`
+	MaxTTLSeconds                    *int                       `json:"maxTtlSeconds"`
+	MaxConcurrentInstancesPerSubject *int                       `json:"maxConcurrentInstancesPerSubject"`
+	ResetEnabled                     *bool                      `json:"resetEnabled"`
 	Extension                        *taskInstanceExtensionWire `json:"extension"`
 }
 
@@ -159,11 +159,11 @@ func validateTaskInstanceSettings(settings *TaskInstanceSettings) error {
 // TaskLifetimeOverrides are the nullable per-task lifetime overrides. Nil means
 // "inherit the module setting"; a non-nil value is an explicit admin choice.
 type TaskLifetimeOverrides struct {
-	InitialTTLSeconds  *int
-	MaxTTLSeconds      *int
-	ExtensionEnabled   *bool
-	ExtensionSeconds   *int
-	ExtensionMaxCount  *int
+	InitialTTLSeconds *int
+	MaxTTLSeconds     *int
+	ExtensionEnabled  *bool
+	ExtensionSeconds  *int
+	ExtensionMaxCount *int
 }
 
 // empty reports whether no override is configured at all.
@@ -203,10 +203,15 @@ func validateTaskLifetimeOverrides(overrides TaskLifetimeOverrides, module *Task
 				fmt.Sprintf("must not exceed the module maximum of %d seconds", module.MaxTTLSeconds), "INVALID_VALUE")
 		}
 	}
-	if overrides.InitialTTLSeconds != nil && overrides.MaxTTLSeconds != nil &&
-		*overrides.InitialTTLSeconds > *overrides.MaxTTLSeconds {
+	// The rule is an effective-value rule, not a two-override rule: a task may
+	// set only maxTtlSeconds and still inherit an initial TTL from the module (or
+	// the global default). Saving a combination the service would reject at every
+	// start must fail here with a field message instead of a later 500.
+	effectiveInitial, effectiveMax := EffectiveLifetimeSeconds(overrides, module)
+	if effectiveInitial > effectiveMax {
 		return Invalid("body.instance.maxTtlSeconds",
-			"must be greater than or equal to ttlSeconds", "INVALID_VALUE")
+			fmt.Sprintf("effective maximum total lifetime %d s must be at least the effective initial lifetime %d s",
+				effectiveMax, effectiveInitial), "INVALID_VALUE")
 	}
 	if overrides.ExtensionEnabled != nil || overrides.ExtensionSeconds != nil || overrides.ExtensionMaxCount != nil {
 		if overrides.ExtensionSeconds == nil || overrides.ExtensionMaxCount == nil {
@@ -243,6 +248,29 @@ func validateTaskLifetimeOverrides(overrides TaskLifetimeOverrides, module *Task
 		}
 	}
 	return nil
+}
+
+// EffectiveLifetimeSeconds resolves the effective (initial, max) lifetime pair
+// for a task using the documented precedence: task override, then module
+// setting, then the global default. Both values are always positive.
+func EffectiveLifetimeSeconds(overrides TaskLifetimeOverrides, module *TaskInstanceSettings) (initial int, max int) {
+	initial = DefaultInstanceInitialTTLSeconds
+	max = MaxInstanceLifetimeSeconds
+	if module != nil {
+		if module.DefaultTTLSeconds > 0 {
+			initial = module.DefaultTTLSeconds
+		}
+		if module.MaxTTLSeconds > 0 {
+			max = module.MaxTTLSeconds
+		}
+	}
+	if overrides.InitialTTLSeconds != nil {
+		initial = *overrides.InitialTTLSeconds
+	}
+	if overrides.MaxTTLSeconds != nil {
+		max = *overrides.MaxTTLSeconds
+	}
+	return initial, max
 }
 
 // EffectiveInstanceInitialTTLSeconds resolves the initial lifetime used for a
