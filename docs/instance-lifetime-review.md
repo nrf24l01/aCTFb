@@ -546,3 +546,108 @@ N4 (presence-aware allowlist, tests load real YAML), N5 (dead helper removed).
   `(instance_id, node_key, generation, operation)` unique constraint. It runs twice per 30 s tick
   (`expireDue` + `pendingJobs`) as a sequential scan over a table that only grows. Cheap today, worth a partial
   index on `(status) WHERE operation='DESTROY'` before the table gets large.
+
+---
+
+# Round 4 scoped re-review: `a97f7f2..fedae48` (9 files, +829/−6) — N-A, N-B and their direct regressions
+
+Date: 2026-11-24
+Fix report: `docs/instance-lifetime-review-fixes.md` (section "Round-3 scoped re-review (N-A, N-B)")
+Scope: only N-A and N-B from round 3 plus any regression introduced by these two commits. Read-only static
+review of the diff and the current code; no builds, tests, Docker, servers or browser; no subagents. The
+reported real-PG RED→GREEN, Go 50-package, `-race`, real-Docker 6.25 s and packaging results are the
+implementer's, not reproduced.
+
+## Verdict: APPROVED
+
+**0 Critical, 0 Important, 1 Minor.** Both round-3 findings are closed at the root, the fix does not weaken any
+invariant I previously verified, and I found no new regression inside this block.
+
+`git diff --stat a97f7f2..fedae48 -- frontend/ docs/swagger.yaml internal/generated/ migrations/` is empty and
+`gofmt -l internal/ cmd/` is empty, so the frozen contract, the schema, the UI and the formatting baseline are
+untouched.
+
+## N-A — verified fixed
+
+The three pieces work together and the previously stuck states are now unreachable:
+
+- **Already-released branch settles the op** (`internal/instances/store_lifecycle.go:768-783`): before
+  committing, it marks the *exact* operation `SUCCEEDED` with the full key
+  (`id`, `instance_id`, `node_key`, `operation='DESTROY'`, `generation`) and only from `QUEUED`/`RUNNING`. A
+  newer generation or an unrelated operation cannot match.
+- **Release settles the sibling no-op destroys** (`store_lifecycle.go:814-830`): when a completion performs the
+  release (`remaining == 0`), every `DESTROY` op of that instance+generation whose node no longer owns a
+  provider object becomes terminal in the same transaction. The `NOT EXISTS` guard is redundant at that point
+  (`remaining == 0` is computed after the current node is cleared), but it keeps the statement honest if the
+  order ever changes. Result: a sibling no-op in the same job no longer waits for — or loops through — a
+  reconcile tick.
+- **`applyOperation` short-circuits a no-op DESTROY before the lease lookup**
+  (`internal/instances/orchestrator.go:264-269`). This is the real second half of the bug: `leaseClaim` filters
+  `released_at IS NULL` (`internal/instances/store_queries.go:182-189`) and returns `pgx.ErrNoRows` once a
+  sibling released, so the old order could never reach completion. The condition requires
+  `operation.Kind == runtime.OperationDestroy`, so **no APPLY or RESET path is skipped**, and it sits after
+  `revalidateOperation` and `resolveNode` in `HandleJob`, so authorization and snapshot checks still run.
+- **`releaseResourcesTx` clears `provider_resource_id`** (`store_lifecycle.go:632-634`). I traced every caller
+  and each one is guarded by "no node owns a provider object" before releasing, so nothing undestroyed can be
+  hidden:
+  `orchestrator.go:233` (after `liveProviderNodeCount > 0` → conflict and `removed_at IS NULL`),
+  `orchestrator.go:684` (after the pending-DESTROY check, the `liveProviderNodeCount` check and the
+  `removed_at` check), `deadline.go:108` (`abortExpired` returns early on the first non-empty id, so release
+  happens only when every id is empty), `store_lifecycle.go:690` (`len(ids)==0` means `destroyInstance` found no
+  node rows), `store_lifecycle.go:811` (`remaining == 0` inside the atomic completion).
+- **Event emitted once, on the real transition.** `:207` fires only when this call performed the release, `:240`
+  is gated by `releasedNow` (set only when this pass released a row whose `removed_at` was still NULL), and
+  `:689` is the expired-during-apply path, which is mutually exclusive with `:207` because `applyOperation`
+  returns the typed error there instead of the released flag. `events_outbox` still gets a fresh id per real
+  transition, so there is no suppression of a later legitimate `instance.expired` for a different instance.
+- **Recovery of the old broken state is intact.** `repairStuckStagedDestroys` is unchanged and requires
+  `removed_at IS NULL`, so it cannot interact with the new already-released branch; the SUCCEEDED+`DESTROYING`
++id row is re-queued, destroyed with the persisted id, and the new completion then releases once with no port
+  leak and no generation bump. The round-3 rollback-on-last-statement property is unchanged (the whole
+  completion is still one transaction).
+
+Behaviour check on the three orderings, all consistent: provider-less node last → sibling settled inside the
+releasing transaction and the job returns after one event; provider-less node first → it is terminalized
+normally, then the id-bearing node releases and emits once; job on an already-released row → every op settles,
+`releasedNow` stays false, no event, and the next pass finds nothing queued.
+
+## N-B — verified fixed
+
+`internal/boards/instance_settings.go:241` now gates on the budget actually granted
+(`module.Extension.MaxCount == 0 && count > 0`). Consequences I checked:
+
+- `{enabled:false, seconds:900, maxCount:0}` over a zero-budget module is accepted (it grants nothing) and is
+  persisted — which is exactly what `TaskEditorDialog`'s `Custom` mode sends, so the dead-end is gone and the
+  task's initial/max lifetime can be saved again.
+- `{maxCount:1}` is still rejected, including with `enabled:false`, because the count is the ceiling a task may
+  never raise; the N3 case stays closed (`TestTaskCannotRaiseExtensionsOverZeroModuleBudget` unchanged).
+- A module update to `maxCount: 0` is accepted when the only task override narrows
+  (`TestModuleUpdateToZeroBudgetAllowedWhenTasksNarrow`), and still rejected when a task actually grants
+  credits — consistent with the existing "override may only narrow" enforcement. The `enabled:true` over a
+  module that disables extensions case remains the documented §2 rejection, not a regression.
+- `TestHTTPZeroBudgetModuleAcceptsNarrowingTaskOverride` proves it over the real API (201 for the narrowing
+  create, 422 for the granting one, 200 for the module PATCH), so the round-3 repro (422 where 201 was correct)
+  is genuinely closed rather than fixed only at the service layer.
+
+The compatibility sentence in `docs/configuration.md:221-224` also answers the round-3 minor about upgrading an
+env-based deployment to the now-authoritative `allowed_hosts: []`.
+
+## Minor (non-blocking, inside this block)
+
+- **Stale comment** at `internal/instances/orchestrator.go:202-205`: it still says a remaining operation "stays
+  claimable and is settled by the next reconcile pass", but the sibling-settle added in this same commit now
+  makes it terminal in the releasing transaction. Documentation drift only; the code and its tests are correct.
+  Worth correcting whenever that file is next touched, not worth another cycle now.
+
+## Explicitly out of scope (pre-existing, not introduced here)
+
+A `DESTROY` op already marked `FAILED` (possible only for rows written before `2d2461d`, since `failOperation`
+now re-queues destroys) with a live provider id would still not be re-selected. That state cannot be produced
+by the current code and was outside the N-A/N-B brief; I am noting it only so it is not mistaken for a new
+regression. No action requested.
+
+## Push readiness
+
+**APPROVED for push/publish.** I1–I5, M1–M7, N1, N2–N5, N-A and N-B are all closed; the architecture and the
+approved design are unchanged (single `cmd/instance-worker`, `/api/v2`, ids-only jobs, additive `019`). No
+Critical or Important finding remains in this scope.

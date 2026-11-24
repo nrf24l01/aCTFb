@@ -197,12 +197,11 @@ func (o *Orchestrator) HandleJob(ctx context.Context, job Job) error {
 				return err
 			}
 			if released {
-				// This call performed the release: the reservation is gone, so any
-				// remaining operation in this job can no longer resolve its lease.
-				// It stays claimable and is settled by the next reconcile pass,
-				// which finds the row already removed and only marks the operation
-				// terminal (see completeStagedDestroy). The event is emitted once,
-				// here, on the actual transition.
+				// This call performed the release. The same transaction settled every
+				// sibling DESTROY operation of this generation whose node owns no
+				// provider object (see completeStagedDestroy), so any operation left
+				// in this job is already terminal and cannot be re-claimed. The
+				// event is emitted once, here, on the actual transition.
 				o.store.syncPentestEnvironmentStatus(ctx, instance.ID, StatusExpired)
 				o.enqueueEvent(ctx, instance, events.EventInstanceExpired, "EXPIRED")
 				return nil
