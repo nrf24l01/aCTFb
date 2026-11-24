@@ -84,6 +84,11 @@ web_app:
 This is the local HTTP demo. For public HTTPS, set `web_app.secure_cookies: true` and the exact
 `https://...` origin; see [TLS and cookies](docs/production.md#tls-and-cookies).
 
+Remote VM/container providers (Proxmox, KubeVirt, Kubernetes) are denied by default: `integrations.allowed_hosts`
+ships empty. To use one, list the exact hostname you operate, e.g. `allowed_hosts: ["pve.example.com"]`, and keep
+provider credentials in the admin UI, never in this file. See
+[remote provider allowlist](docs/configuration.md#remote-provider-allowlist).
+
 ### 4. Start
 
 ```bash

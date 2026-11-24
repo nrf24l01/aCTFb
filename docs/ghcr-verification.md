@@ -1,73 +1,61 @@
 # GHCR publication verification
 
-Status: **published and verified from `main` at commit `511e039`** (organizer UX pass). Ten separate
-images are publicly pullable without registry credentials, each with `latest` and an immutable
+Status: **published and verified from `main` at commit `5edd6d5`** (task-instance lifetime policy). Ten
+separate images are publicly pullable without registry credentials, each with `latest` and an immutable
 `sha-<full-sha>` tag resolving to the same digest.
 
-Current publication: run https://github.com/nrf24l01/aCTFb/actions/runs/45041326499, image source commit
-`511e03916d48e11ef5bcf3b9655504ea7bd5451e`, immutable tag `sha-511e03916d48e11ef5bcf3b9655504ea7bd5451e`.
-This publication ships the organizer UX surface (public landing with organizer Markdown, canonical board
-access mode, single-format modules, typed instance parameters, scoped pickers) and is verified with an
-anonymous pull plus a cleanroom run of the published backend/frontend pair.
+Current publication: run https://github.com/nrf24l01/aCTFb/actions/runs/45432689770, image source commit
+`5edd6d53c44986761aca863c0160278b6aa4c3bc`, immutable tag `sha-5edd6d53c44986761aca863c0160278b6aa4c3bc`.
+This publication ships the per-task instance lifetime policy (initial/max lifetime overrides, student
+extension with one-credit semantics, module instance settings, the frozen lifecycle snapshot, worker deadline
+re-checks and the config.yaml provider allowlist) and is verified with an anonymous manifest/pull check plus a
+cleanroom run of the published backend + instance-worker pair that starts, extends, resets and expires a real
+Docker workload.
 
-Earlier publications (retained for history): `29227d7` (YAML application settings + datasource-only env),
-`3ef4d5b`/`fea429a` (shared backend/worker image), `f133e3b` (first one-process-per-container),
-`2191282` (docs/tests/labels only).
+Earlier publications (retained for history): `511e039` (organizer UX pass), `29227d7` (YAML application
+settings + datasource-only env), `3ef4d5b`/`fea429a` (shared backend/worker image), `f133e3b` (first
+one-process-per-container), `2191282` (docs/tests/labels only).
 
 ## Publication
 
 | Field | Value |
 | --- | --- |
-| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/45041326499 |
-| Commit | `511e03916d48e11ef5bcf3b9655504ea7bd5451e` |
+| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/45432689770 |
+| Commit | `5edd6d53c44986761aca863c0160278b6aa4c3bc` |
 | Conclusion | success (Backend quality, Frontend quality, Integration, Publish images) |
 | Platform | `linux/amd64` only |
 | Provenance attestations | none; single OCI image manifests |
-| Registry visibility | public, verified by anonymous manifest checks and an anonymous `docker pull` |
+| Registry visibility | public, verified by anonymous manifest and config-blob reads for all ten images |
 
 | Image | Digest | Compressed |
 | --- | --- | --- |
-| `ghcr.io/nrf24l01/actfb-backend` | `sha256:e818a0fb1cee24be22303f60b716550f09588bd2c2cc8ab8f98371003a9d12f0` | 20,382,436 B |
-| `ghcr.io/nrf24l01/actfb-frontend` | `sha256:b32fa91c0314d02bb45d5e176876afdec5da87fcaaf236c1d1e23339b75813a1` | 23,685,499 B |
-| `ghcr.io/nrf24l01/actfb-notification` | `sha256:463039eed36f34f31f0ccbf9225f8835d3679bb1cd1b29b777f548bbfcdb7a52` | 12,341,417 B |
-| `ghcr.io/nrf24l01/actfb-retention` | `sha256:0275c32deff83eaafeb010236a93cbf618cf3c35f18aa2b69f1a9e08d563445b` | 10,939,779 B |
-| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `sha256:1087e6f4096fe5718a0f0387a81c0b1d3f16d8c7b5cd90aee18e562b1e464d24` | 12,000,779 B |
-| `ghcr.io/nrf24l01/actfb-file-scanner` | `sha256:b778f19d9a9a00890c53a7ffbbaca0be841790942facddc3b40aec335afe8efb` | 13,358,887 B |
-| `ghcr.io/nrf24l01/actfb-storage-init` | `sha256:973ef6d3f82ba60e5f069f9f55abbf3591937f51d03fd9e4b63c1bd876b9ca3c` | 10,956,010 B |
-| `ghcr.io/nrf24l01/actfb-plugin-runner` | `sha256:917fb9762226568c6ede770916e094941815c607a38ba72c98d582e3db07d8ce` | 10,292,272 B |
-| `ghcr.io/nrf24l01/actfb-ad-worker` | `sha256:5227d3aea61de665a9dc629ebe9475a34f419d27906bc9998a2e623e84c9321b` | 27,022,626 B |
-| `ghcr.io/nrf24l01/actfb-instance-worker` | `sha256:830ad29bc9ec581789449fd0084acd41b40bdc846c6fc926d8a8943630de4e03` | 13,820,902 B |
+| `ghcr.io/nrf24l01/actfb-backend` | `sha256:8676a8c9017377ef12cf80d275a88ab08b28d843dee1636c79a761b72a462888` | 20,413,286 B |
+| `ghcr.io/nrf24l01/actfb-frontend` | `sha256:06be05253b0fcf74b48212279006a6538fac08e0a9d2e7fbec2f6d9b35bb73f2` | 23,687,600 B |
+| `ghcr.io/nrf24l01/actfb-notification` | `sha256:9b0644bf890409c0bb1622fd5018ada1175ffce9ab8da8b19e586aa5b941ccb2` | 12,342,732 B |
+| `ghcr.io/nrf24l01/actfb-retention` | `sha256:09a99971ceb94967cd0148f346ec376c5547d0942cfeb68cded0f90b31a09135` | 10,940,563 B |
+| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `sha256:a6800af942eba7dbb3a32d3f2e3695f8726e801ae59f7ac613f38f7f52755b93` | 12,001,250 B |
+| `ghcr.io/nrf24l01/actfb-file-scanner` | `sha256:88bbb1264d3b5781983bfea821e122f20f2966b71af35d699947356ddc0f174b` | 13,359,311 B |
+| `ghcr.io/nrf24l01/actfb-storage-init` | `sha256:73249f22b491f899afe12b42dd5402b70a706748a96f2871f46ffff0757e61d4` | 10,956,257 B |
+| `ghcr.io/nrf24l01/actfb-plugin-runner` | `sha256:1366acd8976f0ac87ad3d9fa7ab91b6ce5eeb54611dd22ab047a95d17a2a1a69` | 10,292,879 B |
+| `ghcr.io/nrf24l01/actfb-ad-worker` | `sha256:b06ac7549a836bc79bbebefcc644410c37f3eedf429ebbe7a421229669e81670` | 27,022,943 B |
+| `ghcr.io/nrf24l01/actfb-instance-worker` | `sha256:c49850d65263f0931d392856d307465ca7f47c489331daf704d51f4892514abc` | 13,831,515 B |
 
-Every image carries both `latest` and `sha-511e03916d48e11ef5bcf3b9655504ea7bd5451e`, resolving to the
-digest above; the image label `org.opencontainers.image.revision` equals the source commit. OCI source is
-`https://github.com/nrf24l01/actfb`.
+Uncompressed image sizes measured with `docker image inspect .Size` after an anonymous pull:
 
-### Delivery verification performed in this pass
-
-| Check | Result |
+| Image | Size |
 | --- | --- |
-| 4-job Actions run on `511e039` | Backend quality, Frontend quality, Integration, Publish images: **all success** |
-| Anonymous manifest for all 10 images (`latest` and `sha-<sha>`) | present; both tags resolve to the same digest |
-| Anonymous `docker pull` (logged out of `ghcr.io`) | `backend:sha-511e039…` pulled successfully |
-| Architecture | `linux/amd64` |
-| Backend `admin --help` with `--network none`, no DB/config | 5 subcommands listed (`create`, `list`, `promote`, `demote`, `reset-password`) |
-| `admin create --help` | documents `--password-stdin` |
-| Cleanroom: published backend + `postgres:18-alpine`, generated temp config | migrations=18, `/ready` + `/health` OK |
-| `admin create --password-stdin` on the published image | created `cliadmin`; password never printed |
-| `admin list` | shows `cliadmin … enabled admin` |
-| Real HTTP login with the CLI-created credentials | 200; `/me` returns roles `[user, admin]` |
-| Admin-only `GET /api/v2/admin/site` | 200 authorized |
-| `admin reset-password` | old access token rejected (401); new password logs in |
-| `admin demote` of the only enabled admin | refused: "cannot remove or disable the last enabled admin" |
-| `admin demote` after a second admin exists | succeeds, account preserved as `enabled user` |
-| Published frontend: anonymous `GET /api/v2/site` via the nginx `/api` proxy | whitelisted projection (title/intro/published) |
-| Published frontend: SPA shell + deep link + hashed bundle | served; `LandingPage`, `AdminSitePage`, `SearchPicker`, `UserPicker`, `markdown` chunks present |
-| Published frontend: admin PATCH `/api/v2/admin/site`, then anonymous read-back | new title/Markdown returned; non-admin PATCH = 403 |
-| Image hygiene | backend has no `go`, `go.mod`, `node_modules`, `bun`, `node`, `git` or `docker`; frontend is static only |
-| Fixtures | 0 containers, 0 volumes, 0 networks, 0 workdirs left after the checks |
+| `actfb-backend` | 53.9 MiB (56,531,146 B) |
+| `actfb-frontend` | 52.7 MiB (55,222,601 B) |
+| `actfb-instance-worker` | 32.1 MiB (33,632,528 B) |
 
-Admin CLI operator status is now **verified against the published image**, closing the earlier
-"published CLI unverified (provider outage)" gap; see `docs/admin-cli.md`.
+The published-image lifetime smoke (cleanroom from the downloaded `deploy/` files) verified: migrations through
+`019`, `/ready` + `/healthz`, `admin create --password-stdin` from the published binary, module instance
+settings persisted over the public API, a task override, an approved pinned Docker integration with a
+dedicated worker node, an immutable template version plus a board/module allowlist, a real Docker start that
+reached `RUNNING` and served the injected marker on its isolated network, `EXTEND` adding exactly 900 s and one
+credit with an idempotent replay, the cap rejection (`INSTANCE_EXTENSION_LIMIT_REACHED`), `RESET` keeping expiry
+and credits, a policy edit leaving the frozen snapshot at 1800 s, and a controlled expiry that reached
+`EXPIRED` with 0 live endpoints, 0 live leases and 0 provider containers.
 
 ## Public pull verification
 
@@ -145,6 +133,12 @@ proxy bridge, required exact origin, Host port preservation, and XFF overwrite f
   four distinct backend client IPs, independent rate-limit identities, attacker XFF rejected, non-root plugin
   volume writable.
 - `go test ./...`, `go vet ./...`, `go build ./...`, `go test -race ./...`; frontend typecheck and 68/68 tests.
+- For the `5edd6d5` publication the integration job also ran the real-PostgreSQL feature packages (including
+  the instance-lifetime suite) and migrations through `019` on a clean schema; the browser step in CI ran the
+  core `p1-core` spec and skipped the 18 full-stack specs that need a local Docker Engine and fixture images.
+  The full 19-spec suite was run locally against this same source (19/19 passed, 0 new containers or volumes,
+  core and Vue artifact hashes unchanged), and a separate cleanroom run of the published images exercised the
+  lifetime API end to end.
 - Quality gates: actionlint, shellcheck warning-level, bash syntax, and `docker buildx bake --print` with ten
   targets all passed.
 - CI ran the existing Playwright/full integration coverage. No test browsers or containers remain.

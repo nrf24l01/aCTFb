@@ -9,6 +9,35 @@ settings persistence, and the enforcement gaps that made those settings dishones
 
 Everything below was run in this session on this machine. Nothing is quoted from an earlier report.
 
+## Delivery status (published)
+
+The slice is merged to `main` and shipped from published GHCR images.
+
+| Field | Value |
+| --- | --- |
+| Base commit | `9a7656474b770bc26fa6e332c6b913743a1552eb` |
+| Shipped commit / HEAD | `5edd6d53c44986761aca863c0160278b6aa4c3bc` |
+| Commits on top of base | 16 (lifetime slice + review fixes) |
+| CI run | https://github.com/nrf24l01/aCTFb/actions/runs/45432689770 (success: Backend quality, Frontend quality, Integration, Publish images) |
+| Images | `sha-5edd6d53c44986761aca863c0160278b6aa4c3bc` == `latest`, `linux/amd64`, all ten images |
+| Contract | 152 paths / 416 definitions / 205 operations, migrations `001`–`019` |
+
+Published-image acceptance (real, not a plan): a cleanroom deployment built from the three downloaded
+`deploy/` files with generated ephemeral secrets started the **published** backend, frontend,
+instance-worker, retention and events-dispatcher images, applied migrations through `019`, reported
+`/ready` and `/healthz`, created an admin through the published binary's `admin create --password-stdin`, and
+then drove the whole lifetime flow over the public API: module instance settings, a task override, an
+approved pinned benign Docker integration, an immutable template version, a board/module-scoped allowlist,
+a student start that the published worker provisioned as a real Docker workload, `EXTEND` (+900 s exactly,
+one credit, idempotent replay with no second credit), the cap rejection with a server reason, `RESET` leaving
+expiry and credits unchanged, a policy edit leaving the frozen snapshot untouched, and a controlled expiry
+that reached `EXPIRED` with 0 live endpoints, 0 live leases and 0 provider containers. See
+`docs/ghcr-verification.md` for the image evidence and `docs/instance-lifetime-review-fixes.md` for the
+review-fix record.
+
+Pentest keeps its board/module-end lifetime: there is still no independent pentest TTL and no student
+extension for a pentest environment.
+
 ## Environment actually used
 
 - Go `go1.27.3-X:nodwarf5 linux/amd64`, `GOMAXPROCS=2`, serial package runs.
@@ -88,6 +117,8 @@ bun run typecheck                               clean
 bun run test:unit                               24 files / 112 tests passed
 bunx vitest run ModuleEditorDialog.test.ts      5 tests passed (new instance-settings case)
 bunx vitest run TaskEditorDialog.lifetime.test.ts 4 tests passed
+e2e/run-full-e2e.sh (shipped source)             19/19 passed, 0 new containers/volumes,
+                                                 core+Vue hashes unchanged
 bun run build                                   built
 ```
 

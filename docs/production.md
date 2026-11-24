@@ -213,7 +213,10 @@ the repository or Compose file.
 - TLS is external; the bundle publishes only the frontend on host loopback.
 - Compose does not provision least-privilege PostgreSQL roles.
 - Plugin UI assets are not production-ready behind ordinary Docker bridge networking.
-- Docker is the only supported project runtime. Not every advertised VM/container provider is accepted here.
+- Docker is the only supported project runtime. Not every advertised VM/container provider is accepted here:
+  a remote provider also needs its hostname in `integrations.allowed_hosts` (empty by default, which denies
+  every remote URL) plus reachable credentials in the admin integration record. Proxmox, KubeVirt and
+  Kubernetes are contract-tested only; no live endpoint is verified in this repository.
 - All trusted config-loading workers mount the same `config.yaml` and can read its JWT/app secrets. They do not
   receive them as environment variables; per-worker config files are a future least-privilege improvement.
 - This is not a claim of full production hardening.
