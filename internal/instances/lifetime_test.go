@@ -102,13 +102,19 @@ func TestHardDeadlineClampsToEarliestEnd(t *testing.T) {
 	}
 }
 
-func TestPolicyForSnapshotFallsBackToLegacy(t *testing.T) {
+// The live resolver is the only legacy-policy entry point; a frozen snapshot
+// policy always wins, and a legacy row follows the operator options plus the live
+// module reset switch.
+func TestResolveInstancePolicyFallsBackToLegacy(t *testing.T) {
 	options := Options{}
-	if policy := policyForSnapshot(nil, options); policy.InitialTTLSeconds != 3600 || policy.ExtendMaxCount != 3 {
+	if policy := resolveInstancePolicy(nil, nil, options); policy.InitialTTLSeconds != 3600 || policy.ExtendMaxCount != 3 {
 		t.Fatalf("legacy fallback wrong: %+v", policy)
 	}
+	if policy := resolveInstancePolicy(nil, &ModuleInstanceSettings{ResetEnabled: false}, options); policy.ResetEnabled {
+		t.Fatalf("live module reset switch not applied to a legacy row: %+v", policy)
+	}
 	frozen := LifecyclePolicy{InitialTTLSeconds: 60, MaxTotalTTLSeconds: 120, ExtendEnabled: false, ExtendSeconds: 60, ExtendMaxCount: 0, ResetEnabled: true, MaxConcurrent: 1}
-	if policy := policyForSnapshot(&frozen, options); policy.InitialTTLSeconds != 60 || policy.ExtendEnabled {
-		t.Fatalf("frozen policy ignored: %+v", policy)
+	if policy := resolveInstancePolicy(&frozen, &ModuleInstanceSettings{ResetEnabled: false}, options); policy.InitialTTLSeconds != 60 || policy.ExtendEnabled || !policy.ResetEnabled {
+		t.Fatalf("frozen policy must win over module settings: %+v", policy)
 	}
 }

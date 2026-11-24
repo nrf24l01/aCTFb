@@ -168,12 +168,12 @@ func (o *Orchestrator) HandleJob(ctx context.Context, job Job) error {
 			return o.failAll(ctx, instance, operations, err)
 		}
 		if err := o.revalidateOperation(ctx, authorized, operation); err != nil {
-			_ = o.store.markOperation(ctx, operation.ID, "FAILED", errorCode(err))
+			_ = o.store.failOperation(ctx, operation, err)
 			return o.finishFailure(ctx, instance, operations, err)
 		}
 		snapshotNode, manifestNode, renderedNode, target, err := resolveNode(snapshot, binding, renderedByKey, targets, operation.NodeKey)
 		if err != nil {
-			_ = o.store.markOperation(ctx, operation.ID, "FAILED", errorCode(err))
+			_ = o.store.failOperation(ctx, operation, err)
 			return o.finishFailure(ctx, instance, operations, err)
 		}
 		if err := o.applyOperation(ctx, instance, operation, snapshotNode, manifestNode, renderedNode, target, providerIDs[operation.NodeKey]); err != nil {
@@ -185,8 +185,20 @@ func (o *Orchestrator) HandleJob(ctx context.Context, job Job) error {
 				_ = o.store.markOperation(ctx, operation.ID, "CANCELED", string(CodeExpired))
 				return o.finishExpiredDuringApply(ctx, instance)
 			}
-			_ = o.store.markOperation(ctx, operation.ID, "FAILED", errorCode(err))
+			_ = o.store.failOperation(ctx, operation, err)
 			return o.finishFailure(ctx, instance, operations, err)
+		}
+		if operation.Kind == runtime.OperationDestroy {
+			released, err := o.store.completeStagedDestroy(ctx, instance.ID, operation.NodeKey, operation.Generation, operation.ID)
+			if err != nil {
+				return err
+			}
+			if released {
+				o.store.syncPentestEnvironmentStatus(ctx, instance.ID, StatusExpired)
+				o.enqueueEvent(ctx, instance, events.EventInstanceExpired, "EXPIRED")
+				return nil
+			}
+			continue
 		}
 		if err := o.store.markOperation(ctx, operation.ID, "SUCCEEDED", ""); err != nil {
 			return err
@@ -194,8 +206,24 @@ func (o *Orchestrator) HandleJob(ctx context.Context, job Job) error {
 	}
 
 	if destroyAll {
-		if err := o.store.releaseResources(ctx, instance.ID); err != nil {
+		// Every DESTROY op completed through the atomic path. If any node still
+		// owns a provider object the job carried only a subset, so keep the
+		// reservation for the next pass instead of freeing ports under it.
+		live, err := o.store.liveProviderNodeCount(ctx, instance.ID)
+		if err != nil {
 			return err
+		}
+		if live > 0 {
+			return conflict(CodeExpired, "instance destroy is pending on another node")
+		}
+		var removedAt *time.Time
+		if err := o.store.db.Pool.QueryRow(ctx, `SELECT removed_at FROM instances WHERE id = $1`, instance.ID).Scan(&removedAt); err != nil {
+			return err
+		}
+		if removedAt == nil {
+			if err := o.store.releaseResources(ctx, instance.ID); err != nil {
+				return err
+			}
 		}
 		o.store.syncPentestEnvironmentStatus(ctx, instance.ID, StatusExpired)
 		o.enqueueEvent(ctx, instance, events.EventInstanceExpired, "EXPIRED")
@@ -257,6 +285,8 @@ func (o *Orchestrator) applyOperation(ctx context.Context, instance *workerInsta
 		if strings.TrimSpace(providerID) == "" {
 			return nil
 		}
+		// The bookkeeping is written by the caller in one transaction together
+		// with the operation status, so a crash cannot split them.
 		return driver.Destroy(ctx, targetRuntime, providerID, runtimeOp)
 	}
 	resource, err := driver.Apply(ctx, targetRuntime, node, runtimeOp)
@@ -292,8 +322,11 @@ func (o *Orchestrator) applyOperation(ctx context.Context, instance *workerInsta
 			// confirmed.
 			return destroyErr
 		}
-		_ = o.store.markOperation(ctx, cleanupOp, "SUCCEEDED", "")
-		if err := o.store.confirmStagedDestroy(ctx, instance.ID, operation.NodeKey); err != nil {
+		// Record the confirmation atomically: node cleared, DESTROY op SUCCEEDED
+		// and, only when every node is done, the lease/port release. A crash or a
+		// DB error at any statement rolls back, leaving the op queued with its
+		// provider id so the next reconcile retries the idempotent destroy.
+		if _, err := o.store.completeStagedDestroy(ctx, instance.ID, operation.NodeKey, operation.Generation, cleanupOp); err != nil {
 			return err
 		}
 		return &expiredDuringApplyError{cause: blocked}
@@ -493,7 +526,7 @@ func (o *Orchestrator) revalidateOperation(ctx context.Context, authorized Autho
 
 func (o *Orchestrator) failAll(ctx context.Context, instance *workerInstance, operations []Operation, cause error) error {
 	for _, operation := range operations {
-		_ = o.store.markOperation(ctx, operation.ID, "FAILED", errorCode(cause))
+		_ = o.store.failOperation(ctx, operation, cause)
 	}
 	return o.finishFailure(ctx, instance, operations, cause)
 }
@@ -621,8 +654,16 @@ func (o *Orchestrator) finishExpiredDuringApply(ctx context.Context, instance *w
 		}
 		return conflict(CodeExpired, "instance expired during provider apply; cleanup is pending")
 	}
-	if err := o.store.releaseResources(ctx, instance.ID); err != nil {
+	// The atomic completion already released the row when it was the last node.
+	// Only release here if some other path left it live, and never twice.
+	var removedAt *time.Time
+	if err := o.store.db.Pool.QueryRow(ctx, `SELECT removed_at FROM instances WHERE id = $1`, instance.ID).Scan(&removedAt); err != nil {
 		return err
+	}
+	if removedAt == nil {
+		if err := o.store.releaseResources(ctx, instance.ID); err != nil {
+			return err
+		}
 	}
 	o.store.syncPentestEnvironmentStatus(ctx, instance.ID, StatusExpired)
 	o.enqueueEvent(ctx, instance, events.EventInstanceExpired, "EXPIRED")

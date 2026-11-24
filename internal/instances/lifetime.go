@@ -201,16 +201,6 @@ func hardDeadline(createdAt time.Time, maxTotalTTL time.Duration, ends ...*time.
 	return deadline
 }
 
-// policyForSnapshot resolves the policy of an already loaded instance. A nil
-// lifecycle means the instance predates the frozen policy, so the global
-// defaults apply.
-func policyForSnapshot(lifecycle *LifecyclePolicy, options Options) LifecyclePolicy {
-	if lifecycle != nil {
-		return *lifecycle
-	}
-	return legacyPolicy(options)
-}
-
 // resolveInstancePolicy is the single resolver shared by the read model and the
 // action paths. A frozen snapshot policy wins for every field. A legacy instance
 // derives its lifetime and extension fields from the operator options and takes

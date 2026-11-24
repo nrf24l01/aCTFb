@@ -605,6 +605,16 @@ func (s *store) releaseResources(ctx context.Context, instanceID uuid.UUID) erro
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := releaseResourcesTx(ctx, tx, instanceID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// releaseResourcesTx frees endpoints/leases and expires the instance inside the
+// caller's transaction. Callers must have confirmed that no node still owns a
+// provider object.
+func releaseResourcesTx(ctx context.Context, tx pgx.Tx, instanceID uuid.UUID) error {
 	if _, err := tx.Exec(ctx, `
 		UPDATE instance_endpoints SET released_at = NOW() WHERE instance_id = $1 AND released_at IS NULL
 	`, instanceID); err != nil {
@@ -621,15 +631,20 @@ func (s *store) releaseResources(ctx context.Context, instanceID uuid.UUID) erro
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE instances SET status = 'EXPIRED', removed_at = NOW() WHERE id = $1
+		UPDATE instances SET status = 'EXPIRED', removed_at = NOW() WHERE id = $1 AND removed_at IS NULL
 	`, instanceID); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 // expireDue marks overdue RUNNING instances as DESTROYING and queues cleanup.
 func (s *store) expireDue(ctx context.Context, limit int) ([]Job, error) {
+	// Heal a cleanup interrupted between the provider ACK and the bookkeeping
+	// commit before selecting work, so a DESTROYING row cannot stay unreconciled.
+	if _, err := s.repairStuckStagedDestroys(ctx); err != nil {
+		return nil, err
+	}
 	rows, err := s.db.Pool.Query(ctx, `
 		SELECT id, generation FROM instances
 		WHERE removed_at IS NULL AND status IN ('RUNNING','ERROR','PROVISIONING','RESETTING')
@@ -682,6 +697,9 @@ func (s *store) expireDue(ctx context.Context, limit int) ([]Job, error) {
 // crash. Operations of an older generation are claimed and canceled by the
 // worker, never executed.
 func (s *store) pendingJobs(ctx context.Context, limit int) ([]Job, error) {
+	if _, err := s.repairStuckStagedDestroys(ctx); err != nil {
+		return nil, err
+	}
 	rows, err := s.db.Pool.Query(ctx, `
 		SELECT instance_id, generation, id
 		FROM instance_operations
@@ -722,15 +740,98 @@ func (s *store) pendingJobs(ctx context.Context, limit int) ([]Job, error) {
 	return jobs, nil
 }
 
-// confirmStagedDestroy clears the provider id of a node whose destroy was
-// confirmed inline, so a later pass does not try to destroy it twice.
-func (s *store) confirmStagedDestroy(ctx context.Context, instanceID uuid.UUID, nodeKey string) error {
-	_, err := s.db.Pool.Exec(ctx, `
+// completeStagedDestroy records one confirmed provider destroy in a single
+// transaction: the node loses its provider id and becomes DESTROYED, the matching
+// DESTROY operation becomes SUCCEEDED, and the instance is released only when
+// every node has finished. A crash or a DB error at any statement rolls the whole
+// thing back, so the operation stays claimable with its provider id intact and the
+// next reconcile pass retries the idempotent destroy instead of leaking the
+// reservation. It reports whether this completion released the instance.
+func (s *store) completeStagedDestroy(ctx context.Context, instanceID uuid.UUID, nodeKey string, generation int64, operationID uuid.UUID) (bool, error) {
+	tx, err := s.db.Pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+
+	var instanceGeneration int64
+	var removedAt *time.Time
+	if err := tx.QueryRow(ctx, `
+		SELECT generation, removed_at FROM instances WHERE id = $1 FOR UPDATE
+	`, instanceID).Scan(&instanceGeneration, &removedAt); err != nil {
+		return false, err
+	}
+	if removedAt != nil {
+		return false, tx.Commit(ctx)
+	}
+	if instanceGeneration != generation {
+		// A newer generation superseded this cleanup; never touch it.
+		return false, tx.Commit(ctx)
+	}
+	if _, err := tx.Exec(ctx, `
 		UPDATE instance_nodes
 		SET status = 'DESTROYED', provider_resource_id = NULL
-		WHERE instance_id = $1 AND key = $2
-	`, instanceID, nodeKey)
-	return err
+		WHERE instance_id = $1 AND key = $2 AND generation = $3
+	`, instanceID, nodeKey, generation); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE instance_operations
+		SET status = 'SUCCEEDED', error = NULL, finished_at = NOW()
+		WHERE id = $1 AND operation = 'DESTROY' AND generation = $2 AND status IN ('QUEUED','RUNNING')
+	`, operationID, generation); err != nil {
+		return false, err
+	}
+	var remaining int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM instance_nodes
+		WHERE instance_id = $1 AND COALESCE(provider_resource_id,'') <> ''
+	`, instanceID).Scan(&remaining); err != nil {
+		return false, err
+	}
+	released := remaining == 0
+	if released {
+		if err := releaseResourcesTx(ctx, tx, instanceID); err != nil {
+			return false, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return released, nil
+}
+
+// repairStuckStagedDestroys re-queues the exact broken state left by a crash
+// between "provider destroy confirmed" and "bookkeeping committed": a DESTROY
+// operation marked SUCCEEDED while its own node is still DESTROYING with a
+// provider id at the same generation.
+//
+// It is deliberately narrow: it never touches a CREATE/RESET operation, never
+// touches an operation whose node is finished, and never touches another
+// generation, so a successful apply or an unrelated provider id can never be
+// replayed. Re-running it is a no-op.
+func (s *store) repairStuckStagedDestroys(ctx context.Context) (int, error) {
+	tag, err := s.db.Pool.Exec(ctx, `
+		UPDATE instance_operations o
+		SET status = 'QUEUED', error = NULL, finished_at = NULL, started_at = NULL
+		WHERE o.operation = 'DESTROY'
+		  AND o.status = 'SUCCEEDED'
+		  AND EXISTS (
+		      SELECT 1 FROM instance_nodes n
+		      JOIN instances i ON i.id = n.instance_id
+		      WHERE n.instance_id = o.instance_id
+		        AND n.key = o.node_key
+		        AND n.generation = o.generation
+		        AND i.generation = o.generation
+		        AND i.removed_at IS NULL
+		        AND n.status = 'DESTROYING'
+		        AND COALESCE(n.provider_resource_id,'') <> ''
+		  )
+	`)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 // liveProviderNodeCount counts nodes that still own a provider object.
@@ -790,4 +891,21 @@ func (s *store) stageExpiredResource(ctx context.Context, instanceID uuid.UUID, 
 		return uuid.Nil, err
 	}
 	return queued, nil
+}
+
+// failOperation records a failed attempt. A failed CREATE/RESET becomes FAILED,
+// which is the honest terminal state for that attempt. A failed DESTROY is put
+// back to QUEUED instead: destroying is idempotent, the provider object still
+// exists, and marking it FAILED would permanently strand the reservation (the
+// reconcile pass only schedules QUEUED/RUNNING work).
+func (s *store) failOperation(ctx context.Context, operation Operation, cause error) error {
+	if operation.Kind == runtime.OperationDestroy {
+		_, err := s.db.Pool.Exec(ctx, `
+			UPDATE instance_operations
+			SET status = 'QUEUED', error = NULLIF($2,''), finished_at = NULL, started_at = NULL
+			WHERE id = $1 AND operation = 'DESTROY' AND status IN ('QUEUED','RUNNING')
+		`, operation.ID, errorCode(cause))
+		return err
+	}
+	return s.markOperation(ctx, operation.ID, "FAILED", errorCode(cause))
 }

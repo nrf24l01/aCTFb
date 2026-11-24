@@ -3,6 +3,7 @@ package instances
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -457,5 +458,378 @@ func TestLateExpiryWithAnotherLiveNodeQueuesDestroyRealPostgres(t *testing.T) {
 	}
 	if final.Status != StatusExpired || final.RemovedAt == nil {
 		t.Fatalf("instance was not released after the retry: %+v", final)
+	}
+}
+
+// N1: a crash between "provider destroy confirmed" and "bookkeeping committed"
+// leaves a DESTROY op SUCCEEDED while the node still holds its provider id. The
+// scheduler must heal that exact state, not require manual SQL.
+func TestStuckStagedDestroySelfHealsRealPostgres(t *testing.T) {
+	h := newLegacyHarness(t, Options{})
+	instance := h.start(t, "stuck-staged-0001")
+	h.runJob(t)
+
+	// Seed the post-crash state: provider already destroyed, bookkeeping lost.
+	if _, err := h.db.Pool.Exec(h.ctx, `
+		UPDATE instances SET status='DESTROYING' WHERE id=$1
+	`, instance.UUID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.db.Pool.Exec(h.ctx, `
+		UPDATE instance_nodes SET status='DESTROYING', provider_resource_id='fake-stuck' WHERE instance_id=$1
+	`, instance.UUID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.db.Pool.Exec(h.ctx, `
+		INSERT INTO instance_operations
+			(id, instance_id, node_key, operation, generation, idempotency_key, status, authorized_context, finished_at)
+		VALUES ($1,$2,'web','DESTROY',1,$3,'SUCCEEDED',$4,NOW())
+	`, uuid.New(), instance.UUID, fmt.Sprintf("%s:web:1:DESTROY", instance.UUID),
+		[]byte(`{"system":true,"permission":"system.expire"}`)); err != nil {
+		t.Fatal(err)
+	}
+	assertCount(t, h.db, `SELECT COUNT(*) FROM instances WHERE id=$1 AND removed_at IS NULL`, 1, instance.UUID)
+	assertCount(t, h.db, `SELECT COUNT(*) FROM instance_endpoints WHERE instance_id=$1 AND released_at IS NULL`, 1, instance.UUID)
+
+	// The scheduler alone must recover it: expire pass, pending pass, then job.
+	handled := false
+	for pass := 0; pass < 3 && !handled; pass++ {
+		expired, err := h.orchestrator.ExpiredJobs(h.ctx, 50)
+		if err != nil {
+			t.Fatalf("expired jobs: %v", err)
+		}
+		pending, err := h.orchestrator.PendingJobs(h.ctx, 50)
+		if err != nil {
+			t.Fatalf("pending jobs: %v", err)
+		}
+		for _, job := range append(expired, pending...) {
+			if job.InstanceID != instance.UUID {
+				continue
+			}
+			if err := h.orchestrator.HandleJob(h.ctx, job); err != nil {
+				continue
+			}
+			handled = true
+		}
+	}
+	if !handled {
+		t.Fatal("the scheduler never produced a healable job for the stuck destroy")
+	}
+	final := h.get(t, instance.UUID)
+	if final.Status != StatusExpired || final.RemovedAt == nil {
+		t.Fatalf("stuck destroy did not self-heal: %+v", final)
+	}
+	assertCount(t, h.db, `SELECT COUNT(*) FROM instance_endpoints WHERE instance_id=$1 AND released_at IS NULL`, 0, instance.UUID)
+	assertCount(t, h.db, `SELECT COUNT(*) FROM instance_network_leases WHERE instance_id=$1 AND released_at IS NULL`, 0, instance.UUID)
+	assertCount(t, h.db, `SELECT COUNT(*) FROM instance_nodes WHERE instance_id=$1 AND COALESCE(provider_resource_id,'')<>''`, 0, instance.UUID)
+}
+
+// N1: a DB error at any statement inside the completion transaction must roll the
+// whole thing back, keeping the op queued and the lease held, and a later retry
+// must finish the job. A trigger provides the fault deterministically.
+func TestStagedDestroyCompletionRollsBackOnDBErrorRealPostgres(t *testing.T) {
+	h := newLegacyHarness(t, Options{})
+	instance := h.start(t, "staged-dbfail-0001")
+	h.runJob(t)
+
+	if _, err := h.db.Pool.Exec(h.ctx, `UPDATE instances SET status='DESTROYING' WHERE id=$1`, instance.UUID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.db.Pool.Exec(h.ctx, `
+		UPDATE instance_nodes SET status='DESTROYING', provider_resource_id='fake-dbfail' WHERE instance_id=$1
+	`, instance.UUID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.db.Pool.Exec(h.ctx, `
+		INSERT INTO instance_operations
+			(id, instance_id, node_key, operation, generation, idempotency_key, status, authorized_context, finished_at)
+		VALUES ($1,$2,'web','DESTROY',1,$3,'SUCCEEDED',$4,NOW())
+	`, uuid.New(), instance.UUID, fmt.Sprintf("%s:web:1:DESTROY", instance.UUID),
+		[]byte(`{"system":true,"permission":"system.expire"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Fail the LAST statement of the completion transaction (the lease release),
+	// after the node and operation writes already happened.
+	if _, err := h.db.Pool.Exec(h.ctx, `
+		CREATE OR REPLACE FUNCTION test_fail_lease_release() RETURNS trigger AS $$
+		BEGIN
+		    IF NEW.released_at IS NOT NULL AND OLD.released_at IS NULL THEN
+		        RAISE EXCEPTION 'injected lease release failure';
+		    END IF;
+		    RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER test_fail_lease_release BEFORE UPDATE ON instance_network_leases
+		    FOR EACH ROW EXECUTE FUNCTION test_fail_lease_release();
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	// The first attempt must fail and roll back completely.
+	_, _ = h.orchestrator.ExpiredJobs(h.ctx, 50)
+	pending, err := h.orchestrator.PendingJobs(h.ctx, 50)
+	if err != nil {
+		t.Fatalf("pending jobs: %v", err)
+	}
+	attempted := false
+	for _, job := range pending {
+		if job.InstanceID == instance.UUID {
+			attempted = true
+			if err := h.orchestrator.HandleJob(h.ctx, job); err == nil {
+				t.Fatal("the injected DB error must surface as a failure")
+			}
+		}
+	}
+	if !attempted {
+		t.Fatal("the stuck destroy was not scheduled")
+	}
+	// Everything rolled back: still unreleased, id still present, op not SUCCEEDED.
+	assertCount(t, h.db, `SELECT COUNT(*) FROM instances WHERE id=$1 AND removed_at IS NULL`, 1, instance.UUID)
+	assertCount(t, h.db, `SELECT COUNT(*) FROM instance_network_leases WHERE instance_id=$1 AND released_at IS NULL`, 1, instance.UUID)
+	assertCount(t, h.db, `SELECT COUNT(*) FROM instance_endpoints WHERE instance_id=$1 AND released_at IS NULL`, 1, instance.UUID)
+	assertCount(t, h.db, `SELECT COUNT(*) FROM instance_nodes WHERE instance_id=$1 AND COALESCE(provider_resource_id,'')<>''`, 1, instance.UUID)
+
+	// Remove the fault: the retry must complete.
+	if _, err := h.db.Pool.Exec(h.ctx, `DROP TRIGGER test_fail_lease_release ON instance_network_leases`); err != nil {
+		t.Fatal(err)
+	}
+	handled := false
+	for pass := 0; pass < 3 && !handled; pass++ {
+		expired, _ := h.orchestrator.ExpiredJobs(h.ctx, 50)
+		pending, _ := h.orchestrator.PendingJobs(h.ctx, 50)
+		for _, job := range append(expired, pending...) {
+			if job.InstanceID != instance.UUID {
+				continue
+			}
+			if err := h.orchestrator.HandleJob(h.ctx, job); err == nil {
+				handled = true
+			}
+		}
+	}
+	if !handled {
+		t.Fatal("retry after the DB fault did not complete")
+	}
+	final := h.get(t, instance.UUID)
+	if final.Status != StatusExpired || final.RemovedAt == nil {
+		t.Fatalf("instance not released after the retry: %+v", final)
+	}
+	assertCount(t, h.db, `SELECT COUNT(*) FROM instance_network_leases WHERE instance_id=$1 AND released_at IS NULL`, 0, instance.UUID)
+	assertCount(t, h.db, `SELECT COUNT(*) FROM instance_endpoints WHERE instance_id=$1 AND released_at IS NULL`, 0, instance.UUID)
+}
+
+// N1: the recovery path must call Destroy with the SAME persisted id, and a
+// provider that reports the object already gone (404 -> nil) must still settle.
+type countingDestroyDriver struct {
+	fakeDriver
+	ids    []string
+	failOn int
+	calls  int
+}
+
+func (d *countingDestroyDriver) Destroy(_ context.Context, _ runtime.Target, providerID string, _ runtime.Operation) error {
+	d.calls++
+	d.ids = append(d.ids, providerID)
+	if d.failOn > 0 && d.calls == d.failOn {
+		return &runtime.CapabilityError{Driver: d.Name(), Capability: "destroy", Detail: "injected"}
+	}
+	// A missing resource is success for this contract.
+	return nil
+}
+
+func TestStuckDestroyRecoveryUsesSameProviderIDRealPostgres(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+	ids := seedInstanceFixture(t, db)
+	ctx := context.Background()
+	driver := &countingDestroyDriver{}
+	registry, err := runtime.NewRegistry(driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher := &fakePublisher{}
+	auth := authorization.NewAuthorizer(db)
+	service, err := NewService(db, auth, registry, testSealer(t), 1, WithPublisher(publisher))
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator, err := NewOrchestrator(db, registry, auth, testSealer(t), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := authorization.Principal{UserID: ids.UserID}
+	instance, err := service.StartTask(ctx, actor, ids.BoardID, ids.ModuleID, ids.TaskID, "same-id-recovery-01")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := orchestrator.HandleJob(ctx, publisher.last(t)); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	const persistedID = "provider-abc-123"
+	if _, err := db.Pool.Exec(ctx, `UPDATE instances SET status='DESTROYING' WHERE id=$1`, instance.UUID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `UPDATE instance_nodes SET status='DESTROYING', provider_resource_id=$2 WHERE instance_id=$1`,
+		instance.UUID, persistedID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO instance_operations
+			(id, instance_id, node_key, operation, generation, idempotency_key, status, authorized_context, finished_at)
+		VALUES ($1,$2,'web','DESTROY',1,$3,'SUCCEEDED',$4,NOW())
+	`, uuid.New(), instance.UUID, fmt.Sprintf("%s:web:1:DESTROY", instance.UUID),
+		[]byte(`{"system":true,"permission":"system.expire"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	// First attempt: the provider already removed it, but the DB fails afterwards.
+	driver.failOn = 0
+	handled := false
+	for pass := 0; pass < 3 && !handled; pass++ {
+		expired, _ := orchestrator.ExpiredJobs(ctx, 50)
+		pending, _ := orchestrator.PendingJobs(ctx, 50)
+		for _, job := range append(expired, pending...) {
+			if job.InstanceID != instance.UUID {
+				continue
+			}
+			if err := orchestrator.HandleJob(ctx, job); err == nil {
+				handled = true
+			}
+		}
+	}
+	if !handled {
+		t.Fatal("recovery did not settle")
+	}
+	if len(driver.ids) == 0 {
+		t.Fatal("the recovery path never called Destroy")
+	}
+	for _, id := range driver.ids {
+		if id != persistedID {
+			t.Fatalf("recovery used id %q, want the persisted %q", id, persistedID)
+		}
+	}
+	final, err := service.Get(ctx, actor, instance.UUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Status != StatusExpired || final.RemovedAt == nil {
+		t.Fatalf("instance not released: %+v", final)
+	}
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_endpoints WHERE instance_id=$1 AND released_at IS NULL`, 0, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_network_leases WHERE instance_id=$1 AND released_at IS NULL`, 0, instance.UUID)
+}
+
+// N1: a partial job failure must never overwrite a queued cleanup operation.
+func TestPartialFailureDoesNotClobberCleanupQueueRealPostgres(t *testing.T) {
+	h := newLegacyHarness(t, Options{})
+	instance := h.start(t, "partial-fail-0001")
+	h.runJob(t)
+
+	// A queued system DESTROY op exists (staged cleanup) for this node.
+	if _, err := h.db.Pool.Exec(h.ctx, `
+		UPDATE instance_nodes SET status='DESTROYING', provider_resource_id='fake-partial' WHERE instance_id=$1
+	`, instance.UUID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.db.Pool.Exec(h.ctx, `
+		INSERT INTO instance_operations
+			(id, instance_id, node_key, operation, generation, idempotency_key, status, authorized_context)
+		VALUES ($1,$2,'web','DESTROY',1,$3,'QUEUED',$4)
+	`, uuid.New(), instance.UUID, fmt.Sprintf("%s:web:1:DESTROY", instance.UUID),
+		[]byte(`{"system":true,"permission":"system.expire"}`)); err != nil {
+		t.Fatal(err)
+	}
+	// A RESET job that fails must not mark that cleanup op FAILED.
+	if _, err := h.db.Pool.Exec(h.ctx, `UPDATE instances SET status='RESETTING', generation=2 WHERE id=$1`, instance.UUID); err != nil {
+		t.Fatal(err)
+	}
+	resetOpID := uuid.New()
+	if _, err := h.db.Pool.Exec(h.ctx, `
+		INSERT INTO instance_operations
+			(id, instance_id, node_key, operation, generation, idempotency_key, status, authorized_context)
+		VALUES ($1,$2,'web','RESET',2,$3,'QUEUED',$4)
+	`, resetOpID, instance.UUID, fmt.Sprintf("%s:web:2:RESET", instance.UUID),
+		[]byte(`{"system":true,"permission":"system.expire"}`)); err != nil {
+		t.Fatal(err)
+	}
+	// Fail the reset apply so the job takes the failure path.
+	h.driver.failApply = true
+	_ = h.orchestrator.HandleJob(h.ctx, Job{InstanceID: instance.UUID, Generation: 2, OperationIDs: []uuid.UUID{resetOpID}})
+
+	assertCount(t, h.db, `SELECT COUNT(*) FROM instance_operations WHERE instance_id=$1 AND operation='DESTROY' AND status='QUEUED'`, 1, instance.UUID)
+	assertCount(t, h.db, `SELECT COUNT(*) FROM instance_operations WHERE id=$1 AND status='FAILED'`, 1, resetOpID)
+}
+
+// N1: a failed DESTROY must stay retryable, not become FAILED and strand the
+// reservation. The provider object still exists, so the retry must use the same id.
+func TestFailedDestroyStaysRetryableRealPostgres(t *testing.T) {
+	db, cleanup := testDB(t)
+	defer cleanup()
+	ids := seedInstanceFixture(t, db)
+	ctx := context.Background()
+	driver := &countingDestroyDriver{failOn: 1}
+	registry, err := runtime.NewRegistry(driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher := &fakePublisher{}
+	auth := authorization.NewAuthorizer(db)
+	service, err := NewService(db, auth, registry, testSealer(t), 1, WithPublisher(publisher))
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator, err := NewOrchestrator(db, registry, auth, testSealer(t), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := authorization.Principal{UserID: ids.UserID}
+	instance, err := service.StartTask(ctx, actor, ids.BoardID, ids.ModuleID, ids.TaskID, "failed-destroy-0001")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := orchestrator.HandleJob(ctx, publisher.last(t)); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	// Ask for destroy; the first provider call fails.
+	if _, err := service.ActionTask(ctx, actor, ids.BoardID, ids.ModuleID, ids.TaskID, ActionDestroy, "failed-destroy-key-01"); err != nil {
+		t.Fatalf("destroy action: %v", err)
+	}
+	if err := orchestrator.HandleJob(ctx, publisher.last(t)); err == nil {
+		t.Fatal("the injected provider failure must surface")
+	}
+	// The op must still be retryable and nothing released.
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_operations WHERE instance_id=$1 AND operation='DESTROY' AND status IN ('QUEUED','RUNNING')`, 1, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM instances WHERE id=$1 AND removed_at IS NULL`, 1, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_endpoints WHERE instance_id=$1 AND released_at IS NULL`, 1, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_network_leases WHERE instance_id=$1 AND released_at IS NULL`, 1, instance.UUID)
+
+	// The reconcile pass retries and releases exactly once.
+	handled := false
+	for pass := 0; pass < 3 && !handled; pass++ {
+		expired, _ := orchestrator.ExpiredJobs(ctx, 50)
+		pending, _ := orchestrator.PendingJobs(ctx, 50)
+		for _, job := range append(expired, pending...) {
+			if job.InstanceID != instance.UUID {
+				continue
+			}
+			if err := orchestrator.HandleJob(ctx, job); err == nil {
+				handled = true
+			}
+		}
+	}
+	if !handled {
+		t.Fatal("the retry did not complete")
+	}
+	final, err := service.Get(ctx, actor, instance.UUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Status != StatusExpired || final.RemovedAt == nil {
+		t.Fatalf("instance not released after retry: %+v", final)
+	}
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_endpoints WHERE instance_id=$1 AND released_at IS NULL`, 0, instance.UUID)
+	assertCount(t, db, `SELECT COUNT(*) FROM instance_network_leases WHERE instance_id=$1 AND released_at IS NULL`, 0, instance.UUID)
+	if len(driver.ids) < 2 {
+		t.Fatalf("expected two destroy attempts, got %v", driver.ids)
 	}
 }
