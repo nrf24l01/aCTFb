@@ -293,15 +293,16 @@ func splitList(raw string) []string {
 //
 // config.yaml `integrations.allowed_hosts` is the supported operator setting so a
 // deployment can configure a VM provider without inventing environment values.
-// The legacy `ACTFB_PROVIDER_ALLOWED_HOSTS` env value is still honoured and takes
-// effect only when the YAML list is empty, which keeps existing deployments
-// working without letting an inherited environment silently widen a
-// YAML-configured policy.
+// The legacy `ACTFB_PROVIDER_ALLOWED_HOSTS` env value is still honoured, but only
+// when the YAML key is ABSENT. An explicit list, including `[]`, is authoritative,
+// so an inherited environment can never widen (or silently re-open) a policy the
+// operator wrote down.
 func ProviderAllowedHosts(cfg *Config) []string {
-	if cfg != nil {
-		if hosts := normalizeHostList(cfg.Integrations.AllowedHosts); len(hosts) > 0 {
-			return hosts
-		}
+	if cfg != nil && cfg.Integrations.AllowedHostsConfigured() {
+		// The key is present, so the operator's list is authoritative even when it
+		// is empty: an explicit `allowed_hosts: []` denies every remote provider
+		// and is never widened by an inherited environment value.
+		return normalizeHostList(cfg.Integrations.AllowedHosts)
 	}
 	raw := strings.TrimSpace(os.Getenv("ACTFB_PROVIDER_ALLOWED_HOSTS"))
 	if raw == "" {

@@ -444,7 +444,43 @@ type IntegrationsConfig struct {
 	// An empty list denies every remote provider URL; loopback is not implicitly
 	// trusted. The SSRF guard itself is never weakened.
 	AllowedHosts []string `yaml:"allowed_hosts"`
+
+	// allowedHostsSet distinguishes "key absent" (fall back to the legacy env
+	// value) from an explicit `allowed_hosts: []` (deny everything, even when the
+	// environment still exports the old variable). It is set by UnmarshalYAML and
+	// never serialized.
+	allowedHostsSet bool
 }
+
+// UnmarshalYAML records whether the operator wrote the allowed_hosts key at all.
+// An explicit empty list is a deliberate "deny every remote provider", so it must
+// not be silently replaced by a legacy environment value.
+func (c *IntegrationsConfig) UnmarshalYAML(value *yaml.Node) error {
+	type plain struct {
+		Enabled      bool     `yaml:"enabled"`
+		AllowedHosts []string `yaml:"allowed_hosts"`
+	}
+	decoded := plain{}
+	if err := value.Decode(&decoded); err != nil {
+		return err
+	}
+	c.Enabled = decoded.Enabled
+	c.AllowedHosts = decoded.AllowedHosts
+	c.allowedHostsSet = false
+	if value.Kind == yaml.MappingNode {
+		for index := 0; index+1 < len(value.Content); index += 2 {
+			if value.Content[index].Value == "allowed_hosts" {
+				c.allowedHostsSet = true
+				break
+			}
+		}
+	}
+	return nil
+}
+
+// AllowedHostsConfigured reports whether the operator wrote allowed_hosts in
+// config.yaml (including an explicit empty list).
+func (c IntegrationsConfig) AllowedHostsConfigured() bool { return c.allowedHostsSet }
 
 type RetentionConfig struct {
 	Days       int           `yaml:"days"`

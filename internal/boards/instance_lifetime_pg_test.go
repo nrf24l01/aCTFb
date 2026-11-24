@@ -532,3 +532,65 @@ func TestTaskEditAndModuleUpdateSerializeRealPostgres(t *testing.T) {
 		}
 	}
 }
+
+// N3: a module that grants zero extensions must not be bypassed by a task
+// override through the API, even when the module still reports enabled=true.
+func TestTaskCannotRaiseExtensionsOverZeroModuleBudget(t *testing.T) {
+	service, db, admin, board := newLifetimeBoardService(t)
+	ctx := context.Background()
+	module, err := service.AdminCreateModule(ctx, admin, board.ID, CreateModuleInput{
+		Name: "ZeroBudget", Type: ModuleTypeTasks, AllowedTaskTypes: []string{TaskTypeInstance}, Enabled: true,
+		InstanceSettings: settingsFixture(3600, 14400, 2, true, true, 900, 0),
+	})
+	if err != nil {
+		t.Fatalf("a module with maxCount 0 is a valid configuration: %v", err)
+	}
+	if module.TaskInstanceSettings.Extension.MaxCount != 0 {
+		t.Fatalf("maxCount 0 was not persisted: %+v", module.TaskInstanceSettings.Extension)
+	}
+	templateID := uuid.New()
+	build := func(title string, instance TaskInstanceInput) (*Task, error) {
+		instance.Enabled = true
+		instance.HasDeploymentTemplate = true
+		instance.HasTemplateVersion = true
+		instance.DeploymentTemplateID = &templateID
+		instance.TemplateVersion = intPtr(1)
+		return service.AdminCreateTask(ctx, admin, board.ID, module.ID, CreateTaskInput{
+			Title: title, Type: TaskTypeInstance, Category: "web", Description: "d",
+			Points: 10, Visible: true,
+			Submission: SubmissionPolicyInput{Mode: SubmissionModeText, Checker: SubmissionCheckerManual},
+			Instance:   instance,
+		})
+	}
+
+	// A task asking for one extension over a zero budget is rejected, and no task
+	// row is created.
+	before := taskCount(t, ctx, db, board.ID)
+	_, err = build("WantsOne", TaskInstanceInput{
+		ExtensionEnabled:  OptionalBool{Set: true, Value: boolPtr(true)},
+		ExtensionSeconds:  OptionalInt{Set: true, Value: intPtr(900)},
+		ExtensionMaxCount: OptionalInt{Set: true, Value: intPtr(1)},
+	})
+	if err == nil {
+		t.Fatal("a task must not raise extensions over a zero module budget")
+	}
+	var invalid *ValidationError
+	if !errors.As(err, &invalid) || len(invalid.Fields) == 0 {
+		t.Fatalf("expected a validation error, got %T: %v", err, err)
+	}
+	if !strings.Contains(invalid.Fields[0].Field, "extension.maxCount") {
+		t.Fatalf("field = %q, want extension.maxCount", invalid.Fields[0].Field)
+	}
+	if after := taskCount(t, ctx, db, board.ID); after != before {
+		t.Fatalf("rejected task was persisted: before=%d after=%d", before, after)
+	}
+
+	// A task with no override inherits the zero budget and is accepted.
+	inheriting, err := build("InheritsZero", TaskInstanceInput{})
+	if err != nil {
+		t.Fatalf("a task inheriting a zero budget must be accepted: %v", err)
+	}
+	if inheriting.InstanceExtensionMaxCount != nil {
+		t.Fatalf("unexpected override persisted: %+v", inheriting.InstanceExtensionMaxCount)
+	}
+}

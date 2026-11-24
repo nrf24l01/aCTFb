@@ -233,11 +233,18 @@ func validateTaskLifetimeOverrides(overrides TaskLifetimeOverrides, module *Task
 			enabledOverride = *overrides.ExtensionEnabled
 		}
 		if module != nil && module.Extension != nil {
+			// maxCount 0 is "no extensions", not "unlimited": a task must not be
+			// able to grant a budget the module deliberately set to zero, even
+			// when the module still reports enabled=true.
+			if module.Extension.MaxCount == 0 {
+				return Invalid("body.instance.extension.maxCount",
+					"the module grants no extensions (maxCount is 0)", "INVALID_VALUE")
+			}
 			if enabledOverride && !module.Extension.Enabled {
 				return Invalid("body.instance.extension.enabled",
 					"the module disables student extensions", "INVALID_VALUE")
 			}
-			if module.Extension.MaxCount > 0 && count > module.Extension.MaxCount {
+			if count > module.Extension.MaxCount {
 				return Invalid("body.instance.extension.maxCount",
 					fmt.Sprintf("must not exceed the module maximum of %d", module.Extension.MaxCount), "INVALID_VALUE")
 			}

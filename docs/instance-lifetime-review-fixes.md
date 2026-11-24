@@ -147,7 +147,7 @@ All commands below were run in this session on this machine.
 gofmt -l internal/ cmd/                          (empty)
 go build ./...                                   OK
 go vet ./...                                     OK
-go test ./... -count=1                           49 packages ok, 0 FAIL
+go test ./... -count=1                           50 packages ok, 0 FAIL
    (real PostgreSQL 18 + NATS JetStream on throwaway containers)
 go test -race -p 1 ./internal/instances ./internal/boards ./internal/boards/http ./internal/config ./cmd/backend
                                                  ok / ok / ok / ok / ok
@@ -213,6 +213,115 @@ Iterating on this test surfaced three fixture mistakes of mine (the module and t
 collapsed `<details>`, the task Advanced block only exists in Custom mode, and the admin task read model never
 exposed the template id, so the binding is asserted against the real row). All three were test-only fixes; no
 product behaviour was changed to make the test pass.
+
+## Round-2 scoped review (N1–N5)
+
+The independent re-review of `a017594..2d2461d` closed I1–I5 and raised one new Important finding plus four
+minors. All five are fixed below.
+
+### N1 — "destroy confirmed" bookkeeping is now one transaction (Important)
+
+**Root cause.** The confirmed destroy was recorded by two separate statements:
+`markOperation(cleanupOp, "SUCCEEDED")` and then `confirmStagedDestroy(...)`. A crash or a transient DB error
+between them left the durable state `DESTROY op SUCCEEDED` + `node DESTROYING` + provider id still set. No
+scheduler could heal it: `pendingJobs` only returns `QUEUED`/`RUNNING`, `expireDue` skips `DESTROYING`, and a
+later `destroyInstance` hits `ON CONFLICT … DO NOTHING`. The provider object was already gone, so this was a
+permanent leak of the *reservation* (public port + network lease), in the very path that existed for
+durability.
+
+**Fix.** `completeStagedDestroy` (`internal/instances/store_lifecycle.go`) does the whole confirmation in one
+transaction:
+
+1. `SELECT … FROM instances WHERE id = $1 FOR UPDATE` (locks the instance; a newer generation or an
+   already-removed row is a no-op commit);
+2. clear `instance_nodes.provider_resource_id`, set the node `DESTROYED`, **at the exact generation**;
+3. mark the matching `DESTROY` operation `SUCCEEDED`;
+4. release endpoints/leases and expire the instance **only when no node still owns a provider object**;
+5. commit.
+
+A failure at *any* statement rolls the whole thing back, so the operation stays claimable with its provider id
+and the retry destroys with the same id. Both the late-expiry path and the normal `DESTROY` path now go
+through it (the normal path previously cleared nothing, and released on `destroyAll` without checking the
+other nodes).
+
+**Recovery for the exact broken state.** `repairStuckStagedDestroys` re-queues a `DESTROY` op that is
+`SUCCEEDED` while its own node is still `DESTROYING` with a provider id at the same generation. It is
+deliberately narrow: never `CREATE`/`RESET`, never a finished node, never another generation, and it requires
+the instance generation to match, so a successful apply or an unrelated provider id can never be replayed.
+`expireDue` and `pendingJobs` both run it before selecting work, which closes the "`DESTROYING` rows are never
+re-selected" gap without broadening the expiry selector into a perpetual retry loop.
+
+**A failed `DESTROY` stays retryable.** `failOperation` puts a failed `DESTROY` back to `QUEUED` instead of
+`FAILED` (destroying is idempotent and the object still exists), while a failed `CREATE`/`RESET` still becomes
+`FAILED`. Marking a destroy `FAILED` was the other way to strand the reservation.
+
+**RED → GREEN.**
+
+| Test | What it proves |
+|---|---|
+| `TestStuckStagedDestroySelfHealsRealPostgres` | seeds exactly the reviewer's broken state, then only the scheduler (`ExpiredJobs` + `PendingJobs` + `HandleJob`) is used → `EXPIRED`, `removed_at` set, 0 live endpoints/leases, no provider id left |
+| `TestStagedDestroyCompletionRollsBackOnDBErrorRealPostgres` | a Postgres trigger raises on the **last** statement (lease release) after the node/op writes; everything rolls back (lease held, id intact, op not `SUCCEEDED`), then the retry completes |
+| `TestStuckDestroyRecoveryUsesSameProviderIDRealPostgres` | every `Destroy` call in recovery uses the **persisted** id, and a provider that reports the object gone still settles |
+| `TestFailedDestroyStaysRetryableRealPostgres` | a failed destroy leaves a `QUEUED`/`RUNNING` op and held lease, and the retry releases exactly once with the same id |
+| `TestPartialFailureDoesNotClobberCleanupQueueRealPostgres` | a failing `RESET` job does not mark the queued cleanup `DESTROY` op `FAILED` |
+
+No test calls a helper to bypass the scheduler: every one goes through `ExpiredJobs`/`PendingJobs`/`HandleJob`.
+The purpose-built generation checks, `warning`-free expired system auth and dedup semantics are unchanged.
+
+### N2 — package count in the report (Minor)
+
+Corrected to 50 packages with test files. The frontend (25 files / 118 tests) and browser (19 tests) counts
+were already exact.
+
+### N3 — a zero extension budget cannot be raised by a task (Minor)
+
+`validateTaskLifetimeOverrides` previously compared `count > module.Extension.MaxCount` only when
+`MaxCount > 0`, so `{enabled: true, maxCount: 0}` — "no extensions" — accepted a task override of 3 through the
+API. Now `maxCount == 0` rejects any extension override with `body.instance.extension.maxCount: the module
+grants no extensions (maxCount is 0)`, independent of `enabled`. A task with no override still inherits the
+zero budget and starts with `canExtend=false`.
+
+**RED → GREEN:** `TestTaskCannotRaiseExtensionsOverZeroModuleBudget` — module `{enabled:true, seconds:900,
+maxCount:0}`, task override `maxCount:1` → 422 naming `extension.maxCount`, no task row created; a task with no
+override is accepted.
+
+### N4 — an explicit `allowed_hosts: []` now denies despite the legacy env (Minor)
+
+`integrations.allowed_hosts` is presence-aware: `IntegrationsConfig.UnmarshalYAML` records whether the key was
+written, and `ProviderAllowedHosts` falls back to `ACTFB_PROVIDER_ALLOWED_HOSTS` **only when the key is absent**.
+An explicit list, including `[]`, is authoritative, so an inherited environment can neither widen nor silently
+re-open a policy the operator wrote down. The legacy variable still works for a config that omits the key, and
+the SSRF guard is untouched (no wildcard, no TLS relaxation, no loopback trust).
+
+**RED → GREEN:** `TestExplicitEmptyAllowlistDeniesDespiteLegacyEnv` (absent → legacy list; explicit `[]` → empty
+deny; non-empty YAML → ignores env), `TestProviderURLPolicyExplicitEmptyDeniesDespiteLegacyEnv` and
+`TestProviderURLPolicyAbsentKeyUsesLegacyEnv` (backend helper), `TestShippedProductionConfigAllowsNoRemoteProviderByDefault`.
+Docs and `deploy/config.yaml` now state the presence rule.
+
+### N5 — dead legacy resolver removed (Minor)
+
+`policyForSnapshot` had no production caller. It is deleted; the test now asserts `resolveInstancePolicy`
+directly (frozen policy wins; a legacy row takes the operator options plus the live module reset switch), so
+there is exactly one legacy entry point.
+
+## Commands run for this round
+
+```text
+gofmt -l internal/ cmd/                                   (empty)
+go build ./...                                            OK
+go vet ./...                                              OK
+go test ./... -count=1                                    50 packages ok, 0 FAIL
+go test -race -p 1 ./internal/instances ./internal/config ./internal/boards ./internal/boards/http
+                                                          ok / ok / ok / ok
+go test ./internal/instances -run TestRealDockerExpiryCleanupAndExtend
+                                                          PASS (real Docker, 6.2s), 0 owned containers after
+migration 019 down -> 18, up -> 19                        clean
+scripts/test-production-packaging.sh                      267 checks passed, 0 failed
+```
+
+Frontend is unchanged in this round (`git diff --stat` over `frontend/` is empty), so its 25 files / 118 tests
+and the 19/19 browser result from `2d2461d` stand as previously reported; the browser suite was **not** re-run
+for pure DB bookkeeping changes. Swagger and generated models are unchanged (no regeneration).
 
 ## Corrections to my earlier report
 

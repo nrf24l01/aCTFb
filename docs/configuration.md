@@ -209,12 +209,15 @@ integrations:
   allowed_hosts: ["pve.example.com"]
 ```
 
-- Empty (the shipped default) denies **every** remote provider URL; loopback is not implicitly trusted.
+- Empty denies **every** remote provider URL; loopback is not implicitly trusted. The shipped default is an
+  explicit `allowed_hosts: []`, so a fresh deployment denies all remote providers.
 - Plain HTTP, userinfo, query strings, path traversal and unlisted hosts stay rejected. The SSRF guard is never
   weakened or disabled by this setting.
-- The legacy `ACTFB_PROVIDER_ALLOWED_HOSTS` environment value is still accepted and applies only when the YAML
-  list is empty, so an inherited environment cannot widen a YAML-configured policy. New deployments should use
-  the YAML field; the environment variable is documented as `ENV = —` for production.
+- The legacy `ACTFB_PROVIDER_ALLOWED_HOSTS` environment value is still accepted, but only when the
+  `allowed_hosts` key is **absent** from `config.yaml`. An explicit list — including `allowed_hosts: []` — is
+  authoritative, so an inherited environment can neither widen nor silently re-open a policy the operator wrote
+  down. New deployments should use the YAML field; the environment variable is documented as `ENV = —` for
+  production.
 - The backend (integration CRUD validation) and `instance-worker` (connection test and provider calls) resolve
   the same list, so a host approved in the UI is also reachable by the worker.
 - Provider **credentials** are never part of this file; they are write-only admin integration records sealed

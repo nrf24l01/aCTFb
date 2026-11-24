@@ -217,3 +217,182 @@ is non-empty and that a second reconcile issues DESTROY with that id.
   runtime panel.
 - This is a review of the instance-lifetime slice only, not a whole-product audit; other lanes (plugins, AD,
   pentest submissions, packaging runtime scripts) were not re-assessed.
+
+---
+
+# Round 2 re-review: fixes `a017594..2d2461d` (36 files, +2482/−123)
+
+Date: 2026-11-24
+Fix report: `docs/instance-lifetime-review-fixes.md`
+Scope: my round-1 findings I1–I5 and M1–M7 plus the remote-VM allowlist, and any regression the fixes
+introduced. Read-only static review of the fix diff and the current code at every changed site. Per the brief
+I ran no builds, tests, Docker/Podman, servers or browser, and spawned no subagents. The reported real-PG,
+race, Docker and 19-test browser results are the implementer's, not reproduced here.
+
+## Verdict
+
+**Round-1 Important findings: all five fixed correctly and consistently, not papered over.** The fixes share
+one resolver instead of adding a second opinion, move the authoritative validation into the mutation
+transaction, and persist state before external calls. No redesign: `/api/v2`, one `cmd/instance-worker`, the
+five drivers, ids-only jobs and the additive `019` schema are untouched (`git diff` over
+`migrations/`, `docs/swagger.yaml`, `internal/generated/` is empty). `config.yaml`/`.env` split unchanged
+apart from the additive `integrations.allowed_hosts`.
+
+**One new Important finding** (narrow crash/DB-error window in the new late-expiry bookkeeping) and four
+Minors. Counts for this round: **Critical 0, Important 1, Minor 4.**
+
+**Push readiness: not yet — fix N1 first (about 3 lines + one regression test).** Everything else in this
+range is green; I would not push N1 as-is because it turns a handled failure into a permanently stuck row.
+
+## Round-1 findings: verified fixed
+
+### I1 — legacy read model vs action (fixed, and the fix is the spec-conform one)
+
+`resolveInstancePolicy` (`internal/instances/lifetime.go:219-228`) is now the single resolver: frozen policy
+wins, otherwise `legacyPolicy(options)` plus the **live** module reset switch. `store` carries `Options`
+(`internal/instances/store.go:19-27`) and the service builds the store **after** applying options
+(`internal/instances/service.go:124-131`), which is the ordering that makes the non-default-Options test
+meaningful. The read model resolves it per instance (`internal/instances/store.go:444-445`) and the action
+path uses the same function (`internal/instances/service.go:451`); `extendInstanceAtomic` keeps
+`policyFor(snapshot, options)` (`internal/instances/extend.go:143`), which resolves legacy rows to exactly the
+same initial/max/step/count, so `canExtend`, `extensionSeconds`, `extensionsRemaining` and the actual grant
+now agree by construction. The non-default `Options{ExtensionTTL: 7m, MaxExtensions: 5}` assertion is what
+proves the operator value is the source, not the 30 min/3 default. The old test that locked in
+`canExtend=false` was corrected rather than deleted. Board/module ends still clamp live, and no snapshot was
+rewritten retroactively.
+
+### I2 — legacy RESET follows the live module switch (fixed)
+
+Same resolver for the read model and `applyAction`, plus `resetAllowed(now)` (`internal/instances/store.go:640-648`)
+as one shared precondition used by both (`store.go:634`, `service.go:434`). Verified for the four cases the
+test names: module disabled → refused and `canReset=false`; re-enabled → both flip; expired → refused with
+reset enabled; new instances keep their frozen value.
+
+Note one intentional tightening: RESET is now also refused when `expires_at` has passed but the row is still
+`RUNNING` (previously the API allowed it and only the worker blocked it). The read model and the action agree,
+so this is the "honest capability" the slice promised, not a regression.
+
+### I3 — effective pair validated, under one advisory lock (fixed)
+
+`EffectiveLifetimeSeconds` (`internal/boards/instance_settings.go:253-269`) resolves the pair with the
+documented precedence and `validateTaskLifetimeOverrides` compares the **effective** values
+(`instance_settings.go:206-215`), so the `maxTtlSeconds: 1800` over a 3600 module default case is now a 422
+instead of a later 500. The authoritative check moved into the mutation transaction
+(`validateTaskLifetimeTx`, `internal/boards/instance_policy_tx.go:40-49`, called from
+`postgres_tasks.go:221-233` and `:284-295`) and module updates re-check every instance-enabled task
+(`validateModuleLifetimeTx`, `instance_policy_tx.go:64-102`, called from `postgres_modules.go:201-209`) with
+the offender named. Both take `pg_advisory_xact_lock` on the same per-module key
+(`instance_policy_tx.go:16-24`), and because every writer takes that lock first there is no lock-order
+inversion with the module row update or the per-subject instance lock (different key, different package).
+The serialize test asserts the committed pair is always usable, which is the invariant that matters.
+
+### I4 — retried EXTEND reuses its key (fixed)
+
+`InstancePanel.vue:118-137` now generates one key per intent, keeps it across failures, deletes it only after
+a confirmed success, and the `watch` on `instance.value?.uuid` (`:149-155`) drops it when the identity
+changes; `if (busy.value) return` prevents a double submit. `taskAction` already accepted an explicit key, so
+the wire is unchanged. `InstancePanel.test.ts` asserts the same key on retry, a different key after success,
+the server step/remaining render, and the disabled reason — the coverage gap that let I4 through is closed.
+The error alert moving inside the panel is required for the retry button to stay reachable and does not hide
+the instance.
+
+### I5 — provider id durable before destroy (fixed, plus the multi-node follow-up)
+
+`stageExpiredResource` (`internal/instances/store_lifecycle.go:754-...`) writes the provider id, node
+`DESTROYING` and a `QUEUED` DESTROY op for the **current generation** in one transaction before any external
+call; a failed destroy leaves that op queued so `PendingJobs` retries it with the persisted id
+(`orchestrator.go:284-294`). Empty-id `RUNNING` is an error rather than a fake success
+(`orchestrator.go:274-281`). `finishExpiredDuringApply` (`orchestrator.go:600-...`) refuses to release while
+any DESTROY is still `QUEUED`/`RUNNING` and while any node still owns a provider object, queueing destroy for
+the survivors instead — so a multi-node template holds ports and leases until the last provider ACK, and the
+release happens exactly once (both asserted by `TestLateExpiryFailedDestroyPersistsProviderIDRealPostgres`
+and `TestLateExpiryWithAnotherLiveNodeQueuesDestroyRealPostgres`). Duplicate provider destroys are avoided
+because the staged op is `SUCCEEDED` and the id is cleared, so a later `destroyInstance` hits
+`ON CONFLICT … DO NOTHING` and the empty-id destroy is a no-op. No `instance.started`/`created` event is
+emitted on this path, and the no-RUNNING guarantee is preserved.
+
+### Minors M1–M7
+
+M1 legacy reason text now truthful (`InstancePanel.vue:63`). M2 `applyPentestCapabilities`
+(`store.go:653-666`) reads the live `pentest_configs.reset_enabled` and the consumed budget, never exposes
+extension fields, and both joins are 1:1 (`pentest_configs.module_id` is a PK, `pentest_environments` is
+unique on module+subject), so `QueryRow` cannot silently pick a stale row. M3 EXTEND re-reads the board/module
+window under the row lock with the post-wait clock (`extend.go:137-142`, `liveWindowError:212-...`) and
+rejects before any credit or idempotency row. M4 resolved as a documented ruling (design §7a) with the
+contract left at 60 s. M5 `gofmt -l internal/ cmd/` is now empty (re-verified). M6 the plan no longer claims a
+`GOARCH` fix and the verification report's browser gap is corrected. M7 the module editor validates
+concurrency 1..100 with a field message plus a component test.
+
+## N1 (new, Important) — "destroy confirmed" bookkeeping is not atomic, and the wrong side is written first
+
+`internal/instances/orchestrator.go:295-298`:
+
+```go
+_ = o.store.markOperation(ctx, cleanupOp, "SUCCEEDED", "")
+if err := o.store.confirmStagedDestroy(ctx, instance.ID, operation.NodeKey); err != nil {
+    return err
+}
+```
+
+Two separate statements. If the worker is killed, or the second statement fails with a transient DB error,
+between them, the durable state is: DESTROY op `SUCCEEDED`, `instance_nodes.provider_resource_id` still set,
+node `DESTROYING`. That state cannot heal itself:
+
+- `pendingJobs` only returns `QUEUED`/`RUNNING` ops (`store_lifecycle.go:688`), so the `SUCCEEDED` op is
+  never re-queued.
+- `expireDue` only selects `RUNNING/ERROR/PROVISIONING/RESETTING` (`store_lifecycle.go:635`), so once the row
+  is `DESTROYING` it is never re-queued either; while still `PROVISIONING` it is re-queued but
+  `destroyInstance` hits `ON CONFLICT … DO NOTHING` (`:398`) and appends the existing op id anyway, so the job
+  claims nothing (`claimOperations` requires `status IN ('QUEUED','RUNNING')`) and `expireDue`'s
+  `len(ids)==0` release branch is skipped because the slice is not empty.
+- Result: the row keeps its public port and network lease indefinitely and needs manual SQL. The provider
+  object itself is already gone, so this is not an orphan container — it is a permanent leak of the
+  *reservation*, in the path whose whole purpose was durability.
+
+Minimal fix (either, both small):
+1. do both writes in one transaction (mark the op `SUCCEEDED`, clear the id, set the node `DESTROYED`), or
+2. swap the order — `confirmStagedDestroy` first, then `markOperation`. Then a crash in either window leaves
+   the op `QUEUED` with an empty id, and the retry self-heals: `applyOperation` treats an empty id as a no-op,
+   the op is marked `SUCCEEDED`, `destroyAll` triggers `releaseResources`. The driver already treats a missing
+   resource as success (`internal/runtime/containerapi/driver.go:771-782`).
+
+Smallest regression test (deterministic, no crash hook needed): seed the post-crash state directly — node
+`DESTROYING` with a provider id, DESTROY op `SUCCEEDED` — then run `ExpiredJobs` + `PendingJobs` +
+`HandleJob` and assert the instance reaches `EXPIRED` with `removed_at` set and 0 live endpoints/leases. It
+fails against the current code and passes after either fix.
+
+## N2–N5 (new, Minor)
+
+- **N2. Report package count is off by one.** `docs/instance-lifetime-review-fixes.md:150` says
+  "49 packages ok"; the tree has 50 packages containing test files (`go list` over `./...`, 63 packages
+  total). Frontend counts are exact (25 files / 118 `it`/`test` declarations) and the browser count is exact
+  (19 tests across the three specs, and `run-full-e2e.sh` exports the `E2E_DOCKER_*`/`E2E_INSTANCE_PORT`
+  values the new test skips without). Not verified by rerun.
+- **N3. A module may cap extensions at zero and a task may still raise it via the API.**
+  `internal/boards/instance_settings.go:240` only compares `count > module.Extension.MaxCount` when
+  `module.Extension.MaxCount > 0`, and a module `{enabled:true, seconds:900, maxCount:0}` is accepted. A direct
+  `POST/PATCH` can then set a task `extension.maxCount: 3` over a module whose zero means "no extensions"
+  (the task editor UI blocks it, so this is API-only). Pre-existing from `a017594`, not introduced by the
+  fixes; one `>=`/`==0` branch away from honest.
+- **N4. `allowed_hosts: []` cannot override a set legacy env var, and the comments imply it can.**
+  `deploy/config.yaml:100-106` and `docs/configuration.md:212-215` say "empty denies every remote provider
+  URL", while `internal/config/load.go:300-312` falls back to `ACTFB_PROVIDER_ALLOWED_HOSTS` whenever the YAML
+  list is empty, and its own comment says an inherited environment "cannot widen a YAML-configured policy"
+  (true only for a non-empty YAML list). **No security regression**: env-only was the prior behaviour, the
+  worker now also validates remote compute base URLs (`cmd/instance-worker/test_connection.go:68-74`), the
+  SSRF guard is untouched, and no credentials enter `config.yaml`. It is a documentation/semantics mismatch
+  for the operator who explicitly wants an empty allowlist on a host that still exports the old variable.
+- **N5. `policyForSnapshot` is now dead in production.** `internal/instances/lifetime.go:207-212` is only
+  referenced by `TestPolicyForSnapshotFallsBackToLegacy`; the live paths use `resolveInstancePolicy` and
+  `policyFor`. Keeping a second legacy resolver alive invites the exact drift I1 was about — either delete it
+  and re-point the test, or make `policyFor` call `resolveInstancePolicy`.
+
+## Boundaries of this round
+
+- Static review only. No build, test, race, Docker, PostgreSQL, NATS or browser run; the fix report's green
+  results (real PG 18 + NATS, real Docker late-expiry/idempotency/concurrency, `-race` on the changed
+  packages, 118 frontend tests, 19/19 browser) are taken as reported. The new browser test is genuine (real
+  UI interactions plus API assertions on persisted values), so the earlier "no browser acceptance" limitation
+  is correctly retired.
+- Not re-audited: plugins, AD, pentest submissions, packaging runtime scripts, and the rest of the product.
+  This round covers I1–I5, M1–M7, the allowlist change and regressions in the 36 changed files.

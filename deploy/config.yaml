@@ -100,8 +100,10 @@ attack_defense:
 integrations:
   enabled: false
   # Approved provider hostnames for remote VM/container APIs (Proxmox, KubeVirt,
-  # Kubernetes). Empty denies every remote provider URL; a local Docker/Podman
-  # socket needs none. List only hosts you operate, for example:
+  # Kubernetes). An empty list denies every remote provider URL; a local
+  # Docker/Podman socket needs none. Listing hosts here makes this key
+  # authoritative: the legacy ACTFB_PROVIDER_ALLOWED_HOSTS environment value is
+  # only used when this key is absent. List only hosts you operate, for example:
   #   allowed_hosts: ["pve.example.com"]
   allowed_hosts: []
 
