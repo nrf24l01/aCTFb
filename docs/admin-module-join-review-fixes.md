@@ -217,6 +217,49 @@ contains no window check.
 the window closed returns the original submission; after the group is revoked the
 same replay and own history are `403`.
 
+## Post-approval: CI-gate defect found by the first gated run
+
+The first run of the newly gated workflow (run `45600628290`, `edba8d1`) failed in
+the Integration job at the step that runs the affected packages with the DSN:
+
+```text
+--- FAIL: TestAdminAuditLogAuthorizesAndRedacts (0.01s)
+    routes_audit_test.go:47: ERROR: relation "users" does not exist (SQLSTATE 42P01)
+FAIL github.com/nrf24l01/actfb/cmd/backend 0.032s
+```
+
+**Root cause (test only, no product defect).** The two `cmd/backend` PostgreSQL
+tests opened `ACTFB_TEST_POSTGRES_DSN` directly and assumed an already-migrated
+`public` schema. Every other suite creates its own schema and migrates it, and CI
+never migrates `public`, so those tests had only ever passed on a machine where
+the backend had been run once. They were therefore never valid CI evidence.
+
+**Fix.** `cmd/backend/testdb_pg_test.go` adds `openMigratedTestDB`, which creates
+an isolated schema, points a pool at it via `search_path` and applies the real
+migrations — the same pattern the other PostgreSQL suites use.
+`TestAdminAuditLogAuthorizesAndRedacts` and
+`TestDeploymentCatalogBootsWithDefaultProfileFlags` now use it.
+
+**RED** (old test, database with an empty `public` schema):
+
+```text
+--- FAIL: TestAdminAuditLogAuthorizesAndRedacts (0.00s)
+    routes_audit_test.go:47: ERROR: relation "users" does not exist (SQLSTATE 42P01)
+```
+
+**GREEN** (same empty `public` schema, `public` tables counted as 0 before and
+after the run):
+
+```text
+ok  github.com/nrf24l01/actfb/cmd/backend  0.295s
+```
+
+The whole gated package list and the full `go test -p 1 ./...` were then re-run
+against that clean database: all pass, with `public` still at 0 tables, so no test
+depends on ambient schema state. The default-profile browser step and the Docker
+integration steps had not been reached by the failed run; they are unchanged and
+are verified by the follow-up run.
+
 ## Round-3 scoped re-review — I3 (test evidence only)
 
 The round-3 review (`docs/admin-module-join-review.md` §9) closed C1 and I2 and

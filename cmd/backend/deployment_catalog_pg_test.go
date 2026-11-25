@@ -4,16 +4,13 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v5"
 
 	"github.com/nrf24l01/actfb/internal/authorization"
 	"github.com/nrf24l01/actfb/internal/config"
-	"github.com/nrf24l01/actfb/internal/platform/postgres"
 )
 
 // TestDeploymentCatalogBootsWithDefaultProfileFlags is the boot-level guard for
@@ -21,18 +18,13 @@ import (
 // off and no credential sealer, the admin template catalog must still be
 // constructed and its routes registered.
 func TestDeploymentCatalogBootsWithDefaultProfileFlags(t *testing.T) {
-	dsn := os.Getenv("ACTFB_TEST_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("set ACTFB_TEST_POSTGRES_DSN to run the boot wiring test")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("open pool: %v", err)
-	}
-	defer pool.Close()
-	db := &postgres.DB{Pool: pool}
+	// The catalog needs real tables (deployment_templates and the permission
+	// tables), so use an isolated migrated schema rather than whatever happens to
+	// be in the shared database's public schema.
+	db, cleanup := openMigratedTestDB(t, ctx)
+	defer cleanup()
 
 	// The default profile has every optional feature disabled.
 	cfg := &config.Config{}

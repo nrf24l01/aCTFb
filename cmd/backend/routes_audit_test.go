@@ -5,17 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v5"
 
 	"github.com/nrf24l01/actfb/internal/authorization"
 	"github.com/nrf24l01/actfb/internal/httpapi"
-	"github.com/nrf24l01/actfb/internal/platform/postgres"
 	"github.com/nrf24l01/actfb/internal/users"
 )
 
@@ -26,17 +23,10 @@ func (s staticAuditAuthenticator) AuthenticateAccessToken(context.Context, strin
 }
 
 func TestAdminAuditLogAuthorizesAndRedacts(t *testing.T) {
-	dsn := os.Getenv("ACTFB_TEST_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("set ACTFB_TEST_POSTGRES_DSN to run the admin audit route test")
-	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	db := &postgres.DB{Pool: pool}
+	db, cleanup := openMigratedTestDB(t, ctx)
+	defer cleanup()
+	pool := db.Pool
 
 	adminID := uuid.New()
 	username := "audit-" + adminID.String()[:8]
