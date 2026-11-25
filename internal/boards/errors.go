@@ -71,6 +71,11 @@ var (
 	ErrJoinCodeInvalid     = errors.New("boards: invalid board join code")
 	ErrJoinCodeConflict    = errors.New("boards: board join code already in use")
 	ErrJoinCodeRateLimited = errors.New("boards: join code rate limited")
+	// ErrJoinCodePreconditionRequired is a replace of a live code without naming
+	// its revision; ErrJoinCodeStale is a replace against an outdated revision.
+	// Both are optimistic-concurrency conflicts, never a silent overwrite.
+	ErrJoinCodePreconditionRequired = errors.New("boards: join code revision is required to replace a live code")
+	ErrJoinCodeStale                = errors.New("boards: join code was changed by someone else")
 )
 
 // RateLimitError carries the limiter's actual remaining window so HTTP can

@@ -162,7 +162,9 @@ func TestRemainingStageSchemas(t *testing.T) {
 		Points: ptr(int64(10)), Status: ptr("AVAILABLE"), Solved: ptr(false),
 		InstanceRequired: ptr(false), Description: ptr("text-only checker"),
 		Attachments: []*models.FileRef{}, Submission: policy,
-		Instance: &models.TaskInstanceSummary{Required: ptr(false), Status: ptr("NOT_CREATED"), CanStart: ptr(false)},
+		Instance:       &models.TaskInstanceSummary{Required: ptr(false), Status: ptr("NOT_CREATED"), CanStart: ptr(false)},
+		Preview:        ptr(false),
+		CanParticipate: ptr(true),
 	}
 	if err := task.Validate(strfmt.Default); err != nil {
 		t.Fatalf("extension task: %v", err)

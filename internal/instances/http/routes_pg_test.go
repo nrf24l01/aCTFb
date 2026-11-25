@@ -114,6 +114,8 @@ func newHTTPTestFixture(t *testing.T, fileRefs []files.Ref) *httpTestFixture {
 	exec(`INSERT INTO boards (id, slug, name, participation_mode, registration_mode, visibility, status, starts_at, ends_at, created_by)
 	      VALUES ($1,$2,'B','INDIVIDUAL','OPEN','PUBLIC','ACTIVE',NOW()-INTERVAL '1 hour',NOW()+INTERVAL '1 day',$3)`,
 		fixture.boardID, "b-"+fixture.boardID.String()[:8], fixture.userID)
+	// Participant-own pentest actions require a live participant row.
+	exec(`INSERT INTO board_participants (board_id, user_id) VALUES ($1,$2)`, fixture.boardID, fixture.userID)
 	exec(`INSERT INTO modules (id, board_id, name, type, allowed_task_types, created_by)
 	      VALUES ($1,$2,'Pentest','PENTEST',ARRAY['PENTEST_REPORT']::text[],$3)`,
 		fixture.moduleID, fixture.boardID, fixture.userID)

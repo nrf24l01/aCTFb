@@ -233,6 +233,10 @@ func writeProblem(c *echo.Context, err error, admin bool) error {
 		status, code, message = http.StatusForbidden, oapimodels.ErrorCodeJOINCODEINVALID, "Join code is invalid"
 	case errors.Is(err, boards.ErrJoinCodeConflict):
 		status, code, message = http.StatusConflict, oapimodels.ErrorCodeBOARDSTATECONFLICT, "That join code is already in use"
+	case errors.Is(err, boards.ErrJoinCodePreconditionRequired):
+		status, code, message = http.StatusConflict, oapimodels.ErrorCodeBOARDSTATECONFLICT, "Reload the join code status and retry: replacing a live code needs its revision"
+	case errors.Is(err, boards.ErrJoinCodeStale):
+		status, code, message = http.StatusConflict, oapimodels.ErrorCodeBOARDSTATECONFLICT, "The join code was changed by someone else; reload and retry"
 	case errors.Is(err, boards.ErrJoinCodeRateLimited):
 		status, code, message = http.StatusTooManyRequests, oapimodels.ErrorCodeRATELIMITED, "Too many join attempts"
 		retry = joinCodeRetryAfterSeconds(err)

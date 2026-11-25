@@ -34,17 +34,23 @@ func (s *Service) BoardJoinCodeStatus(ctx context.Context, principal authorizati
 	if _, err := s.store.GetBoard(ctx, boardID); err != nil {
 		return nil, err
 	}
-	configured, updatedAt, err := s.store.BoardJoinCodeStatus(ctx, boardID)
+	configured, revision, updatedAt, err := s.store.BoardJoinCodeStatus(ctx, boardID)
 	if err != nil {
 		return nil, err
 	}
-	return &BoardJoinCode{Configured: configured, UpdatedAt: updatedAt}, nil
+	return &BoardJoinCode{Configured: configured, Revision: revision, UpdatedAt: updatedAt}, nil
 }
 
 // SetBoardJoinCode generates a random code (custom empty) or stores the hash of
 // the supplied custom code. Replacing a code invalidates the previous one
 // immediately. The plaintext is returned exactly once.
-func (s *Service) SetBoardJoinCode(ctx context.Context, principal authorization.Principal, boardID uuid.UUID, custom string) (*BoardJoinCode, error) {
+func (s *Service) SetBoardJoinCode(
+	ctx context.Context,
+	principal authorization.Principal,
+	boardID uuid.UUID,
+	custom string,
+	expectedRevision *int64,
+) (*BoardJoinCode, error) {
 	ctx, cancel := s.operationContext(ctx)
 	defer cancel()
 	if err := s.ready(); err != nil {
@@ -71,15 +77,20 @@ func (s *Service) SetBoardJoinCode(ctx context.Context, principal authorization.
 		}
 		code = normalized
 	}
-	if err := s.store.SetBoardJoinCode(ctx, boardID, principal.UserID, hashJoinCode(code),
-		auditEvent(principal, &boardID, nil, "board.join_code.set", "board", &boardID, map[string]any{})); err != nil {
-		return nil, err
-	}
-	configured, updatedAt, err := s.store.BoardJoinCodeStatus(ctx, boardID)
+	// The store re-checks live board.update inside its transaction through the
+	// same permission gate as the preflight (see SetBoardJoinCode's caller
+	// contract) and applies the optimistic revision check.
+	record, err := s.store.SetBoardJoinCode(ctx, boardID, principal.UserID, hashJoinCode(code), expectedRevision, s.auth,
+		auditEvent(principal, &boardID, nil, "board.join_code.set", "board", &boardID, map[string]any{}))
 	if err != nil {
 		return nil, err
 	}
-	return &BoardJoinCode{Configured: configured, Code: code, UpdatedAt: updatedAt}, nil
+	return &BoardJoinCode{
+		Configured: true,
+		Code:       code,
+		Revision:   record.Revision,
+		UpdatedAt:  &record.UpdatedAt,
+	}, nil
 }
 
 // JoinBoardByCode is the canonical code-only enrollment path. The code alone
@@ -95,15 +106,40 @@ func (s *Service) JoinBoardByCode(ctx context.Context, principal authorization.P
 	if err := s.limitJoinAttempts(ctx, principal); err != nil {
 		return nil, err
 	}
+	// New canonical codes are normalized (trim + uppercase). Legacy sealed
+	// invite codes are case-sensitive and are compared exactly after trimming,
+	// so keep the raw trimmed value for that fallback.
+	raw := strings.TrimSpace(code)
 	normalized := NormalizeJoinCode(code)
-	if !ValidJoinCodeShape(normalized) {
-		return nil, ErrJoinCodeInvalid
+	var board *Board
+	var lookupErr error
+	if ValidJoinCodeShape(normalized) {
+		board, lookupErr = s.store.BoardByJoinCodeHash(ctx, hashJoinCode(normalized))
+	} else {
+		lookupErr = ErrJoinCodeInvalid
 	}
-	board, err := s.store.BoardByJoinCodeHash(ctx, hashJoinCode(normalized))
-	if err != nil {
-		return nil, err
-	}
-	if targetBoardID != nil && *targetBoardID != board.ID {
+	if lookupErr != nil {
+		if !errors.Is(lookupErr, ErrJoinCodeInvalid) {
+			return nil, lookupErr
+		}
+		// The new hash lookup missed. A legacy code can only be resolved when
+		// the caller names the board it belongs to, because there is no global
+		// legacy directory and guessing one would be a board enumeration oracle.
+		// A wrong or unknown hint stays a single generic invalid-code answer.
+		if targetBoardID == nil {
+			return nil, ErrJoinCodeInvalid
+		}
+		hinted, boardErr := s.store.GetBoard(ctx, *targetBoardID)
+		if boardErr != nil {
+			return nil, ErrJoinCodeInvalid
+		}
+		if legacyErr := s.verifyLegacyJoinCode(ctx, hinted, raw); legacyErr != nil {
+			return nil, legacyErr
+		}
+		board = hinted
+	} else if targetBoardID != nil && *targetBoardID != board.ID {
+		// A code that resolves to a different board than the page the caller is
+		// on must never enroll them into the wrong board.
 		return nil, ErrJoinCodeInvalid
 	}
 	me, already, err := s.joinWithVerifiedCode(ctx, principal, board)
@@ -180,7 +216,7 @@ func (s *Service) joinWithVerifiedCode(ctx context.Context, principal authorizat
 // board that has one, so previously issued codes are not silently broken.
 func (s *Service) verifyBoardJoinCode(ctx context.Context, board *Board, supplied string) error {
 	normalized := NormalizeJoinCode(supplied)
-	configured, _, err := s.store.BoardJoinCodeStatus(ctx, board.ID)
+	configured, _, _, err := s.store.BoardJoinCodeStatus(ctx, board.ID)
 	if err != nil {
 		return err
 	}
@@ -197,7 +233,8 @@ func (s *Service) verifyBoardJoinCode(ctx context.Context, board *Board, supplie
 	}
 	// Legacy INVITE_ONLY boards keep their sealed invite code working. This
 	// path needs the credential sealer, which is why it is only used when the
-	// board actually has a legacy invite row.
+	// board actually has a legacy invite row. The legacy comparison is
+	// case-sensitive and exact after trimming.
 	if board.RegistrationMode == RegistrationInviteOnly {
 		hash, _, expiresAt, legacyErr := s.store.GetBoardInvite(ctx, board.ID)
 		if legacyErr == nil {
@@ -213,6 +250,35 @@ func (s *Service) verifyBoardJoinCode(ctx context.Context, board *Board, supplie
 		}
 	}
 	return ErrJoinCodeRequired
+}
+
+// verifyLegacyJoinCode resolves a legacy sealed invite code for one exact board.
+// A configured canonical code is authoritative: once a board has one, the old
+// sealed code is never accepted again. The comparison is the original
+// case-sensitive hash of the trimmed raw string, so a legacy code is never
+// reinterpreted as a normalized new code.
+func (s *Service) verifyLegacyJoinCode(ctx context.Context, board *Board, rawTrimmed string) error {
+	configured, _, _, err := s.store.BoardJoinCodeStatus(ctx, board.ID)
+	if err != nil {
+		return err
+	}
+	if configured {
+		return ErrJoinCodeInvalid
+	}
+	if board.RegistrationMode != RegistrationInviteOnly || rawTrimmed == "" {
+		return ErrJoinCodeInvalid
+	}
+	hash, _, expiresAt, legacyErr := s.store.GetBoardInvite(ctx, board.ID)
+	if legacyErr != nil {
+		return ErrJoinCodeInvalid
+	}
+	if expiresAt != nil && !s.clock.Now().Before(*expiresAt) {
+		return ErrJoinCodeInvalid
+	}
+	if constantTimeEqual([]byte(hash), []byte(hashInviteCode(rawTrimmed))) {
+		return nil
+	}
+	return ErrJoinCodeInvalid
 }
 
 func (s *Service) matchJoinCode(ctx context.Context, boardID uuid.UUID, normalized string) error {

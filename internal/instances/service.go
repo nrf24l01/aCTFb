@@ -126,6 +126,12 @@ func NewService(db *postgres.DB, auth authorization.Authorizer, registry *runtim
 			option(service)
 		}
 	}
+	if service.access == nil && auth != nil {
+		// Participant-own actions must be revalidated against the live access
+		// group and module audience. Default to the same policy the backend
+		// uses instead of silently skipping the check.
+		service.access = access.NewService(db, auth)
+	}
 	// The read model must resolve a legacy instance with exactly the operator
 	// options the action paths use, so build the store after the options apply.
 	service.store = dbStore(db, service.options)
@@ -548,13 +554,53 @@ func (s *Service) ensureActive(source *sourceContext) error {
 	return nil
 }
 
-// authorizeParticipant allows the participation-only permission or the staff
-// module.instances.admin permission. It never widens a participant grant.
+// authorizeParticipant is the participant-own gate for instance start, reset,
+// extend, get and pentest actions.
+//
+// It requires BOTH:
+//   - live participant eligibility for this exact module: a current board
+//     participant row plus the current access group and module audience, checked
+//     through access.Policy.CanAccessModuleAsParticipant (no admin shortcut);
+//   - the participation-only permission itself (instance.start_own /
+//     instance.manage_own / submission.*_own), which the core role matrix grants
+//     from the participant row.
+//
+// It deliberately does NOT fall back to module.instances.admin. Staff management
+// of other subjects' instances is a separate, explicit lane (AdminList /
+// AdminGet / AdminAction), so a revoked-group admin cannot obtain a
+// participant-equivalent start by holding a staff role. The stored
+// AuthorizedContext on the queued operation records which lane was used, and the
+// worker revalidates it before applying anything.
 func (s *Service) authorizeParticipant(ctx context.Context, actor authorization.Principal, permission authorization.Permission, boardID, moduleID uuid.UUID) error {
-	if err := s.authorize(ctx, actor, permission, boardID, moduleID, true); err == nil {
-		return nil
+	if actor.UserID == uuid.Nil {
+		return unauthorized()
 	}
-	return s.authorize(ctx, actor, authorization.PermissionModuleInstancesAdmin, boardID, moduleID, false)
+	if err := s.requireParticipantEligibility(ctx, actor, boardID, moduleID); err != nil {
+		return err
+	}
+	return s.authorize(ctx, actor, permission, boardID, moduleID, true)
+}
+
+// requireParticipantEligibility applies the live participant ABAC rules. It is
+// shared by the HTTP gate and the worker revalidation so a queued job cannot
+// outlive a revoked group or audience.
+func (s *Service) requireParticipantEligibility(ctx context.Context, actor authorization.Principal, boardID, moduleID uuid.UUID) error {
+	if actor.UserID == uuid.Nil {
+		return unauthorized()
+	}
+	if s.access == nil {
+		// Without the policy the service cannot prove participation, so it fails
+		// closed instead of assuming eligibility.
+		return instanceError(CodeInternal, "access policy is not configured", 500)
+	}
+	allowed, err := s.access.CanAccessModuleAsParticipant(ctx, actor, boardID, moduleID)
+	if err != nil {
+		return instanceError(CodeInternal, "authorization failed", 500)
+	}
+	if !allowed {
+		return forbidden()
+	}
+	return nil
 }
 
 func (s *Service) authorize(ctx context.Context, actor authorization.Principal, permission authorization.Permission, boardID, moduleID uuid.UUID, requireParticipant bool) error {
@@ -605,7 +651,7 @@ func (s *Service) authorizeRead(ctx context.Context, actor authorization.Princip
 		if s.access == nil {
 			return nil
 		}
-		moduleAllowed, accessErr := s.access.CanAccessModule(ctx, actor, instance.BoardID, instance.ModuleID)
+		moduleAllowed, accessErr := s.access.CanAccessModuleAsParticipant(ctx, actor, instance.BoardID, instance.ModuleID)
 		if accessErr != nil {
 			return instanceError(CodeInternal, "authorization failed", 500)
 		}

@@ -27,21 +27,15 @@ func (s *Service) ListTasks(ctx context.Context, principal authorization.Princip
 	if err != nil {
 		return Page[Task]{}, err
 	}
-	scope, participant, err := s.resolveReadScope(ctx, principal, boardID, moduleID)
+	scope, err := s.resolveReadScope(ctx, principal, boardID, moduleID)
 	if err != nil {
 		return Page[Task]{}, err
 	}
 	if scope.preview {
 		return s.listPreviewTasks(ctx, principal, boardID, moduleID, scope, query)
 	}
-	if !participant {
+	if !scope.participant {
 		return Page[Task]{}, ErrBoardAccessDenied
-	}
-	if err := s.requirePermission(ctx, principal, authorization.PermissionBoardRead, authorization.Scope{BoardID: boardID}); err != nil {
-		return Page[Task]{}, ErrBoardAccessDenied
-	}
-	if err := s.requireParticipantModuleAccess(ctx, principal, boardID, moduleID); err != nil {
-		return Page[Task]{}, err
 	}
 	if !module.Enabled {
 		return Page[Task]{}, ErrModuleNotAvailable
@@ -65,6 +59,8 @@ func (s *Service) ListTasks(ctx context.Context, principal authorization.Princip
 	}
 	for index := range tasks {
 		tasks[index].Status = taskStatus(tasks[index])
+		tasks[index].Preview = false
+		tasks[index].CanParticipate = true
 	}
 	return Page[Task]{Items: tasks, Limit: query.Limit, Offset: query.Offset, Total: total}, nil
 }
@@ -82,21 +78,15 @@ func (s *Service) GetTask(ctx context.Context, principal authorization.Principal
 	if err != nil {
 		return nil, err
 	}
-	scope, participant, err := s.resolveReadScope(ctx, principal, boardID, moduleID)
+	scope, err := s.resolveReadScope(ctx, principal, boardID, moduleID)
 	if err != nil {
 		return nil, err
 	}
 	if scope.preview {
 		return s.getPreviewTask(ctx, principal, boardID, moduleID, taskID, scope)
 	}
-	if !participant {
+	if !scope.participant {
 		return nil, ErrBoardAccessDenied
-	}
-	if err := s.requirePermission(ctx, principal, authorization.PermissionBoardRead, authorization.Scope{BoardID: boardID}); err != nil {
-		return nil, ErrBoardAccessDenied
-	}
-	if err := s.requireParticipantModuleAccess(ctx, principal, boardID, moduleID); err != nil {
-		return nil, err
 	}
 	if !module.Enabled {
 		return nil, ErrModuleNotAvailable
@@ -125,6 +115,8 @@ func (s *Service) GetTask(ctx context.Context, principal authorization.Principal
 	}
 	task.Solved = solved
 	task.Status = taskStatus(*task)
+	task.Preview = false
+	task.CanParticipate = true
 	if count, err := s.store.TaskAcceptedCount(ctx, taskID); err == nil {
 		task.SolvesCount = count
 	}
@@ -150,6 +142,11 @@ func (s *Service) listPreviewTasks(
 	}
 	for index := range tasks {
 		tasks[index].Status = taskStatus(tasks[index])
+		// A preview is never participant-eligible: solved/canParticipate stay
+		// false so the UI cannot present own progress that does not exist.
+		tasks[index].Preview = true
+		tasks[index].CanParticipate = false
+		tasks[index].Solved = false
 	}
 	return Page[Task]{Items: tasks, Limit: query.Limit, Offset: query.Offset, Total: total}, nil
 }
@@ -168,6 +165,9 @@ func (s *Service) getPreviewTask(
 	if !task.Visible && !scope.manageTasks {
 		return nil, ErrTaskNotAvailable
 	}
+	task.Preview = true
+	task.CanParticipate = false
+	task.Solved = false
 	task.Status = taskStatus(*task)
 	if count, err := s.store.TaskAcceptedCount(ctx, taskID); err == nil {
 		task.SolvesCount = count
@@ -183,20 +183,6 @@ func taskStatus(task Task) string {
 		return TaskStatusLocked
 	}
 	return TaskStatusAvailable
-}
-
-func (s *Service) requireParticipantModuleAccess(ctx context.Context, principal authorization.Principal, boardID, moduleID uuid.UUID) error {
-	if s.accessPolicy == nil {
-		return nil
-	}
-	allowed, err := s.accessPolicy.CanAccessModule(ctx, principal, boardID, moduleID)
-	if err != nil {
-		return mapAccessError(err)
-	}
-	if !allowed {
-		return ErrModuleNotAvailable
-	}
-	return nil
 }
 
 // requireParticipantOwnModuleAccess is the participant-own gate for submission
@@ -317,9 +303,14 @@ func (s *Service) SubmitTask(
 	if err != nil {
 		return nil, err
 	}
-	// Resolve an already-committed idempotent request before current eligibility.
-	// Replaying the same key/body after a deadline/disable must return the
-	// original result without a new write; it is not a new attempt.
+	// Resolve an already-committed idempotent request before the time/state
+	// checks below. The membership/access-group/audience gate above has already
+	// run, so a revoked group or audience blocks the replay (403) instead of
+	// returning a private verdict, while a stable replay after a deadline,
+	// module disable or board finish still returns the original result without a
+	// new write. Those checks are intentionally after the replay lookup and
+	// never contain a revocation, so they cannot turn a legitimate replay into a
+	// new error.
 	existing, err := s.store.FindIdempotentSubmission(ctx, principal.UserID, path.TaskID, idempotencyKey)
 	if err == nil {
 		if constantTimeEqual(existing.requestHash, requestHash) {
@@ -595,8 +586,9 @@ func (s *Service) GetScoreboard(ctx context.Context, principal authorization.Pri
 	return &Scoreboard{Items: items, UpdatedAt: s.clock.Now()}, nil
 }
 
-// GetMyScoreboardEntry returns the caller's own row. Staff must join to have an
-// own score.
+// GetMyScoreboardEntry returns the caller's own row. It requires live
+// participant eligibility: a staff management preview, or a participant row
+// whose access group was revoked, has no own score to report.
 func (s *Service) GetMyScoreboardEntry(ctx context.Context, principal authorization.Principal, boardID uuid.UUID) (*ScoreboardItem, error) {
 	ctx, cancel := s.operationContext(ctx)
 	defer cancel()
@@ -614,8 +606,12 @@ func (s *Service) GetMyScoreboardEntry(ctx context.Context, principal authorizat
 		}
 		return nil, err
 	}
-	if err := s.requireBoardRead(ctx, principal, boardID); err != nil {
+	eligible, err := s.boardParticipantEligible(ctx, principal, boardID)
+	if err != nil {
 		return nil, err
+	}
+	if !eligible {
+		return nil, ErrBoardAccessDenied
 	}
 	if board.RatingVisibility == RatingHidden {
 		return nil, ErrRatingHidden

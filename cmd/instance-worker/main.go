@@ -22,6 +22,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/nrf24l01/actfb/internal/access"
 	"github.com/nrf24l01/actfb/internal/authorization"
 	"github.com/nrf24l01/actfb/internal/config"
 	"github.com/nrf24l01/actfb/internal/instances"
@@ -117,7 +118,12 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("build driver registry: %w", err)
 	}
 
-	orchestrator, err := instances.NewOrchestrator(db, registry, authorization.NewAuthorizer(db), sealer, cfg.Deployment.KeyVersion,
+	// The worker revalidates a queued participant-own operation against the same
+	// live access policy the backend used, so a revoked group or audience blocks
+	// the provider call instead of being applied.
+	authorizer := authorization.NewAuthorizer(db)
+	orchestrator, err := instances.NewOrchestrator(db, registry, authorizer, sealer, cfg.Deployment.KeyVersion,
+		instances.WithOrchestratorAccessPolicy(access.NewService(db, authorizer)),
 		instances.WithOrchestratorLogger(logger))
 	if err != nil {
 		return err

@@ -25,6 +25,13 @@ func (h *Handler) JoinBoardByCode(c *echo.Context) error {
 	if problem != nil {
 		return problem.write(c)
 	}
+	// Trim outer whitespace before the generated min/max check so a valid code
+	// padded with spaces is accepted, exactly as the contract states. Interior
+	// characters and length are still validated.
+	if request.Code != nil {
+		trimmed := strings.TrimSpace(*request.Code)
+		request.Code = &trimmed
+	}
 	if problem := validateGenerated(&request); problem != nil {
 		return problem.write(c)
 	}
@@ -81,13 +88,19 @@ func (h *Handler) SetBoardJoinCode(c *echo.Context) error {
 	if problem != nil {
 		return problem.write(c)
 	}
+	// Validate the trimmed value: `  short  ` is a real 422 on its trimmed
+	// length, and a valid custom code with outer padding is accepted.
+	request.Code = strings.TrimSpace(request.Code)
 	if len(raw) > 0 {
 		if problem := validateGenerated(&request); problem != nil {
 			return problem.write(c)
 		}
 	}
 	custom := request.Code
-	result, err := h.service.SetBoardJoinCode(c.Request().Context(), principal, boardID, custom)
+	// A replace must name the revision it read. Omitting it for a live code is a
+	// 409 from the store, never a blind overwrite; omitting it for a first
+	// create is allowed.
+	result, err := h.service.SetBoardJoinCode(c.Request().Context(), principal, boardID, custom, request.ExpectedRevision)
 	if err != nil {
 		return writeAdminError(c, err)
 	}
@@ -112,12 +125,13 @@ func boardJoinResponseModel(result *boards.BoardJoinResult) *oapimodels.BoardJoi
 
 func boardJoinCodeStatusModel(status *boards.BoardJoinCode) *oapimodels.BoardJoinCodeStatus {
 	configured := status.Configured
+	revision := status.Revision
 	var updatedAt *strfmt.DateTime
 	if status.UpdatedAt != nil {
 		value := strfmt.DateTime(status.UpdatedAt.UTC())
 		updatedAt = &value
 	}
-	return &oapimodels.BoardJoinCodeStatus{Configured: &configured, UpdatedAt: updatedAt}
+	return &oapimodels.BoardJoinCodeStatus{Configured: &configured, Revision: &revision, UpdatedAt: updatedAt}
 }
 
 func boardJoinCodeResponseModel(code *boards.BoardJoinCode) *oapimodels.BoardJoinCodeResponse {
@@ -127,9 +141,11 @@ func boardJoinCodeResponseModel(code *boards.BoardJoinCode) *oapimodels.BoardJoi
 		value := strfmt.DateTime(code.UpdatedAt.UTC())
 		updatedAt = &value
 	}
+	revision := code.Revision
 	return &oapimodels.BoardJoinCodeResponse{
 		Configured: &configured,
 		Code:       &code.Code,
+		Revision:   &revision,
 		UpdatedAt:  updatedAt,
 	}
 }

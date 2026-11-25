@@ -90,6 +90,11 @@ func (h *Handler) JoinBoard(c *echo.Context) error {
 	if problem != nil {
 		return problem.write(c)
 	}
+	// Trim before the generated min/max check; normalization to uppercase
+	// happens in the service for canonical codes, and legacy codes are compared
+	// exactly as entered.
+	request.Code = strings.TrimSpace(request.Code)
+	request.InviteCode = strings.TrimSpace(request.InviteCode)
 	if problem := validateGenerated(&request); problem != nil {
 		return problem.write(c)
 	}

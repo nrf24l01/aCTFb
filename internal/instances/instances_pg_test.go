@@ -346,14 +346,16 @@ func TestInstanceJobRejectsForeignActor(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Simulate a tampered NATS payload: the operation context is loaded from the
-	// DB, so replacing the actor id in the job cannot escalate anything.
-	if _, err := db.Pool.Exec(ctx, `UPDATE users SET roles=ARRAY['user']::text[] WHERE id=$1`, ids.UserID); err != nil {
+	// DB, so replacing the actor id in the job cannot escalate anything. The
+	// worker must also revalidate live participant eligibility, so removing the
+	// participant row after the job was queued has to block the provider call.
+	if _, err := db.Pool.Exec(ctx, `DELETE FROM board_participants WHERE board_id=$1 AND user_id=$2`, ids.BoardID, ids.UserID); err != nil {
 		t.Fatal(err)
 	}
 	orchestrator, _ := NewOrchestrator(db, registry, auth, sealer, 1)
 	err = orchestrator.HandleJob(ctx, publisher.last(t))
 	if err == nil {
-		t.Fatal("worker must recheck live roles and refuse")
+		t.Fatal("worker must recheck live eligibility and refuse")
 	}
 	if driver.applied != 0 {
 		t.Fatal("provider must not be called when authorization fails")

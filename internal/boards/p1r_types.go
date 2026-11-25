@@ -57,10 +57,12 @@ type BoardInvite struct {
 
 // BoardJoinCode is the enrollment-code state for one board. Code is populated
 // only in the response to a generate/replace call: it is shown once and never
-// persisted in plaintext.
+// persisted in plaintext. Revision is the optimistic concurrency token a replace
+// must echo back.
 type BoardJoinCode struct {
 	Configured bool
 	Code       string
+	Revision   int64
 	UpdatedAt  *time.Time
 }
 

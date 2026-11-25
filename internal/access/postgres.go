@@ -477,6 +477,28 @@ func (s *AccessService) CanAccessModule(ctx context.Context, principal authoriza
 	return false, nil
 }
 
+// CanReadBoardAsParticipant applies only the participant board rules: a joined
+// participant with live access-group membership. It deliberately has no
+// global-admin shortcut, so own-progress reads cannot bypass a revoked group.
+func (s *AccessService) CanReadBoardAsParticipant(ctx context.Context, principal authorization.Principal, boardID uuid.UUID) (bool, error) {
+	if err := s.ready(); err != nil {
+		return false, err
+	}
+	user, err := loadLiveUser(ctx, s.db.Pool, principal.UserID)
+	if err != nil {
+		return false, err
+	}
+	board, err := loadBoard(ctx, s.db.Pool, boardID)
+	if err != nil {
+		return false, err
+	}
+	joined, err := isBoardParticipant(ctx, s.db.Pool, boardID, user.ID)
+	if err != nil || !joined {
+		return false, err
+	}
+	return participantGroupAllowed(ctx, s.db.Pool, board, user.ID)
+}
+
 // CanAccessModuleAsParticipant applies only the participant rules: a joined
 // subject with live board access-group membership and module audience
 // membership. It deliberately has no global-admin shortcut, so an admin who

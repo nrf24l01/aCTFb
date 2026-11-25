@@ -138,7 +138,8 @@ func templateCatalogEnabled(*config.Config) bool { return true }
 
 // buildRuntimeRegistry registers all five trusted static adapters. Capabilities
 // still perform their own live provider checks; this only builds metadata.
-func buildRuntimeRegistry(logger *slog.Logger) (*runtime.DriverRegistry, error) {	drivers := make([]runtime.Driver, 0, 5)
+func buildRuntimeRegistry(logger *slog.Logger) (*runtime.DriverRegistry, error) {
+	drivers := make([]runtime.Driver, 0, 5)
 	dockerDriver, err := runtimedocker.New()
 	if err != nil {
 		return nil, fmt.Errorf("docker driver: %w", err)

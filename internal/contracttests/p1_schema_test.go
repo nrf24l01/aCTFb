@@ -76,6 +76,8 @@ func TestP1CanonicalResponseJSON(t *testing.T) {
 		Joined:            ptr(true),
 		Description:       ptr("description"),
 		Visibility:        ptr(models.BoardVisibility("PRIVATE")),
+		Preview:           ptr(false),
+		CanParticipate:    ptr(true),
 	}
 	t.Run("Board", func(t *testing.T) { validateCase(t, "Board", board, board) })
 
@@ -89,6 +91,8 @@ func TestP1CanonicalResponseJSON(t *testing.T) {
 		AudienceUuids:    []models.UUID{},
 		Order:            ptr(int64(0)),
 		Description:      ptr("description"),
+		Preview:          ptr(false),
+		CanParticipate:   ptr(true),
 	}
 	t.Run("Module", func(t *testing.T) { validateCase(t, "Module", module, module) })
 
@@ -120,6 +124,8 @@ func TestP1CanonicalResponseJSON(t *testing.T) {
 		Attachments:      []*models.FileRef{},
 		Submission:       submissionPolicy,
 		Instance:         instance,
+		Preview:          ptr(false),
+		CanParticipate:   ptr(true),
 	}
 	t.Run("Task", func(t *testing.T) { validateCase(t, "Task", task, task) })
 

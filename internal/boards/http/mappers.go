@@ -58,6 +58,8 @@ func boardModel(board boards.Board) *oapimodels.Board {
 		ratingVisibility = oapimodels.RatingVisibilityPUBLIC
 	}
 	joined := board.Joined
+	preview := board.Preview
+	canParticipate := board.CanParticipate
 	visibility := oapimodels.BoardVisibility(board.Visibility)
 	accessMode := oapimodels.AccessMode(board.AccessMode())
 	moduleTypes := make([]oapimodels.ModuleType, 0, len(board.ModuleTypes))
@@ -80,6 +82,8 @@ func boardModel(board boards.Board) *oapimodels.Board {
 		EndsAt:            dateTimeModel(board.EndsAt),
 		Joined:            &joined,
 		AccessMode:        accessMode,
+		Preview:           &preview,
+		CanParticipate:    &canParticipate,
 	}
 }
 
@@ -106,6 +110,8 @@ func moduleListModel(module boards.Module) *oapimodels.ModuleListItem {
 	for _, audience := range module.AudienceUUIDs {
 		audiences = append(audiences, oapimodels.UUID(audience.String()))
 	}
+	preview := module.Preview
+	canParticipate := module.CanParticipate
 	item := &oapimodels.ModuleListItem{
 		UUID:             &uuidValue,
 		BoardUUID:        &boardUUID,
@@ -117,6 +123,8 @@ func moduleListModel(module boards.Module) *oapimodels.ModuleListItem {
 		Order:            &order,
 		StartsAt:         dateTimeModel(module.StartsAt),
 		EndsAt:           dateTimeModel(module.EndsAt),
+		Preview:          &preview,
+		CanParticipate:   &canParticipate,
 	}
 	if module.ExtensionKey != "" {
 		extensionKey := module.ExtensionKey
@@ -141,6 +149,8 @@ func moduleModel(module boards.Module) *oapimodels.Module {
 	for _, audience := range module.AudienceUUIDs {
 		audiences = append(audiences, oapimodels.UUID(audience.String()))
 	}
+	preview := module.Preview
+	canParticipate := module.CanParticipate
 	item := &oapimodels.Module{
 		UUID:             &uuidValue,
 		BoardUUID:        &boardUUID,
@@ -153,6 +163,8 @@ func moduleModel(module boards.Module) *oapimodels.Module {
 		Order:            &order,
 		StartsAt:         dateTimeModel(module.StartsAt),
 		EndsAt:           dateTimeModel(module.EndsAt),
+		Preview:          &preview,
+		CanParticipate:   &canParticipate,
 	}
 	if module.ExtensionKey != "" {
 		extensionKey := module.ExtensionKey
@@ -205,6 +217,8 @@ func taskListModel(task boards.Task) *oapimodels.TaskListItem {
 	}
 	solved := task.Solved
 	instanceRequired := task.InstanceEnabled
+	preview := task.Preview
+	canParticipate := task.CanParticipate
 	item := &oapimodels.TaskListItem{
 		UUID:             &uuidValue,
 		ModuleUUID:       &moduleUUID,
@@ -215,6 +229,8 @@ func taskListModel(task boards.Task) *oapimodels.TaskListItem {
 		Status:           &status,
 		Solved:           &solved,
 		InstanceRequired: &instanceRequired,
+		Preview:          &preview,
+		CanParticipate:   &canParticipate,
 	}
 	if task.SolvesCount > 0 {
 		count := int64(task.SolvesCount)
@@ -290,6 +306,8 @@ func taskModel(task boards.Task) *oapimodels.Task {
 		Required: &requiredInstance, Status: &instanceStatus, CanStart: &canStart,
 		TTLSeconds: effectiveInitialTTL(task),
 	}
+	preview := task.Preview
+	canParticipate := task.CanParticipate
 	result := &oapimodels.Task{
 		UUID:             &uuidValue,
 		ModuleUUID:       &moduleUUID,
@@ -304,6 +322,8 @@ func taskModel(task boards.Task) *oapimodels.Task {
 		Attachments:      []*oapimodels.FileRef{},
 		Submission:       submission,
 		Instance:         instance,
+		Preview:          &preview,
+		CanParticipate:   &canParticipate,
 	}
 	if task.SolvesCount > 0 {
 		count := int64(task.SolvesCount)
@@ -466,10 +486,14 @@ func boardMeModel(me *boards.BoardMe) *oapimodels.BoardMe {
 		name := audience.Name
 		audiences = append(audiences, &oapimodels.AudienceSummary{UUID: &id, Name: &name})
 	}
+	preview := me.Preview
+	canParticipate := me.CanParticipate
 	result := &oapimodels.BoardMe{
 		Joined:            &joined,
 		ParticipationMode: &participation,
 		Audiences:         audiences,
+		Preview:           &preview,
+		CanParticipate:    &canParticipate,
 	}
 	if me.JoinedAt != nil {
 		value := strfmt.DateTime(me.JoinedAt.UTC())

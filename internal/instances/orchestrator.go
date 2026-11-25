@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/nrf24l01/actfb/internal/access"
 	"github.com/nrf24l01/actfb/internal/authorization"
 	"github.com/nrf24l01/actfb/internal/deployment"
 	"github.com/nrf24l01/actfb/internal/events"
@@ -38,6 +39,7 @@ type Orchestrator struct {
 	store      *store
 	registry   *runtime.DriverRegistry
 	auth       authorization.Authorizer
+	access     access.Policy
 	sealer     secrets.Sealer
 	keyVersion uint32
 	outbox     events.Outbox
@@ -46,6 +48,12 @@ type Orchestrator struct {
 
 // OrchestratorOption customizes the worker.
 type OrchestratorOption func(*Orchestrator)
+
+// WithOrchestratorAccessPolicy installs the participant ABAC policy used to
+// revalidate a queued participant-own operation against live state.
+func WithOrchestratorAccessPolicy(policy access.Policy) OrchestratorOption {
+	return func(orchestrator *Orchestrator) { orchestrator.access = policy }
+}
 
 // WithOrchestratorLogger installs the worker logger.
 func WithOrchestratorLogger(logger *slog.Logger) OrchestratorOption {
@@ -69,6 +77,12 @@ func NewOrchestrator(db *postgres.DB, registry *runtime.DriverRegistry, auth aut
 		if option != nil {
 			option(orchestrator)
 		}
+	}
+	if orchestrator.access == nil && auth != nil {
+		// Default to the same live access policy the backend uses. Without it a
+		// participant-own job could not be revalidated against a revoked group,
+		// so failing closed is the only safe default.
+		orchestrator.access = access.NewService(db, auth)
 	}
 	return orchestrator, nil
 }
@@ -512,10 +526,31 @@ func (o *Orchestrator) revalidateOperation(ctx context.Context, authorized Autho
 		return instanceError(CodeInternal, "authorization failed", 500)
 	}
 	if !decision.Allowed {
-		// Staff with module.instances.admin may manage any instance; the
-		// participation-only permission itself is never escalated.
+		// The stored context says which lane queued the operation. A participant
+		// own operation never escalates to module.instances.admin here: a revoked
+		// group or audience must block the queued reset/extend instead of being
+		// silently upgraded to a staff action. Only a genuinely admin-queued
+		// operation may use the admin permission.
+		if authorized.Permission != string(authorization.PermissionModuleInstancesAdmin) {
+			return forbidden()
+		}
 		adminDecision, adminErr := o.auth.Authorize(ctx, authorization.Principal{UserID: authorized.ActorUserID}, authorization.PermissionModuleInstancesAdmin, scope)
 		if adminErr != nil || !adminDecision.Allowed {
+			return forbidden()
+		}
+	}
+	// Participant-own operations must also satisfy the live access group and
+	// module audience. The stored permission is not enough: revocation after the
+	// job was queued must stop the provider call.
+	if authorized.Permission != string(authorization.PermissionModuleInstancesAdmin) {
+		if o.access == nil {
+			return forbidden()
+		}
+		eligible, accessErr := o.access.CanAccessModuleAsParticipant(ctx, authorization.Principal{UserID: authorized.ActorUserID}, authorized.BoardID, authorized.ModuleID)
+		if accessErr != nil {
+			return instanceError(CodeInternal, "authorization failed", 500)
+		}
+		if !eligible {
 			return forbidden()
 		}
 	}

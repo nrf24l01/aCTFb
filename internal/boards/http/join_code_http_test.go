@@ -3,6 +3,7 @@ package http
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -17,10 +18,12 @@ import (
 	"github.com/nrf24l01/actfb/internal/authorization"
 	"github.com/nrf24l01/actfb/internal/boards"
 	"github.com/nrf24l01/actfb/internal/config"
+	"github.com/nrf24l01/actfb/internal/events"
 	oapimodels "github.com/nrf24l01/actfb/internal/generated/openapi/models"
 	"github.com/nrf24l01/actfb/internal/httpapi"
 	"github.com/nrf24l01/actfb/internal/platform/postgres"
 	"github.com/nrf24l01/actfb/internal/platform/ratelimit"
+	"github.com/nrf24l01/actfb/internal/platform/secrets"
 	"github.com/nrf24l01/actfb/internal/users"
 )
 
@@ -55,10 +58,18 @@ func newJoinCodeHTTPFixture(t *testing.T, visibility, registration, accessMode s
 	userService := users.NewUserService(db, cfg, nil)
 	authz := authorization.NewAuthorizer(db)
 	accessSvc := access.NewService(db, authz)
+	// A sealer is installed so the legacy sealed-invite path (and INVITE_ONLY
+	// board creation) behaves exactly as in production. Join codes themselves
+	// never use it.
+	sealer, sealerErr := secrets.NewCipher(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32)), 1)
+	if sealerErr != nil {
+		t.Fatalf("sealer: %v", sealerErr)
+	}
 	service := boards.NewService(boards.NewPostgresStore(db), authz, boards.SystemClock{},
 		ratelimit.NewMemoryLimiter(1024),
 		boards.WithArgon2Config(cfg.Argon2id), boards.WithIdempotencySecret("join-code-secret"),
-		boards.WithAccessPolicy(accessSvc), boards.WithAccessService(accessSvc))
+		boards.WithAccessPolicy(accessSvc), boards.WithAccessService(accessSvc),
+		boards.WithSealer(sealer), boards.WithOutbox(events.NewOutbox(db)))
 	router := httpapi.NewRouter(nil, func(context.Context) error { return nil })
 	NewHandler(service, userService).RegisterRoutes(router)
 	accesshttp.NewHandler(accessSvc, userService).RegisterRoutes(router)

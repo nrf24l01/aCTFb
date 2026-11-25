@@ -221,9 +221,16 @@ func TestModuleScopedStaffReadsOnlyAssignedModule(t *testing.T) {
 	}
 	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID)+"/tasks/"+b.taskID, editorToken, nil, nil, http.StatusOK)
 
-	// Sibling module is outside the binding: module detail and task list deny.
+	// The board shell stays readable so the assigned module is reachable.
+	doJSON(t, f.router, http.MethodGet, "/api/v2/boards/"+b.boardID, editorToken, nil, nil, http.StatusOK)
+
+	// Sibling module is outside the binding: module detail, task list and a
+	// sibling task detail all deny.
 	doJSON(t, f.router, http.MethodGet, b.modulePath(b.siblingID), editorToken, nil, nil, http.StatusForbidden)
 	doJSON(t, f.router, http.MethodGet, b.modulePath(b.siblingID)+"/tasks", editorToken, nil, nil, http.StatusForbidden)
+	doJSON(t, f.router, http.MethodGet, b.modulePath(b.siblingID)+"/tasks/"+b.taskID, editorToken, nil, nil, http.StatusForbidden)
+	// A task UUID from module A cannot be read through the sibling parent.
+	doJSON(t, f.router, http.MethodGet, b.modulePath(b.siblingID)+"/tasks/"+b.taskID, editorToken, nil, nil, http.StatusForbidden)
 
 	// Revoking the binding denies the next request without a token change.
 	if _, err := f.db.Pool.Exec(f.ctx, `
@@ -235,8 +242,8 @@ func TestModuleScopedStaffReadsOnlyAssignedModule(t *testing.T) {
 }
 
 // TestParticipantReadStillRequiresLiveGroupAndAudience is the negative half:
-// staff preview must not waive access-group revocation, module audiences or
-// participation for ordinary users.
+// a revoked access group with NO staff role must deny every read, and staff
+// preview must never waive the audience gate for ordinary users.
 func TestParticipantReadStillRequiresLiveGroupAndAudience(t *testing.T) {
 	f := newStaffReadHTTPFixture(t)
 	b := seedStaffReadBoard(t, f, "staff-read-participant")
@@ -250,27 +257,25 @@ func TestParticipantReadStillRequiresLiveGroupAndAudience(t *testing.T) {
 		map[string]any{"code": issueJoinCode(t, f.router, b.boardID, b.adminToken)}, nil, http.StatusOK)
 	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID)+"/tasks", playerToken, nil, nil, http.StatusOK)
 
-	// Access-group revocation is immediate even with a scoped role.
-	if _, err := f.db.Pool.Exec(f.ctx, `
-		INSERT INTO board_role_bindings (board_id, user_id, role, granted_by)
-		VALUES ($1, $2, 'board_editor', (SELECT id FROM users WHERE username='admin_staff-read-participant'))`,
-		b.boardID, player.ID); err != nil {
-		t.Fatalf("grant editor: %v", err)
-	}
+	// Access-group revocation is immediate for an ordinary participant with no
+	// staff role: the board shell, module and tasks all deny.
 	if _, err := f.db.Pool.Exec(f.ctx, `
 		DELETE FROM access_group_members WHERE group_id=$1 AND user_id=$2`, b.groupID, player.ID); err != nil {
 		t.Fatalf("revoke group: %v", err)
 	}
+	doJSON(t, f.router, http.MethodGet, "/api/v2/boards/"+b.boardID, playerToken, nil, nil, http.StatusForbidden)
+	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID), playerToken, nil, nil, http.StatusForbidden)
 	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID)+"/tasks", playerToken, nil, nil, http.StatusForbidden)
 	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID)+"/tasks/"+b.taskID, playerToken, nil, nil, http.StatusForbidden)
+	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID)+"/tasks/"+b.taskID+"/submissions/me", playerToken, nil, nil, http.StatusForbidden)
 
 	// An unrelated private board stays invisible to an outsider.
 	other := seedStaffReadBoard(t, f, "staff-read-other")
-	outsider, outsiderToken := registerHTTPUser(t, f.ctx, f.users, f.db, "outsider", false)
-	_ = outsider
+	_, outsiderToken := registerHTTPUser(t, f.ctx, f.users, f.db, "outsider", false)
 	doJSON(t, f.router, http.MethodGet, other.modulePath(other.moduleID)+"/tasks", outsiderToken, nil, nil, http.StatusForbidden)
 	doJSON(t, f.router, http.MethodGet, other.modulePath(other.moduleID)+"/tasks/"+other.taskID, outsiderToken, nil, nil, http.StatusForbidden)
 	doJSON(t, f.router, http.MethodGet, other.modulePath(other.moduleID), outsiderToken, nil, nil, http.StatusForbidden)
+	doJSON(t, f.router, http.MethodGet, "/api/v2/boards/"+other.boardID, outsiderToken, nil, nil, http.StatusForbidden)
 }
 
 // TestDemotedAdminLosesPreviewWithoutNewToken covers the stale-JWT direction:
@@ -286,6 +291,10 @@ func TestDemotedAdminLosesPreviewWithoutNewToken(t *testing.T) {
 	if _, err := f.db.Pool.Exec(f.ctx, `UPDATE users SET roles=ARRAY['user'] WHERE id=$1`, demoted.ID); err != nil {
 		t.Fatalf("demote: %v", err)
 	}
+	// A demoted admin on a PRIVATE board they never joined has no staff role and
+	// no participation, so the board shell, module and tasks all deny.
+	doJSON(t, f.router, http.MethodGet, "/api/v2/boards/"+b.boardID, demotedToken, nil, nil, http.StatusForbidden)
+	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID), demotedToken, nil, nil, http.StatusForbidden)
 	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID)+"/tasks", demotedToken, nil, nil, http.StatusForbidden)
 }
 
@@ -311,12 +320,33 @@ func TestParticipantAdminKeepsPreviewButNotOwnActions(t *testing.T) {
 		t.Fatalf("revoke group: %v", err)
 	}
 
-	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID)+"/tasks", mixedToken, nil, nil, http.StatusOK)
+	// The board shell, module and tasks stay readable as a management preview.
+	doJSON(t, f.router, http.MethodGet, "/api/v2/boards/"+b.boardID, mixedToken, nil, nil, http.StatusOK)
+	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID), mixedToken, nil, nil, http.StatusOK)
+	page := decode[oapimodels.TaskListResponse](t, doJSON(t, f.router, http.MethodGet,
+		b.modulePath(b.moduleID)+"/tasks", mixedToken, nil, nil, http.StatusOK), http.StatusOK)
+	if len(page.Items) == 0 || page.Items[0].Preview == nil || !*page.Items[0].Preview {
+		t.Fatalf("mixed-role task list is not marked as a preview: %+v", page.Items)
+	}
+	if page.Items[0].CanParticipate == nil || *page.Items[0].CanParticipate {
+		t.Fatalf("mixed-role task list claims participation eligibility: %+v", page.Items[0])
+	}
+	detail := decode[oapimodels.Task](t, doJSON(t, f.router, http.MethodGet,
+		b.modulePath(b.moduleID)+"/tasks/"+b.taskID, mixedToken, nil, nil, http.StatusOK), http.StatusOK)
+	if detail.Preview == nil || !*detail.Preview {
+		t.Fatalf("mixed-role task detail is not marked as a preview: %+v", detail)
+	}
+	if detail.Solved != nil && *detail.Solved {
+		t.Fatal("mixed-role preview fabricated a solved state")
+	}
+	// No participant-own action is available from that preview.
 	doJSON(t, f.router, http.MethodPost, b.modulePath(b.moduleID)+"/tasks/"+b.taskID+"/submissions", mixedToken,
 		map[string]any{"text": "flag{staff-preview-secret}"},
 		map[string]string{"Idempotency-Key": "mixed-admin-submit-0001"}, http.StatusForbidden)
 	doJSON(t, f.router, http.MethodGet,
 		b.modulePath(b.moduleID)+"/tasks/"+b.taskID+"/submissions/me", mixedToken, nil, nil, http.StatusForbidden)
+	doJSON(t, f.router, http.MethodGet,
+		"/api/v2/boards/"+b.boardID+"/scoreboard/me", mixedToken, nil, nil, http.StatusForbidden)
 }
 
 // doJSONStatus performs a request and returns the status without asserting it.

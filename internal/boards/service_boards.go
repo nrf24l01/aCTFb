@@ -50,54 +50,37 @@ func (s *Service) GetBoard(ctx context.Context, principal authorization.Principa
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requireBoardRead(ctx, principal, boardID); err != nil {
+	scope, err := s.resolveBoardRead(ctx, principal, boardID)
+	if err != nil {
 		return nil, err
+	}
+	if !scope.allowed {
+		return nil, ErrBoardAccessDenied
 	}
 	if _, err := s.store.GetParticipant(ctx, boardID, principal.UserID); err == nil {
 		board.Joined = true
 	} else if !errors.Is(err, ErrBoardNotJoined) {
 		return nil, err
 	}
+	board.Preview = scope.preview
+	board.CanParticipate = scope.participant
 	board.Status = board.EffectiveStatus(s.clock.Now())
 	return board, nil
 }
 
+// requireBoardRead is the board-shell gate. It uses the same resolved capability
+// as the module/task read paths, so the participant-first rule and the staff
+// management preview cannot drift apart between the board, module and task
+// routes.
 func (s *Service) requireBoardRead(ctx context.Context, principal authorization.Principal, boardID uuid.UUID) error {
-	admin, staff, _, err := s.staffContext(ctx, principal, boardID)
+	scope, err := s.resolveBoardRead(ctx, principal, boardID)
 	if err != nil {
 		return err
 	}
-	if admin || staff {
-		return nil
-	}
-	board, err := s.store.GetBoard(ctx, boardID)
-	if err != nil {
-		return err
-	}
-	if board.Visibility == VisibilityPublic {
-		switch board.EffectiveStatus(s.clock.Now()) {
-		case BoardStatusDraft, BoardStatusArchived:
-			return ErrBoardAccessDenied
-		}
-	}
-	if s.accessPolicy != nil {
-		allowed, policyErr := s.accessPolicy.CanReadBoard(ctx, principal, boardID)
-		if policyErr != nil {
-			return mapAccessError(policyErr)
-		}
-		if allowed {
-			return nil
-		}
+	if !scope.allowed {
 		return ErrBoardAccessDenied
 	}
-	decision, err := s.authorize(ctx, principal, authorization.PermissionBoardRead, authorization.Scope{BoardID: boardID})
-	if err != nil {
-		return err
-	}
-	if decision.Allowed {
-		return nil
-	}
-	return ErrBoardAccessDenied
+	return nil
 }
 
 // JoinBoard is the per-board enrollment path. Enrollment is code-only: the
@@ -182,12 +165,33 @@ func (s *Service) GetBoardMe(ctx context.Context, principal authorization.Princi
 		return nil, err
 	}
 	if !me.Joined {
-		if err := s.requireBoardRead(ctx, principal, boardID); err != nil {
+		scope, err := s.resolveBoardRead(ctx, principal, boardID)
+		if err != nil {
+			return nil, err
+		}
+		if !scope.allowed {
 			return nil, ErrBoardAccessDenied
 		}
+		me.Preview = scope.preview
+		me.CanParticipate = false
 		return me, nil
 	}
+	// A participant row can outlive a revoked access group. The row stays
+	// visible (the caller can see they are still enrolled) but no own progress
+	// is fabricated while the participant is not currently eligible.
+	eligible, err := s.boardParticipantEligible(ctx, principal, boardID)
+	if err != nil {
+		return nil, err
+	}
 	me.ParticipationMode = board.ParticipationMode
+	me.CanParticipate = eligible
+	if !eligible {
+		me.Score = nil
+		me.Place = nil
+		me.Audiences = []AudienceSummary{}
+		me.Preview = true
+		return me, nil
+	}
 	if board.ParticipationMode == ParticipationTeam && me.Team == nil {
 		return me, nil
 	}
@@ -235,11 +239,17 @@ func (s *Service) ListModules(ctx context.Context, principal authorization.Princ
 	if err != nil {
 		return Page[Module]{}, err
 	}
-	if !staff {
-		if err := s.requireBoardRead(ctx, principal, boardID); err != nil {
-			return Page[Module]{}, ErrBoardAccessDenied
-		}
+	boardScope, err := s.resolveBoardRead(ctx, principal, boardID)
+	if err != nil {
+		return Page[Module]{}, err
 	}
+	if !boardScope.allowed {
+		return Page[Module]{}, ErrBoardAccessDenied
+	}
+	// A participant who is not staff reads only the modules their live subject
+	// can see. Staff read their management scope: board-wide roles see every
+	// module, module-scoped roles only their exact module IDs (SQL-filtered), so
+	// a single module binding never leaks a sibling module name.
 	var subject *ScoreSubject
 	if !staff && !admin {
 		resolved, resolveErr := s.store.ResolveSubject(ctx, boardID, principal.UserID)
@@ -258,6 +268,17 @@ func (s *Service) ListModules(ctx context.Context, principal authorization.Princ
 	now := s.clock.Now()
 	for index := range modules {
 		modules[index].Status = effectiveModuleStatus(board, modules[index], now)
+		// Per-module flags use the same resolved capability as GetModule, so a
+		// module the caller cannot participate in is marked as a staff preview.
+		scope, scopeErr := s.resolveReadScope(ctx, principal, boardID, modules[index].ID)
+		if scopeErr != nil {
+			if errors.Is(scopeErr, ErrForbidden) {
+				continue
+			}
+			return Page[Module]{}, scopeErr
+		}
+		modules[index].Preview = scope.preview
+		modules[index].CanParticipate = scope.participant
 	}
 	return Page[Module]{Items: modules, Limit: query.Limit, Offset: query.Offset, Total: total}, nil
 }
@@ -278,32 +299,25 @@ func (s *Service) GetModule(ctx context.Context, principal authorization.Princip
 	if err != nil {
 		return nil, err
 	}
-	admin, staff, moduleIDs, err := s.staffContext(ctx, principal, boardID)
+	scope, err := s.resolveReadScope(ctx, principal, boardID, moduleID)
 	if err != nil {
 		return nil, err
 	}
 	now := s.clock.Now()
 	module.Status = effectiveModuleStatus(board, *module, now)
-	if staff {
-		if !admin && !s.moduleInScope(moduleIDs, moduleID) {
-			return nil, ErrForbidden
-		}
-	} else {
-		if err := s.requireBoardRead(ctx, principal, boardID); err != nil {
-			return nil, ErrBoardAccessDenied
-		}
-		if s.accessPolicy != nil {
-			allowed, policyErr := s.accessPolicy.CanAccessModule(ctx, principal, boardID, moduleID)
-			if policyErr != nil {
-				return nil, mapAccessError(policyErr)
-			}
-			if !allowed {
-				return nil, ErrModuleNotAvailable
-			}
-		}
+	module.Preview = scope.preview
+	module.CanParticipate = scope.participant
+	if scope.participant {
+		// A participant read keeps the existing availability gate. A staff
+		// preview intentionally shows upcoming, disabled and draft modules,
+		// which is the point of an organizer preview.
 		if module.Status != ModuleStatusActive {
 			return nil, ErrModuleNotAvailable
 		}
+		return module, nil
+	}
+	if !scope.preview {
+		return nil, ErrModuleNotAvailable
 	}
 	return module, nil
 }

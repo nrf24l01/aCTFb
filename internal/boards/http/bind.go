@@ -52,20 +52,29 @@ func bindJSON(c *echo.Context, dst any) (rawBody, *apiProblem) {
 // bindOptionalJSON accepts a genuinely absent or empty body and otherwise
 // applies exactly the same strict contract as bindJSON. It is used by additive
 // operations whose body is optional, such as generating a random join code.
+//
+// The body is always read and bounded first. A non-empty body without a JSON
+// content type is a 415, never a silent "no body": treating it as absent would
+// let a client that sent `{"code":"..."}` without the header generate and
+// rotate a different, random code on a credential operation.
 func bindOptionalJSON(c *echo.Context, dst any) (rawBody, *apiProblem) {
+	raw, problem := readBody(c)
+	if problem != nil {
+		return nil, problem
+	}
+	empty := len(bytes.TrimSpace(raw)) == 0
 	contentType := c.Request().Header.Get("Content-Type")
 	if contentType == "" {
-		return nil, nil
+		if empty {
+			return nil, nil
+		}
+		return nil, unsupportedMediaProblem()
 	}
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil || !strings.EqualFold(mediaType, "application/json") {
 		return nil, unsupportedMediaProblem()
 	}
-	raw, problem := readBody(c)
-	if problem != nil {
-		return nil, problem
-	}
-	if len(bytes.TrimSpace(raw)) == 0 {
+	if empty {
 		return nil, nil
 	}
 	return decodeStrict(raw, dst)
@@ -75,13 +84,9 @@ func readBody(c *echo.Context) ([]byte, *apiProblem) {
 	body := http.MaxBytesReader(c.Response(), c.Request().Body, maxBoardBodyBytes)
 	raw, err := io.ReadAll(body)
 	if err != nil {
-		var maxBytesError *http.MaxBytesError
-		if stderrors.As(err, &maxBytesError) {
-			return nil, &apiProblem{
-				status: http.StatusRequestEntityTooLarge, code: oapimodels.ErrorCodePAYLOADTOOLARGE,
-				message: "Payload too large",
-			}
-		}
+		// Keep the documented board-route contract: an oversized body is the
+		// existing 400 INVALID_JSON, not a new 413 that no board operation
+		// declares. The join-code route documents its own limits separately.
 		return nil, invalidJSONProblem("Malformed JSON")
 	}
 	return raw, nil

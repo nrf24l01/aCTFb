@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/nrf24l01/actfb/internal/authorization"
 )
 
 // Clock is injected so status/window behavior is deterministic in tests.
@@ -80,8 +82,10 @@ type Store interface {
 	GetBoardInvite(ctx context.Context, boardID uuid.UUID) (hash string, ciphertext []byte, expiresAt *time.Time, err error)
 
 	// Enrollment codes are hash-only and independent of the credential sealer.
-	SetBoardJoinCode(ctx context.Context, boardID, actorID uuid.UUID, hash string, audit AuditEventParams) error
-	BoardJoinCodeStatus(ctx context.Context, boardID uuid.UUID) (configured bool, updatedAt *time.Time, err error)
+	// SetBoardJoinCode re-checks live board.update inside its transaction so a
+	// demotion during the lock wait cannot rotate with stale claims.
+	SetBoardJoinCode(ctx context.Context, boardID, actorID uuid.UUID, hash string, expectedRevision *int64, auth authorization.Authorizer, audit AuditEventParams) (*BoardJoinCodeRecord, error)
+	BoardJoinCodeStatus(ctx context.Context, boardID uuid.UUID) (configured bool, revision int64, updatedAt *time.Time, err error)
 	BoardByJoinCodeHash(ctx context.Context, hash string) (*Board, error)
 
 	ResolveSubject(ctx context.Context, boardID, userID uuid.UUID) (ScoreSubject, error)

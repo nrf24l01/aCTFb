@@ -21,12 +21,29 @@ func issueJoinCode(t *testing.T, router *echo.Echo, boardID, adminToken string) 
 	return *response.Code
 }
 
+// joinCodeRevision reads the current status revision, which a replace must echo
+// back as expectedRevision.
+func joinCodeRevision(t *testing.T, router *echo.Echo, boardID, adminToken string) int64 {
+	t.Helper()
+	status := decode[oapimodels.BoardJoinCodeStatus](t, doJSON(t, router, http.MethodGet,
+		"/api/v2/admin/boards/"+boardID+"/join-code", adminToken, nil, nil, http.StatusOK), http.StatusOK)
+	if status.Revision == nil {
+		t.Fatalf("join code status has no revision: %+v", status)
+	}
+	return *status.Revision
+}
+
 // issueCustomJoinCode sets a specific code, used to assert normalization and
-// custom-code behavior over the wire.
+// custom-code behavior over the wire. It echoes the current revision so the
+// optimistic-concurrency precondition is satisfied.
 func issueCustomJoinCode(t *testing.T, router *echo.Echo, boardID, adminToken, code string) string {
 	t.Helper()
+	body := map[string]any{"code": code}
+	if revision := joinCodeRevision(t, router, boardID, adminToken); revision > 0 {
+		body["expectedRevision"] = revision
+	}
 	response := decode[oapimodels.BoardJoinCodeResponse](t, doJSON(t, router, http.MethodPost,
-		"/api/v2/admin/boards/"+boardID+"/join-code", adminToken, map[string]any{"code": code}, nil, http.StatusOK), http.StatusOK)
+		"/api/v2/admin/boards/"+boardID+"/join-code", adminToken, body, nil, http.StatusOK), http.StatusOK)
 	if response.Code == nil || *response.Code == "" {
 		t.Fatalf("custom join code is empty: %+v", response)
 	}

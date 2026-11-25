@@ -120,6 +120,9 @@ func seedInstanceFixture(t *testing.T, db *postgres.DB) seedIDs {
 	exec(`INSERT INTO boards (id, slug, name, participation_mode, registration_mode, visibility, status, starts_at, ends_at, created_by)
 	      VALUES ($1,$2,'Board','INDIVIDUAL','OPEN','PUBLIC','ACTIVE',$3,$4,$5)`,
 		ids.BoardID, "b-"+ids.BoardID.String()[:8], now.Add(-time.Hour), now.Add(24*time.Hour), ids.UserID)
+	// Participant-own instance actions require a live participant row plus the
+	// access group/audience rules, so the fixture actor is a real participant.
+	exec(`INSERT INTO board_participants (board_id, user_id) VALUES ($1,$2)`, ids.BoardID, ids.UserID)
 	exec(`INSERT INTO modules (id, board_id, name, type, allowed_task_types, created_by)
 	      VALUES ($1,$2,'Tasks','TASKS',ARRAY['FLAG']::text[],$3)`,
 		ids.ModuleID, ids.BoardID, ids.UserID)

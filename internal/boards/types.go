@@ -140,6 +140,14 @@ type Board struct {
 	// identifiers, and the public projection never exposes those identifiers.
 	AccessGroupCount int
 	InviteExpiresAt  *time.Time
+
+	// Preview reports that this read is a staff management preview: the caller
+	// is not participant-eligible here, so no participant-own action (submit,
+	// own history, score, instance) is available. CanParticipate reports live
+	// participant eligibility. Both are computed server-side from live
+	// authorization state and are read-only projections.
+	Preview        bool
+	CanParticipate bool
 }
 
 // EffectiveStatus applies the frozen half-open clock rules. SCHEDULED becomes
@@ -218,6 +226,13 @@ type Module struct {
 	TaskInstanceSettings *TaskInstanceSettings
 
 	Status string
+
+	// Preview reports that this module read is a staff management preview and
+	// CanParticipate reports live participant eligibility for this exact
+	// module. They are authoritative read-only projections, never inferred from
+	// the board's joined flag.
+	Preview        bool
+	CanParticipate bool
 }
 
 // isTaskModuleType reports modules that own /tasks resources. EXTENSION is a
@@ -266,6 +281,12 @@ type Task struct {
 	// the task so the read model can resolve the effective lifetime without an
 	// extra query per task. It is never mutated through the task.
 	ModuleInstanceSettings *TaskInstanceSettings
+
+	// Preview reports that this task read is a staff management preview and
+	// CanParticipate reports live participant eligibility for the task's module.
+	// A preview never unlocks own history, submission or instance actions.
+	Preview        bool
+	CanParticipate bool
 }
 
 // Participant is a board_participants row.
@@ -314,6 +335,11 @@ type BoardMe struct {
 	Place             *int
 	Audiences         []AudienceSummary
 	Team              *Team
+	// Preview/CanParticipate mirror the board read capability: a caller whose
+	// participant row outlived a revoked access group keeps the row but gets no
+	// own progress and is marked as a preview.
+	Preview        bool
+	CanParticipate bool
 }
 
 // AudienceSummary mirrors the public audience shape without introducing
