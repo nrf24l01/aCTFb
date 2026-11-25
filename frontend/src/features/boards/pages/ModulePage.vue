@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import EmptyState from '@/components/layout/EmptyState.vue'
@@ -12,6 +13,7 @@ import StatusPill from '@/components/layout/StatusPill.vue'
 import { moduleFormatLabel } from '@/features/boards/format'
 import TaskCard from '@/features/boards/components/TaskCard.vue'
 import { boardsApi } from '@/features/boards/api/boards'
+import { isApiError } from '@/shared/api/errors'
 import { formatDateTime } from '@/shared/lib/format'
 import type { Board, Module, TaskListItem } from '@/shared/types/api'
 
@@ -24,11 +26,14 @@ const module = ref<Module | null>(null)
 const tasks = ref<TaskListItem[]>([])
 const loading = ref(true)
 const error = ref<unknown>(null)
+const tasksUnavailable = ref(false)
 const isPentest = computed(() => module.value?.type === 'PENTEST')
+const isPreview = computed(() => board.value !== null && board.value.joined === false)
 
 async function load() {
   loading.value = true
   error.value = null
+  tasksUnavailable.value = false
   try {
     const [loadedBoard, loadedModule] = await Promise.all([
       boardsApi.getBoard(boardUuid.value),
@@ -36,10 +41,22 @@ async function load() {
     ])
     board.value = loadedBoard
     module.value = loadedModule
-    if (loadedModule.type === 'TASKS') {
-      tasks.value = (await boardsApi.listTasks(boardUuid.value, moduleUuid.value, { limit: 100 })).items
-    } else {
+    if (loadedModule.type !== 'TASKS') {
       tasks.value = []
+      return
+    }
+    try {
+      tasks.value = (await boardsApi.listTasks(boardUuid.value, moduleUuid.value, { limit: 100 })).items
+    } catch (caught) {
+      // Task lists require participation (or a live staff role, which the
+      // backend grants as an organizer preview). An unjoined reader gets a
+      // participation state, never a "could not load" error.
+      if (!loadedBoard.joined && isApiError(caught)) {
+        tasks.value = []
+        tasksUnavailable.value = true
+        return
+      }
+      throw caught
     }
   } catch (caught) {
     error.value = caught
@@ -80,6 +97,14 @@ void load()
         </span>
       </div>
 
+      <Alert v-if="isPreview" class="mb-6 rounded-none border-gold/60 bg-black">
+        <AlertTitle>Organizer preview</AlertTitle>
+        <AlertDescription>
+          You are viewing this module as staff without joining the board. Submissions and instance actions need
+          participation.
+        </AlertDescription>
+      </Alert>
+
       <section v-if="isPentest" class="mb-6 border border-border px-4 py-4" aria-labelledby="pentest-heading">
         <h2 id="pentest-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           Pentest lab
@@ -97,7 +122,12 @@ void load()
           Tasks
         </h2>
         <EmptyState
-          v-if="tasks.length === 0"
+          v-if="tasksUnavailable"
+          title="Join the board to view tasks"
+          description="Task lists are available to participants. Open the board and join to take part."
+        />
+        <EmptyState
+          v-else-if="tasks.length === 0"
           title="No tasks available"
           description="Tasks appear when the organizer publishes them and the module is active."
         />

@@ -465,17 +465,7 @@ func (s *AccessService) CanAccessModule(ctx context.Context, principal authoriza
 		return false, err
 	}
 	if joined {
-		// Participant visibility requires current board group membership and
-		// audience membership; grants/roles do not bypass this path.
-		groupAllowed, err := participantGroupAllowed(ctx, s.db.Pool, board, user.ID)
-		if err != nil || !groupAllowed {
-			return false, err
-		}
-		subject, ok, err := resolveSubject(ctx, s.db.Pool, board, user.ID)
-		if err != nil || !ok {
-			return false, err
-		}
-		return moduleAudienceAllowed(ctx, s.db.Pool, boardID, moduleID, subject)
+		return s.participantModuleAllowed(ctx, board, moduleID, user.ID)
 	}
 	if staff, err := hasModuleStaff(ctx, s.db.Pool, boardID, moduleID, user.ID); err != nil {
 		return false, err
@@ -485,6 +475,54 @@ func (s *AccessService) CanAccessModule(ctx context.Context, principal authoriza
 		return true, nil
 	}
 	return false, nil
+}
+
+// CanAccessModuleAsParticipant applies only the participant rules: a joined
+// subject with live board access-group membership and module audience
+// membership. It deliberately has no global-admin shortcut, so an admin who
+// joined a board cannot bypass a revoked access group or module audience while
+// acting in a participant context (own submission/history). A non-participant
+// is denied.
+func (s *AccessService) CanAccessModuleAsParticipant(ctx context.Context, principal authorization.Principal, boardID, moduleID uuid.UUID) (bool, error) {
+	if err := s.ready(); err != nil {
+		return false, err
+	}
+	user, err := loadLiveUser(ctx, s.db.Pool, principal.UserID)
+	if err != nil {
+		return false, err
+	}
+	board, err := loadBoard(ctx, s.db.Pool, boardID)
+	if err != nil {
+		return false, err
+	}
+	if err := moduleBelongsToBoard(ctx, s.db.Pool, boardID, moduleID); err != nil {
+		return false, err
+	}
+	joined, err := isBoardParticipant(ctx, s.db.Pool, boardID, user.ID)
+	if err != nil || !joined {
+		return false, err
+	}
+	return s.participantModuleAllowed(ctx, board, moduleID, user.ID)
+}
+
+// participantModuleAllowed is the shared participant visibility rule: current
+// access-group membership plus current audience membership for the resolved
+// subject. Revocation is immediate.
+func (s *AccessService) participantModuleAllowed(
+	ctx context.Context,
+	board boardRecord,
+	moduleID uuid.UUID,
+	userID uuid.UUID,
+) (bool, error) {
+	groupAllowed, err := participantGroupAllowed(ctx, s.db.Pool, board, userID)
+	if err != nil || !groupAllowed {
+		return false, err
+	}
+	subject, ok, err := resolveSubject(ctx, s.db.Pool, board, userID)
+	if err != nil || !ok {
+		return false, err
+	}
+	return moduleAudienceAllowed(ctx, s.db.Pool, board.ID, moduleID, subject)
 }
 
 func (s *AccessService) IsSubjectInAudience(ctx context.Context, boardID, audienceID uuid.UUID, subject Subject) (bool, error) {

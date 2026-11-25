@@ -19,7 +19,7 @@ import { taskTypeLabel } from '@/features/boards/format'
 import { renderMarkdown } from '@/shared/lib/markdown'
 import { formatBytes } from '@/shared/lib/format'
 import { useSession } from '@/features/auth/session'
-import type { BoardPermissionsResponse, FileRef, Module, Submission, Task } from '@/shared/types/api'
+import type { Board, BoardPermissionsResponse, FileRef, Module, Submission, Task } from '@/shared/types/api'
 
 const route = useRoute()
 const { state } = useSession()
@@ -28,6 +28,7 @@ const moduleUuid = computed(() => String(route.params.moduleUuid))
 const taskUuid = computed(() => String(route.params.taskUuid))
 
 const task = ref<Task | null>(null)
+const board = ref<Board | null>(null)
 const module = ref<Module | null>(null)
 const permissions = ref<BoardPermissionsResponse | null>(null)
 const submissions = ref<Submission[]>([])
@@ -37,6 +38,11 @@ const error = ref<unknown>(null)
 const historyError = ref<unknown>(null)
 
 const isAuthenticated = computed(() => state.status === 'authenticated')
+// Staff read an authorized module/task as an organizer preview without joining.
+// Own-submission history and every participation-gated action stay denied for
+// them, so the page must not call those endpoints or show fake attempts.
+const isParticipant = computed(() => board.value?.joined === true)
+const isPreview = computed(() => board.value !== null && board.value.joined === false)
 const canEdit = computed(
   () =>
     (state.user?.roles.includes('admin') ?? false) ||
@@ -63,11 +69,14 @@ async function loadHistory() {
 async function load() {
   loading.value = true
   error.value = null
+  historyError.value = null
   try {
-    const [loadedModule, loadedTask] = await Promise.all([
+    const [loadedBoard, loadedModule, loadedTask] = await Promise.all([
+      boardsApi.getBoard(boardUuid.value),
       boardsApi.getModule(boardUuid.value, moduleUuid.value),
       boardsApi.getTask(boardUuid.value, moduleUuid.value, taskUuid.value),
     ])
+    board.value = loadedBoard
     module.value = loadedModule
     task.value = loadedTask
     try {
@@ -75,7 +84,12 @@ async function load() {
     } catch {
       permissions.value = null
     }
-    await loadHistory()
+    if (loadedBoard.joined) {
+      await loadHistory()
+    } else {
+      submissions.value = []
+      historyLoading.value = false
+    }
   } catch (caught) {
     error.value = caught
   } finally {
@@ -122,7 +136,7 @@ async function onSubmitted() {
         task.value = fresh
       })
       .catch(() => undefined),
-    loadHistory(),
+    isParticipant.value ? loadHistory() : Promise.resolve(),
   ])
 }
 
@@ -173,7 +187,14 @@ void load()
         </div>
       </header>
 
-      <Alert v-if="!isAuthenticated" class="mb-4 rounded-none border-gold/60 bg-black">
+      <Alert v-if="isPreview" class="mb-4 rounded-none border-gold/60 bg-black">
+        <AlertTitle>Organizer preview</AlertTitle>
+        <AlertDescription>
+          You are viewing this task as staff without joining the board. Submission and instance actions require
+          participation.
+        </AlertDescription>
+      </Alert>
+      <Alert v-else-if="!isAuthenticated" class="mb-4 rounded-none border-gold/60 bg-black">
         <AlertTitle>Sign in to submit</AlertTitle>
         <AlertDescription>
           <RouterLink :to="{ name: 'sign-in', query: { redirect: route.fullPath } }" class="underline underline-offset-4">Sign in</RouterLink>
@@ -217,34 +238,39 @@ void load()
         </div>
 
         <div class="space-y-4 self-start">
-          <FlagSubmitForm
-            v-if="task.type === 'FLAG'"
-            :board-uuid="boardUuid"
-            :module-uuid="moduleUuid"
-            :task="task"
-            @submitted="onSubmitted"
-          />
-          <ManualSubmissionForm
-            v-else-if="isManualReview"
-            :board-uuid="boardUuid"
-            :module-uuid="moduleUuid"
-            :task="task"
-            @submitted="onSubmitted"
-          />
+          <template v-if="isParticipant">
+            <FlagSubmitForm
+              v-if="task.type === 'FLAG'"
+              :board-uuid="boardUuid"
+              :module-uuid="moduleUuid"
+              :task="task"
+              @submitted="onSubmitted"
+            />
+            <ManualSubmissionForm
+              v-else-if="isManualReview"
+              :board-uuid="boardUuid"
+              :module-uuid="moduleUuid"
+              :task="task"
+              @submitted="onSubmitted"
+            />
+            <p v-else class="border border-border px-4 py-3 text-sm text-muted-foreground">
+              Use the module-specific workflow for this task.
+            </p>
+            <InstancePanel
+              v-if="task.type === 'INSTANCE' || task.instance.required"
+              :board-uuid="boardUuid"
+              :module-uuid="moduleUuid"
+              :task="task"
+              @changed="load"
+            />
+          </template>
           <p v-else class="border border-border px-4 py-3 text-sm text-muted-foreground">
-            Use the module-specific workflow for this task.
+            Submission and instance actions are available after joining the board.
           </p>
-          <InstancePanel
-            v-if="task.type === 'INSTANCE' || task.instance.required"
-            :board-uuid="boardUuid"
-            :module-uuid="moduleUuid"
-            :task="task"
-            @changed="load"
-          />
         </div>
       </div>
 
-      <section class="mt-8" aria-labelledby="history-heading">
+      <section v-if="isParticipant" class="mt-8" aria-labelledby="history-heading">
         <h2 id="history-heading" class="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           Your submissions
         </h2>

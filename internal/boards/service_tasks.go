@@ -13,7 +13,9 @@ import (
 )
 
 // ListTasks returns visible tasks only while the board and module are active.
-// Staff-only hidden tasks are available through the admin endpoints.
+// A live scoped staff member reads the module as an organizer preview without
+// joining; hidden tasks stay reserved to module.tasks.manage. Staff-only hidden
+// tasks are also available through the admin endpoints.
 func (s *Service) ListTasks(ctx context.Context, principal authorization.Principal, boardID, moduleID uuid.UUID, query ListQuery) (Page[Task], error) {
 	ctx, cancel := s.operationContext(ctx)
 	defer cancel()
@@ -25,11 +27,15 @@ func (s *Service) ListTasks(ctx context.Context, principal authorization.Princip
 	if err != nil {
 		return Page[Task]{}, err
 	}
-	if _, err := s.store.GetParticipant(ctx, boardID, principal.UserID); err != nil {
-		if errors.Is(err, ErrBoardNotJoined) {
-			return Page[Task]{}, ErrBoardAccessDenied
-		}
+	scope, participant, err := s.resolveReadScope(ctx, principal, boardID, moduleID)
+	if err != nil {
 		return Page[Task]{}, err
+	}
+	if scope.preview {
+		return s.listPreviewTasks(ctx, principal, boardID, moduleID, scope, query)
+	}
+	if !participant {
+		return Page[Task]{}, ErrBoardAccessDenied
 	}
 	if err := s.requirePermission(ctx, principal, authorization.PermissionBoardRead, authorization.Scope{BoardID: boardID}); err != nil {
 		return Page[Task]{}, ErrBoardAccessDenied
@@ -63,7 +69,9 @@ func (s *Service) ListTasks(ctx context.Context, principal authorization.Princip
 	return Page[Task]{Items: tasks, Limit: query.Limit, Offset: query.Offset, Total: total}, nil
 }
 
-// GetTask returns one visible task only when the board/module are active.
+// GetTask returns one visible task only when the board/module are active. A
+// live scoped staff member reads the same task as an organizer preview without
+// joining; an invisible draft task stays reserved to module.tasks.manage.
 func (s *Service) GetTask(ctx context.Context, principal authorization.Principal, boardID, moduleID, taskID uuid.UUID) (*Task, error) {
 	ctx, cancel := s.operationContext(ctx)
 	defer cancel()
@@ -74,11 +82,15 @@ func (s *Service) GetTask(ctx context.Context, principal authorization.Principal
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.store.GetParticipant(ctx, boardID, principal.UserID); err != nil {
-		if errors.Is(err, ErrBoardNotJoined) {
-			return nil, ErrBoardAccessDenied
-		}
+	scope, participant, err := s.resolveReadScope(ctx, principal, boardID, moduleID)
+	if err != nil {
 		return nil, err
+	}
+	if scope.preview {
+		return s.getPreviewTask(ctx, principal, boardID, moduleID, taskID, scope)
+	}
+	if !participant {
+		return nil, ErrBoardAccessDenied
 	}
 	if err := s.requirePermission(ctx, principal, authorization.PermissionBoardRead, authorization.Scope{BoardID: boardID}); err != nil {
 		return nil, ErrBoardAccessDenied
@@ -119,6 +131,50 @@ func (s *Service) GetTask(ctx context.Context, principal authorization.Principal
 	return task, nil
 }
 
+// listPreviewTasks is the staff organizer preview read model. It deliberately
+// reuses the participant projection so a preview can never expose accepted
+// answers, hashes, secret parameters or extension credentials.
+func (s *Service) listPreviewTasks(
+	ctx context.Context,
+	principal authorization.Principal,
+	boardID, moduleID uuid.UUID,
+	scope readScope,
+	query ListQuery,
+) (Page[Task], error) {
+	tasks, total, err := s.store.ListTasks(ctx, boardID, moduleID, TaskFilter{
+		Limit: query.Limit, Offset: query.Offset, UserID: principal.UserID,
+		IncludeHidden: scope.manageTasks,
+	})
+	if err != nil {
+		return Page[Task]{}, err
+	}
+	for index := range tasks {
+		tasks[index].Status = taskStatus(tasks[index])
+	}
+	return Page[Task]{Items: tasks, Limit: query.Limit, Offset: query.Offset, Total: total}, nil
+}
+
+// getPreviewTask is the staff organizer preview detail read.
+func (s *Service) getPreviewTask(
+	ctx context.Context,
+	principal authorization.Principal,
+	boardID, moduleID, taskID uuid.UUID,
+	scope readScope,
+) (*Task, error) {
+	task, err := s.store.GetTask(ctx, boardID, moduleID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if !task.Visible && !scope.manageTasks {
+		return nil, ErrTaskNotAvailable
+	}
+	task.Status = taskStatus(*task)
+	if count, err := s.store.TaskAcceptedCount(ctx, taskID); err == nil {
+		task.SolvesCount = count
+	}
+	return task, nil
+}
+
 func taskStatus(task Task) string {
 	if task.Solved {
 		return TaskStatusSolved
@@ -139,6 +195,24 @@ func (s *Service) requireParticipantModuleAccess(ctx context.Context, principal 
 	}
 	if !allowed {
 		return ErrModuleNotAvailable
+	}
+	return nil
+}
+
+// requireParticipantOwnModuleAccess is the participant-own gate for submission
+// write/history. It applies the participant visibility rules without the
+// global-admin shortcut, so an admin who joined a board still cannot submit
+// after the access group or audience was revoked.
+func (s *Service) requireParticipantOwnModuleAccess(ctx context.Context, principal authorization.Principal, boardID, moduleID uuid.UUID) error {
+	if s.accessPolicy == nil {
+		return nil
+	}
+	allowed, err := s.accessPolicy.CanAccessModuleAsParticipant(ctx, principal, boardID, moduleID)
+	if err != nil {
+		return mapAccessError(err)
+	}
+	if !allowed {
+		return ErrBoardAccessDenied
 	}
 	return nil
 }
@@ -232,7 +306,7 @@ func (s *Service) SubmitTask(
 		authorization.Scope{BoardID: path.BoardID, ModuleID: &path.ModuleID}); err != nil {
 		return nil, ErrBoardAccessDenied
 	}
-	if err := s.requireParticipantModuleAccess(ctx, principal, path.BoardID, path.ModuleID); err != nil {
+	if err := s.requireParticipantOwnModuleAccess(ctx, principal, path.BoardID, path.ModuleID); err != nil {
 		return nil, err
 	}
 	draftIDText := ""
@@ -479,6 +553,9 @@ func (s *Service) ListMyTaskSubmissions(
 	if err := s.requirePermission(ctx, principal, authorization.PermissionSubmissionReadOwn,
 		authorization.Scope{BoardID: path.BoardID, ModuleID: &path.ModuleID}); err != nil {
 		return Page[Submission]{}, ErrBoardAccessDenied
+	}
+	if err := s.requireParticipantOwnModuleAccess(ctx, principal, path.BoardID, path.ModuleID); err != nil {
+		return Page[Submission]{}, err
 	}
 	if _, err := s.store.GetTask(ctx, path.BoardID, path.ModuleID, path.TaskID); err != nil {
 		return Page[Submission]{}, err

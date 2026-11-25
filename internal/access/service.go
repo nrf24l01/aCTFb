@@ -16,6 +16,11 @@ type Policy interface {
 	CanJoinBoard(ctx context.Context, principal authorization.Principal, boardID uuid.UUID) (bool, error)
 	CanReadBoard(ctx context.Context, principal authorization.Principal, boardID uuid.UUID) (bool, error)
 	CanAccessModule(ctx context.Context, principal authorization.Principal, boardID, moduleID uuid.UUID) (bool, error)
+	// CanAccessModuleAsParticipant applies the participant visibility rules
+	// without a global-admin shortcut. Participant-own actions use it so an
+	// admin who joined a board still obeys a revoked access group or audience
+	// in that context.
+	CanAccessModuleAsParticipant(ctx context.Context, principal authorization.Principal, boardID, moduleID uuid.UUID) (bool, error)
 	IsSubjectInAudience(ctx context.Context, boardID, audienceID uuid.UUID, subject Subject) (bool, error)
 }
 
