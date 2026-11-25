@@ -269,7 +269,7 @@ void load()
         <h3 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Runs</h3>
         <EmptyState v-if="runs.length === 0" title="No runs" description="Runs are created by participants/webhooks." />
         <div v-for="run in runs" :key="run.uuid" class="flex flex-wrap items-center justify-between gap-2 border-b border-border py-2 text-sm last:border-0">
-          <span><StatusBadge :label="run.status" :tone="run.status === 'PASSED' ? 'ok' : run.status === 'FAILED' ? 'broken' : 'running'" /> {{ run.kind }}</span>
+          <span><StatusBadge :status="run.status" /> {{ run.kind }}</span>
           <span class="flex gap-1">
             <Button variant="outline" size="sm" @click="runAction = run; runActionKind = 'CANCEL'">Cancel</Button>
             <Button variant="outline" size="sm" @click="runAction = run; runActionKind = 'RETRY'">Retry</Button>

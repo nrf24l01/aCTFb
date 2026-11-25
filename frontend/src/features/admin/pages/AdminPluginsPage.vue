@@ -377,7 +377,7 @@ void load()
                 <span class="font-medium">{{ plugin.name }}</span>
                 <span class="block text-xs text-muted-foreground">{{ plugin.id }} · v{{ plugin.version }} · API {{ plugin.apiVersion }}</span>
               </TableCell>
-              <TableCell><StatusBadge :label="plugin.status" :tone="plugin.status === 'enabled' ? 'ok' : plugin.status === 'unhealthy' || plugin.status === 'failed' ? 'broken' : 'unknown'" /></TableCell>
+              <TableCell><StatusBadge :status="plugin.status" /></TableCell>
               <TableCell class="text-xs">{{ plugin.health.status }}<span v-if="plugin.health.message" class="block text-muted-foreground">{{ plugin.health.message }}</span></TableCell>
               <TableCell class="text-xs">{{ plugin.capabilities.length }} / {{ plugin.permissions.length }}</TableCell>
               <TableCell class="text-right"><Button variant="outline" size="sm" @click="selectPlugin(plugin)">Manage</Button></TableCell>

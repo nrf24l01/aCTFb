@@ -813,3 +813,18 @@ correct but not optimised); `internal/authorization/role_auth.go` still evaluate
 pool-backed checker inside the role-mutation transaction (pre-existing, same class as the fixed join-code path);
 and no local `docker pull`/`docker run` of the new tags was performed because this environment has no Docker
 daemon — that behaviour is covered by the CI Docker smokes and the anonymous registry verification.
+
+## 2026-11-25 accessible status colours (local, unpushed)
+
+Status badges now use one semantic mapping (`frontend/src/shared/lib/status.ts`) and one tokenised palette
+(`--status-*-ink/surface/border` in `frontend/src/style.css`): green success, cyan active/processing, amber
+pending review/attention, rose error, lavender restricted, gray draft/unknown and muted finished/expired/
+canceled. Every badge keeps a visible text label next to a decorative `aria-hidden` icon; the pulsing
+`running` dot was removed, so no state depends on colour or motion alone. Ink contrast on the tinted surface
+measures 5.13:1–8.37:1.
+
+Legacy `tone` values (`ok`, `look`, `blocked`, `broken`, `unknown`, `off`, `running`, `gone`) remain valid for
+existing callers. Inline status→tone ternaries in the admin, instance, pentest, AD and file-upload views were
+replaced with the shared `statusTone`/`statusLabel` path, which fixes `EXPIRED`/`CANCELED` being rendered as
+running and keeps unknown statuses neutral. Status: **implemented; local unit/typecheck/build evidence;
+unpushed pending review.** Evidence: `docs/status-colors-verification.md`.

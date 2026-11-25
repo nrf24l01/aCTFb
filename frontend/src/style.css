@@ -90,6 +90,40 @@
   --foam: #9ccfd8;
   --rose: #ebbcba;
 
+  /*
+   * Status tones: ink (label + icon), tinted surface, border. The ink keeps at
+   * least 4.5:1 contrast on its own surface (measured against #191724 tints):
+   * success 7.75, active 8.06, attention 8.37, error 5.13, restricted 6.76,
+   * neutral 5.81, muted 5.16. Labels and icons always accompany the colour.
+   */
+  --status-success-ink: #9ccf8f;
+  --status-success-surface: #292d31;
+  --status-success-border: #4b5d4d;
+
+  --status-active-ink: #9ccfd8;
+  --status-active-surface: #292d3a;
+  --status-active-border: #4b5d68;
+
+  --status-attention-ink: #f6c177;
+  --status-attention-surface: #342b2e;
+  --status-attention-border: #6d5844;
+
+  --status-error-ink: #eb6f92;
+  --status-error-surface: #322231;
+  --status-error-border: #69384e;
+
+  --status-restricted-ink: #c4a7e7;
+  --status-restricted-surface: #2e283b;
+  --status-restricted-border: #5a4e6e;
+
+  --status-neutral-ink: #a6a1bd;
+  --status-neutral-surface: #2a2836;
+  --status-neutral-border: #4f4b5e;
+
+  --status-muted-ink: #9a95b2;
+  --status-muted-surface: #282635;
+  --status-muted-border: #4a475a;
+
   --background: var(--black);
   --foreground: var(--text);
   --card: var(--black);

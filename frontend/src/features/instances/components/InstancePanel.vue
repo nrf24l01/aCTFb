@@ -189,7 +189,7 @@ void load()
         </EmptyState>
         <template v-else>
           <div class="flex flex-wrap items-center gap-2">
-            <StatusBadge :label="instance.status" :tone="instance.status === 'RUNNING' ? 'ok' : instance.status === 'ERROR' ? 'broken' : 'running'" />
+            <StatusBadge :status="instance.status" />
             <span class="text-xs text-muted-foreground">{{ instance.owner.type }} {{ instance.owner.name }}</span>
             <span class="text-xs text-muted-foreground">Created {{ formatDateTime(instance.createdAt) }}</span>
           </div>

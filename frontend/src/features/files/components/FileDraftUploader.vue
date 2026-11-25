@@ -13,7 +13,7 @@ import {
   validateFileAgainstPolicy,
 } from '@/features/files/draft'
 import { formatDateTime } from '@/shared/lib/format'
-import type { PendingFile, SubmissionDraft, SubmissionFilesPolicy } from '@/shared/types/api'
+import type { SubmissionDraft, SubmissionFilesPolicy } from '@/shared/types/api'
 
 const props = defineProps<{
   boardUuid: string
@@ -166,21 +166,6 @@ async function cancel() {
   }
 }
 
-function statusBadge(file: PendingFile) {
-  switch (file.status) {
-    case 'READY':
-    case 'ATTACHED':
-      return 'ok' as const
-    case 'REJECTED':
-    case 'EXPIRED':
-      return 'broken' as const
-    case 'VALIDATING':
-      return 'running' as const
-    default:
-      return 'unknown' as const
-  }
-}
-
 onUnmounted(() => abort?.abort())
 </script>
 
@@ -208,7 +193,7 @@ onUnmounted(() => abort?.abort())
       <div v-for="file in files" :key="file.uuid" class="border border-border px-3 py-2 text-sm">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <span class="break-all">{{ file.filename }}</span>
-          <StatusBadge :label="file.status" :tone="statusBadge(file)" />
+          <StatusBadge :status="file.status" />
         </div>
         <p class="text-xs text-muted-foreground">{{ file.contentType }} · {{ file.size }} bytes · SHA-256 {{ file.sha256 }}</p>
         <p v-if="file.rejectionCode" class="text-xs text-love">Rejected: {{ file.rejectionCode }}</p>

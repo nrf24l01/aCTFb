@@ -1,61 +1,72 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { Component } from 'vue'
+import {
+  CircleAlertIcon,
+  CircleCheckIcon,
+  CircleDotIcon,
+  CircleIcon,
+  CircleSlashIcon,
+  ClockIcon,
+  LockIcon,
+} from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
+import { statusLabel, statusTone } from '@/shared/lib/status'
+import type { StatusTone } from '@/shared/lib/status'
 
-type Tone = 'ok' | 'look' | 'blocked' | 'broken' | 'unknown' | 'off' | 'running' | 'gone'
+// Older callers still pass these names; map them to the semantic tones instead
+// of keeping a second visual language.
+type LegacyTone = 'ok' | 'look' | 'blocked' | 'broken' | 'unknown' | 'off' | 'running' | 'gone'
+type Tone = StatusTone | LegacyTone
+
+const LEGACY_TONES: Record<string, StatusTone> = {
+  ok: 'success',
+  look: 'attention',
+  blocked: 'restricted',
+  broken: 'error',
+  unknown: 'neutral',
+  off: 'neutral',
+  running: 'active',
+  gone: 'muted',
+}
+
+const TONE_ICONS: Record<StatusTone, Component> = {
+  success: CircleCheckIcon,
+  active: CircleDotIcon,
+  attention: ClockIcon,
+  error: CircleAlertIcon,
+  restricted: LockIcon,
+  neutral: CircleIcon,
+  muted: CircleSlashIcon,
+}
 
 const props = defineProps<{
-  label: string
+  label?: string
   tone?: Tone
+  status?: string
 }>()
 
-const colour = computed(() => {
-  switch (props.tone) {
-    case 'ok':
-      return 'var(--pine)'
-    case 'look':
-      return 'var(--gold)'
-    case 'blocked':
-      return 'var(--iris)'
-    case 'broken':
-      return 'var(--love)'
-    case 'running':
-      return 'var(--text)'
-    case 'gone':
-      return 'var(--muted-ink)'
-    default:
-      return 'var(--subtle)'
+const resolvedTone = computed<StatusTone>(() => {
+  if (props.tone) {
+    return LEGACY_TONES[props.tone] ?? (props.tone as StatusTone)
   }
+  return props.status ? statusTone(props.status) : 'neutral'
 })
 
-const shape = computed(() => {
-  switch (props.tone) {
-    case 'ok':
-      return 'rounded-full'
-    case 'look':
-      return '[clip-path:polygon(50%_0,100%_100%,0_100%)]'
-    case 'blocked':
-      return '[clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)]'
-    case 'broken':
-      return ''
-    case 'running':
-      return 'rounded-full animate-pulse'
-    case 'gone':
-      return 'h-0.5 w-2.5'
-    default:
-      return 'border'
-  }
-})
+const text = computed(() => props.label ?? (props.status ? statusLabel(props.status) : ''))
+
+const icon = computed(() => TONE_ICONS[resolvedTone.value])
+
+const palette = computed(() => ({
+  color: `var(--status-${resolvedTone.value}-ink)`,
+  backgroundColor: `var(--status-${resolvedTone.value}-surface)`,
+  borderColor: `var(--status-${resolvedTone.value}-border)`,
+}))
 </script>
 
 <template>
-  <Badge variant="outline" class="rounded-none border-border text-foreground">
-    <span
-      aria-hidden="true"
-      class="inline-block size-2 shrink-0"
-      :class="shape"
-      :style="{ background: tone === 'unknown' || tone === 'off' ? 'transparent' : colour, borderColor: colour }"
-    />
-    {{ label }}
+  <Badge variant="outline" class="gap-1.5 rounded-none" :style="palette">
+    <component :is="icon" aria-hidden="true" class="size-3 shrink-0" />
+    <span class="min-w-0 truncate">{{ text }}</span>
   </Badge>
 </template>

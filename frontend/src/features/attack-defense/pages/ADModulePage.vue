@@ -168,7 +168,7 @@ void load()
         <div class="mt-3 space-y-1">
           <EmptyState v-if="progress.vulnerabilities.length === 0" title="No discovered vulnerabilities" description="Hidden vulnerabilities are represented only by the total count." />
           <div v-for="vulnerability in progress.vulnerabilities" :key="vulnerability.uuid" class="flex flex-wrap items-center gap-2 border-b border-border py-1 text-sm last:border-0">
-            <StatusBadge :label="vulnerability.status" :tone="vulnerability.status === 'PATCHED' ? 'ok' : 'look'" />
+            <StatusBadge :status="vulnerability.status" />
             <span>{{ vulnerability.title }}</span>
             <span v-if="vulnerability.currentPatchValid !== null && vulnerability.currentPatchValid !== undefined" class="text-xs text-muted-foreground">patch valid: {{ vulnerability.currentPatchValid }}</span>
           </div>
@@ -209,7 +209,7 @@ void load()
               @click="openRun(run)"
             >
               <span>
-                <StatusBadge :label="run.status" :tone="run.status === 'PASSED' ? 'ok' : run.status === 'FAILED' ? 'broken' : 'running'" />
+                <StatusBadge :status="run.status" />
                 <span class="ml-2">{{ run.kind }}</span>
               </span>
               <span class="text-xs text-muted-foreground">{{ run.commitSha.slice(0, 12) }} · {{ formatDateTime(run.createdAt) }}</span>

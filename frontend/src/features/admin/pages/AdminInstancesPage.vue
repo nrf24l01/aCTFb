@@ -99,7 +99,7 @@ void load()
               <p class="text-xs text-muted-foreground">{{ instance.scope }} · {{ instance.boardUuid }} / {{ instance.moduleUuid }} · {{ instance.owner.type }} {{ instance.owner.name }}</p>
             </div>
             <div class="flex items-center gap-2">
-              <StatusBadge :label="instance.status" :tone="instance.status === 'RUNNING' ? 'ok' : instance.status === 'ERROR' ? 'broken' : 'running'" />
+              <StatusBadge :status="instance.status" />
               <Button variant="outline" size="sm" @click="open(instance)">Details</Button>
             </div>
           </div>

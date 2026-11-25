@@ -256,7 +256,7 @@ void load()
                 {{ integration.type }}<span v-if="integration.kind"> · {{ integration.kind }}</span>
                 <span v-if="integration.driver"> · {{ integration.driver }}</span>
               </TableCell>
-              <TableCell><StatusBadge :label="integration.status" :tone="integration.status === 'CONNECTED' ? 'ok' : integration.status === 'ERROR' ? 'broken' : 'unknown'" /></TableCell>
+              <TableCell><StatusBadge :status="integration.status" /></TableCell>
               <TableCell class="text-xs">{{ integration.credentialsConfigured ? 'configured (hidden)' : 'none' }}</TableCell>
               <TableCell class="text-right">
                 <div class="flex justify-end gap-1">
