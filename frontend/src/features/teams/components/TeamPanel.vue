@@ -263,7 +263,7 @@ void load()
 
         <div v-else class="space-y-4">
           <div class="flex flex-wrap items-center gap-2">
-            <StatusBadge label="Team" tone="ok" />
+            <StatusBadge label="Team" tone="neutral" />
             <span class="text-sm">{{ team.name }}</span>
             <span class="text-xs text-muted-foreground">{{ team.membersCount }}/{{ team.maxMembers }} members</span>
             <span v-if="isCaptain" class="text-xs text-pine">You are captain</span>

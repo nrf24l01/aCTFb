@@ -20,7 +20,6 @@ defineProps<{ task: TaskListItem; boardUuid: string; moduleUuid: string }>()
       <div class="mt-2 flex flex-wrap gap-2">
         <Badge variant="outline" class="rounded-none">{{ task.category }}</Badge>
         <Badge variant="outline" class="rounded-none">{{ taskTypeLabel(task.type) }}</Badge>
-        <span v-if="task.solved" class="text-xs text-pine">Solved</span>
       </div>
     </div>
     <div class="text-right">

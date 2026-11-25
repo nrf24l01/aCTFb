@@ -74,4 +74,28 @@ describe('StatusBadge', () => {
     expect(style).toContain('var(--status-success-border)')
     expect(style).not.toMatch(/#[0-9a-f]{3,8}/i)
   })
+
+  it('lets an explicit tone override the status tone', () => {
+    const wrapper = mount(StatusBadge, { props: { status: 'REJECTED', tone: 'ok' } })
+
+    expect(badge(wrapper).attributes('style')).toContain('var(--status-success-ink)')
+    // The label still comes from the status, so the text does not contradict itself.
+    expect(wrapper.text()).toContain('Rejected')
+  })
+
+  it('lets an explicit label override the status label', () => {
+    const wrapper = mount(StatusBadge, { props: { status: 'ACCEPTED', label: 'Graded' } })
+
+    expect(wrapper.text()).toContain('Graded')
+    expect(wrapper.text()).not.toContain('Accepted')
+  })
+
+  it('falls back to neutral for an unexpected runtime tone', () => {
+    const wrapper = mount(StatusBadge, { props: { label: 'Odd', tone: 'chartreuse' as never } })
+    const style = badge(wrapper).attributes('style') ?? ''
+
+    expect(style).toContain('var(--status-neutral-ink)')
+    expect(style).not.toContain('var(--status-chartreuse')
+    expect(wrapper.find('svg').exists()).toBe(true)
+  })
 })

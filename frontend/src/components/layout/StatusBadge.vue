@@ -48,7 +48,10 @@ const props = defineProps<{
 
 const resolvedTone = computed<StatusTone>(() => {
   if (props.tone) {
-    return LEGACY_TONES[props.tone] ?? (props.tone as StatusTone)
+    const legacy = LEGACY_TONES[props.tone]
+    if (legacy) return legacy
+    // An unexpected runtime value must not produce an empty icon or `var(undefined)`.
+    return props.tone in TONE_ICONS ? (props.tone as StatusTone) : 'neutral'
   }
   return props.status ? statusTone(props.status) : 'neutral'
 })

@@ -91,8 +91,8 @@
   --rose: #ebbcba;
 
   /*
-   * Status tones: ink (label + icon), tinted surface, border. The ink keeps at
-   * least 4.5:1 contrast on its own surface (measured against #191724 tints):
+   * Status tones: ink (label + icon), tinted surface, border. Each ink keeps at
+   * least 4.5:1 contrast on its own opaque surface, measured in Chromium:
    * success 7.75, active 8.06, attention 8.37, error 5.13, restricted 6.76,
    * neutral 5.81, muted 5.16. Labels and icons always accompany the colour.
    */
