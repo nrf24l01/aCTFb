@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -215,10 +216,76 @@ func TestParticipantOwnABACWithRoutesRegistered(t *testing.T) {
 		t.Fatalf("decode created instance: %v: %s", err, created.Body.String())
 	}
 	instanceUUID := createdBody.UUID
+	beforeAdmin := len(publisher.jobs)
 	adminAction := requestJSON(t, routerFor(nonParticipantAdmin), http.MethodPost,
 		"/api/v2/admin/instances/"+instanceUUID+"/actions", "token",
 		map[string]any{"action": "DESTROY"}, map[string]string{"Idempotency-Key": "abac-admin-destroy-0003"})
 	if adminAction.Code != http.StatusAccepted && adminAction.Code != http.StatusOK {
 		t.Fatalf("admin destroy of another subject's instance = %d, want 2xx: %s", adminAction.Code, adminAction.Body.String())
 	}
+	if len(publisher.jobs) != beforeAdmin+1 {
+		t.Fatalf("admin destroy published %d job(s), want 1", len(publisher.jobs)-beforeAdmin)
+	}
+
+	// The queued job must carry the admin lane, and the worker must then reach the
+	// provider: a 2xx preflight alone is not proof.
+	adminJob := publisher.jobs[len(publisher.jobs)-1]
+	workerDriver := &countingHTTPDriver{providerID: "http-admin-destroy-1"}
+	workerRegistry, err := runtime.NewRegistry(workerDriver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator, err := instances.NewOrchestrator(fixture.db, workerRegistry,
+		authorization.NewAuthorizer(fixture.db), sealer, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedContext, err := orchestratorOperationContext(fixture, adminJob)
+	if err != nil {
+		t.Fatalf("load queued operation context: %v", err)
+	}
+	if storedContext != string(authorization.PermissionModuleInstancesAdmin) {
+		t.Fatalf("queued admin job permission = %q, want module.instances.admin", storedContext)
+	}
+	// Seed the provider id the destroy must target, then run the worker.
+	if _, err := fixture.db.Pool.Exec(ctx, `
+		UPDATE instance_nodes SET provider_resource_id = $2 WHERE instance_id = $1
+	`, adminJob.InstanceID, workerDriver.providerID); err != nil {
+		t.Fatal(err)
+	}
+	if err := orchestrator.HandleJob(ctx, adminJob); err != nil {
+		t.Fatalf("admin destroy job: %v", err)
+	}
+	if workerDriver.destroyed == 0 {
+		t.Fatal("worker never called the provider destroy for an admin-queued job")
+	}
+	if workerDriver.destroyedID != workerDriver.providerID {
+		t.Fatalf("worker destroyed %q, want %q", workerDriver.destroyedID, workerDriver.providerID)
+	}
+}
+
+// countingHTTPDriver records provider destroy calls so the admin lane can be
+// proven end to end without a real container runtime.
+type countingHTTPDriver struct {
+	httpFakeDriver
+	providerID  string
+	destroyed   int
+	destroyedID string
+}
+
+func (d *countingHTTPDriver) Destroy(ctx context.Context, target runtime.Target, providerID string, op runtime.Operation) error {
+	d.destroyed++
+	d.destroyedID = providerID
+	return nil
+}
+
+func orchestratorOperationContext(fixture *httpTestFixture, job instances.Job) (string, error) {
+	if len(job.OperationIDs) == 0 {
+		return "", fmt.Errorf("job has no operations")
+	}
+	var permission string
+	err := fixture.db.Pool.QueryRow(context.Background(), `
+		SELECT COALESCE(authorized_context->>'permission','') FROM instance_operations WHERE id = $1
+	`, job.OperationIDs[0]).Scan(&permission)
+	return permission, err
 }

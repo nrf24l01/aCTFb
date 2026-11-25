@@ -390,15 +390,40 @@ func (s *store) destroyInstance(ctx context.Context, instanceID uuid.UUID, autho
 			Kind: runtime.OperationDestroy, Generation: generation, Status: "QUEUED",
 			IdempotencyKey: fmt.Sprintf("%s:%s:%d:DESTROY", instanceID, ref.key, generation),
 		}
+		// A terminal-but-canceled destroy may be re-queued with the new
+		// authorization context: a denied actor leaves a canceled operation behind,
+		// and the system expiry lane must still be able to clean the resource. A
+		// SUCCEEDED operation is never resurrected.
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO instance_operations
 				(id, instance_id, node_key, operation, generation, idempotency_key, status,
 				 requested_by, authorized_context)
 			VALUES ($1,$2,$3,'DESTROY',$4,$5,'QUEUED',$6,$7)
-			ON CONFLICT (instance_id, node_key, generation, operation) DO NOTHING
+			ON CONFLICT (instance_id, node_key, generation, operation) DO UPDATE
+			SET status = 'QUEUED',
+			    error = NULL,
+			    started_at = NULL,
+			    finished_at = NULL,
+			    requested_by = EXCLUDED.requested_by,
+			    authorized_context = EXCLUDED.authorized_context
+			WHERE instance_operations.status = 'CANCELED'
 		`, op.ID, instanceID, ref.key, generation, op.IdempotencyKey, nullableActor(authorized.ActorUserID), contextJSON); err != nil {
 			return 0, nil, err
 		}
+		// Read back the row that actually exists: on a conflict the id is the
+		// original one, and only a queued/running operation belongs in a job.
+		var existingID uuid.UUID
+		var existingStatus string
+		if err := tx.QueryRow(ctx, `
+			SELECT id, status FROM instance_operations
+			WHERE instance_id=$1 AND node_key=$2 AND generation=$3 AND operation='DESTROY'
+		`, instanceID, ref.key, generation).Scan(&existingID, &existingStatus); err != nil {
+			return 0, nil, err
+		}
+		if existingStatus != "QUEUED" && existingStatus != "RUNNING" {
+			continue
+		}
+		op.ID = existingID
 		operations = append(operations, op)
 	}
 	if err := tx.Commit(ctx); err != nil {

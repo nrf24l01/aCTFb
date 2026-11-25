@@ -174,7 +174,7 @@ func (s *Service) ActionTask(ctx context.Context, actor authorization.Principal,
 	if err != nil {
 		return nil, err
 	}
-	return s.applyAction(ctx, actor, ScopeTask, boardID, moduleID, taskID, subjectType, subjectID, action, idempotencyKey, source, nil)
+	return s.applyAction(ctx, actor, laneParticipantOwn, ScopeTask, boardID, moduleID, taskID, subjectType, subjectID, action, idempotencyKey, source, nil)
 }
 
 // Get returns one instance visible to its owner, a team member, or staff.
@@ -211,6 +211,36 @@ func (s *Service) AdminList(ctx context.Context, actor authorization.Principal, 
 	return items, total, nil
 }
 
+// operationLane is the trusted authorization lane that queued an instance
+// operation. It decides which permission the persisted AuthorizedContext carries,
+// and therefore which check the worker applies before any provider call.
+//
+// It is chosen only by a service method that has already run its own live
+// authorization check (participant ABAC for the own lane, live
+// module.instances.admin for the admin lane). It is never read from a request
+// body, header, query parameter or any other client-controlled value, and
+// applyAction rejects any value outside the two constants.
+type operationLane authorization.Permission
+
+const (
+	// laneParticipantOwn is a participant acting on their own subject.
+	laneParticipantOwn operationLane = operationLane(authorization.PermissionInstanceManageOwn)
+	// laneAdmin is staff management of any subject's instance.
+	laneAdmin operationLane = operationLane(authorization.PermissionModuleInstancesAdmin)
+)
+
+// permission returns the persisted AuthorizedContext permission for the lane.
+func (l operationLane) permission() (authorization.Permission, bool) {
+	switch l {
+	case laneParticipantOwn:
+		return authorization.PermissionInstanceManageOwn, true
+	case laneAdmin:
+		return authorization.PermissionModuleInstancesAdmin, true
+	default:
+		return "", false
+	}
+}
+
 // AdminAction applies an action as staff.
 func (s *Service) AdminAction(ctx context.Context, actor authorization.Principal, instanceID uuid.UUID, action Action, idempotencyKey string) (*Instance, error) {
 	instance, err := s.store.getInstance(ctx, instanceID)
@@ -227,7 +257,10 @@ func (s *Service) AdminAction(ctx context.Context, actor authorization.Principal
 	if err != nil {
 		return nil, err
 	}
-	return s.applyAction(ctx, actor, instance.Scope, instance.BoardID, instance.ModuleID, instance.ScopeUUID,
+	// Staff cleanup of any subject's instance is the admin lane: the queued
+	// AuthorizedContext records module.instances.admin so the worker revalidates
+	// the admin permission instead of a participant-own one.
+	return s.applyAction(ctx, actor, laneAdmin, instance.Scope, instance.BoardID, instance.ModuleID, instance.ScopeUUID,
 		instance.SubjectType, instance.SubjectID, action, idempotencyKey, source, &instance.UUID)
 }
 
@@ -416,7 +449,13 @@ func (s *Service) start(ctx context.Context, actor authorization.Principal, scop
 	return s.store.getInstance(ctx, instanceUUID)
 }
 
-func (s *Service) applyAction(ctx context.Context, actor authorization.Principal, scope Scope, boardID, moduleID, scopeUUID uuid.UUID, subjectType string, subjectID uuid.UUID, action Action, idempotencyKey string, source *sourceContext, instanceID *uuid.UUID) (*Instance, error) {
+func (s *Service) applyAction(ctx context.Context, actor authorization.Principal, lane operationLane, scope Scope, boardID, moduleID, scopeUUID uuid.UUID, subjectType string, subjectID uuid.UUID, action Action, idempotencyKey string, source *sourceContext, instanceID *uuid.UUID) (*Instance, error) {
+	// The lane is internal. Anything else is a programming error, not a client
+	// input, and fails closed before any state is written.
+	storedPermission, ok := lane.permission()
+	if !ok {
+		return nil, instanceError(CodeInternal, "invalid operation lane", 500)
+	}
 	if len(idempotencyKey) < 16 || len(idempotencyKey) > 128 {
 		return nil, validation("Idempotency-Key", "Idempotency-Key must be between 16 and 128 characters")
 	}
@@ -461,7 +500,7 @@ func (s *Service) applyAction(ctx context.Context, actor authorization.Principal
 		}
 		authorized := AuthorizedContext{ActorUserID: actor.UserID, BoardID: boardID, ModuleID: moduleID, Scope: scope,
 			ScopeUUID: target.ScopeUUID, SubjectType: subjectType, SubjectID: subjectID,
-			Permission: string(authorization.PermissionInstanceManageOwn)}
+			Permission: string(storedPermission)}
 		var generation int64
 		var operations []Operation
 		if scope == ScopePentest {
@@ -481,7 +520,7 @@ func (s *Service) applyAction(ctx context.Context, actor authorization.Principal
 		}
 		authorized := AuthorizedContext{ActorUserID: actor.UserID, BoardID: boardID, ModuleID: moduleID, Scope: scope,
 			ScopeUUID: target.ScopeUUID, SubjectType: subjectType, SubjectID: subjectID,
-			Permission: string(authorization.PermissionInstanceManageOwn)}
+			Permission: string(storedPermission)}
 		generation, operations, err := s.store.destroyInstance(ctx, target.UUID, authorized)
 		if err != nil {
 			return nil, err
@@ -649,7 +688,9 @@ func (s *Service) authorizeRead(ctx context.Context, actor authorization.Princip
 	}
 	if allowed && subjectType == instance.SubjectType && subjectID == instance.SubjectID {
 		if s.access == nil {
-			return nil
+			// Reading an instance and its endpoints is an own-resource action; it
+			// must not be authorized without the live policy.
+			return instanceError(CodeInternal, "access policy is not configured", 500)
 		}
 		moduleAllowed, accessErr := s.access.CanAccessModuleAsParticipant(ctx, actor, instance.BoardID, instance.ModuleID)
 		if accessErr != nil {

@@ -185,6 +185,15 @@ func (o *Orchestrator) HandleJob(ctx context.Context, job Job) error {
 			return o.failAll(ctx, instance, operations, err)
 		}
 		if err := o.revalidateOperation(ctx, authorized, operation); err != nil {
+			var apiErr *Error
+			if errors.As(err, &apiErr) && apiErr.Code == CodeForbidden {
+				// A denied operation can never become authorized by retrying the
+				// same job: cancel it so it is terminal instead of blocking the
+				// reconcile loop forever. The system expiry lane can then queue a
+				// fresh, system-authorized cleanup for the resource.
+				_ = o.store.markOperation(ctx, operation.ID, "CANCELED", errorCode(err))
+				return o.finishFailure(ctx, instance, operations, err)
+			}
 			_ = o.store.failOperation(ctx, operation, err)
 			return o.finishFailure(ctx, instance, operations, err)
 		}
@@ -510,15 +519,26 @@ func (o *Orchestrator) revalidateOperation(ctx context.Context, authorized Autho
 		return forbidden()
 	}
 	permission := authorization.Permission(authorized.Permission)
+	// The stored permission is the lane the backend queued, never a client value.
+	// A create is always a participant-own start; reset/destroy/extend carry the
+	// lane the service chose (participant-own or module.instances.admin).
+	adminLane := permission == authorization.PermissionModuleInstancesAdmin
 	switch operation.Kind {
 	case runtime.OperationCreate:
-		if permission != authorization.PermissionInstanceStartOwn && permission != authorization.PermissionModuleInstancesAdmin {
+		if permission != authorization.PermissionInstanceStartOwn && !adminLane {
 			permission = authorization.PermissionInstanceStartOwn
 		}
 	case runtime.OperationReset, runtime.OperationDestroy:
-		if permission != authorization.PermissionInstanceManageOwn && permission != authorization.PermissionModuleInstancesAdmin {
+		if permission != authorization.PermissionInstanceManageOwn && !adminLane {
 			permission = authorization.PermissionInstanceManageOwn
 		}
+	}
+	// Only the two documented lanes may be applied. Anything else fails closed
+	// instead of guessing a permission.
+	switch permission {
+	case authorization.PermissionInstanceStartOwn, authorization.PermissionInstanceManageOwn, authorization.PermissionModuleInstancesAdmin:
+	default:
+		return forbidden()
 	}
 	scope := authorization.Scope{BoardID: authorized.BoardID, ModuleID: &authorized.ModuleID}
 	decision, err := o.auth.Authorize(ctx, authorization.Principal{UserID: authorized.ActorUserID}, permission, scope)
@@ -526,23 +546,16 @@ func (o *Orchestrator) revalidateOperation(ctx context.Context, authorized Autho
 		return instanceError(CodeInternal, "authorization failed", 500)
 	}
 	if !decision.Allowed {
-		// The stored context says which lane queued the operation. A participant
-		// own operation never escalates to module.instances.admin here: a revoked
-		// group or audience must block the queued reset/extend instead of being
-		// silently upgraded to a staff action. Only a genuinely admin-queued
-		// operation may use the admin permission.
-		if authorized.Permission != string(authorization.PermissionModuleInstancesAdmin) {
-			return forbidden()
-		}
-		adminDecision, adminErr := o.auth.Authorize(ctx, authorization.Principal{UserID: authorized.ActorUserID}, authorization.PermissionModuleInstancesAdmin, scope)
-		if adminErr != nil || !adminDecision.Allowed {
-			return forbidden()
-		}
+		// No escalation: a participant-own operation is never upgraded to the
+		// admin permission here, and an admin-queued operation needs the live
+		// admin permission (a demoted admin loses it). Revoked group, audience or
+		// role therefore stops the provider call.
+		return forbidden()
 	}
-	// Participant-own operations must also satisfy the live access group and
-	// module audience. The stored permission is not enough: revocation after the
-	// job was queued must stop the provider call.
-	if authorized.Permission != string(authorization.PermissionModuleInstancesAdmin) {
+	if !adminLane {
+		// Participant-own operations must also satisfy the live access group and
+		// module audience. The stored permission is not enough: revocation after
+		// the job was queued must stop the provider call.
 		if o.access == nil {
 			return forbidden()
 		}
@@ -553,24 +566,24 @@ func (o *Orchestrator) revalidateOperation(ctx context.Context, authorized Autho
 		if !eligible {
 			return forbidden()
 		}
-	}
-	if authorized.SubjectType == "TEAM" {
-		member, err := o.store.isTeamMember(ctx, authorized.BoardID, authorized.SubjectID, authorized.ActorUserID)
-		if err != nil {
-			return err
-		}
-		if !member {
+		if authorized.SubjectType == "TEAM" {
+			member, memberErr := o.store.isTeamMember(ctx, authorized.BoardID, authorized.SubjectID, authorized.ActorUserID)
+			if memberErr != nil {
+				return memberErr
+			}
+			if !member {
+				return forbidden()
+			}
+		} else if authorized.SubjectID != authorized.ActorUserID && authorized.Permission == string(authorization.PermissionInstanceStartOwn) {
 			return forbidden()
 		}
-	} else if authorized.SubjectID != authorized.ActorUserID && authorized.Permission == string(authorization.PermissionInstanceStartOwn) {
-		return forbidden()
-	}
-	allowed, err := o.store.subjectInModuleAudience(ctx, authorized.BoardID, authorized.ModuleID, authorized.SubjectType, authorized.SubjectID)
-	if err != nil {
-		return err
-	}
-	if !allowed {
-		return forbidden()
+		allowed, audienceErr := o.store.subjectInModuleAudience(ctx, authorized.BoardID, authorized.ModuleID, authorized.SubjectType, authorized.SubjectID)
+		if audienceErr != nil {
+			return audienceErr
+		}
+		if !allowed {
+			return forbidden()
+		}
 	}
 	if operation.Kind != runtime.OperationDestroy && authorized.EffectiveUntil != nil && !time.Now().Before(*authorized.EffectiveUntil) {
 		return conflict(CodeExpired, "effective window has ended")
