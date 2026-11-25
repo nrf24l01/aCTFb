@@ -31,10 +31,10 @@ if [[ -z "$PG_DSN" ]]; then
 fi
 
 DB_NAME="actfb_default_${RUN_ID}"
-read -r APP_PORT FRONTEND_PORT <<<"$(python3 - <<'PY'
+read -r APP_PORT FRONTEND_PORT FRONTEND_PORT_ALT <<<"$(python3 - <<'PY'
 import socket
 ports = []
-for _ in range(2):
+for _ in range(3):
     s = socket.socket(); s.bind(("127.0.0.1", 0)); ports.append(str(s.getsockname()[1])); s.close()
 print(" ".join(ports))
 PY
@@ -70,6 +70,10 @@ web_app:
   allowed_origins:
     - http://127.0.0.1:${FRONTEND_PORT}
     - http://localhost:${FRONTEND_PORT}
+    # Reserved for the one retry if the free-port probe loses a race on a busy
+    # runner; the backend must already accept this origin.
+    - http://127.0.0.1:${FRONTEND_PORT_ALT}
+    - http://localhost:${FRONTEND_PORT_ALT}
 datasources:
   postgres:
     port: 5432
@@ -130,12 +134,15 @@ export POSTGRES_PASSWORD="$PG_PASSWORD" POSTGRES_DBNAME="$PG_DBNAME" POSTGRES_SS
 
 wait_http() {
   local url="$1"
-  for _ in $(seq 1 120); do
+  local log="${2:-$WORKDIR/backend.log}"
+  local attempts="${3:-120}"
+  for _ in $(seq 1 "$attempts"); do
     if curl -fsS "$url" >/dev/null 2>&1; then return 0; fi
     sleep 1
   done
   echo "timed out waiting for $url" >&2
-  tail -40 "$WORKDIR/backend.log" >&2 || true
+  echo "--- $log (last 60 lines) ---" >&2
+  tail -60 "$log" >&2 || true
   return 1
 }
 
@@ -172,16 +179,32 @@ if [[ "$LIST_STATUS" != "200" ]]; then
   exit 1
 fi
 
-# The Vite dev server needs frontend dependencies; a fresh CI checkout does not
-# have them, and an existing local install is reused as-is.
-if [[ ! -d "$ROOT/frontend/node_modules" ]]; then
-  (cd "$ROOT/frontend" && bun install --frozen-lockfile) >"$WORKDIR/frontend-install.log" 2>&1
-fi
+start_frontend() {
+  # The Vite dev server needs frontend dependencies; a fresh CI checkout does not
+  # have them, and an existing local install is reused as-is. Check the binary we
+  # actually invoke, not just the directory, so a partial install is repaired.
+  if [[ ! -f "$ROOT/frontend/node_modules/vite/bin/vite.js" ]]; then
+    (cd "$ROOT/frontend" && bun install --frozen-lockfile) >"$WORKDIR/frontend-install.log" 2>&1
+  fi
+  service_start frontend "$WORKDIR/frontend.log" \
+    env VITE_DEV_PROXY_TARGET="http://127.0.0.1:${APP_PORT}" \
+    bash -c 'cd "$1" && exec bun node_modules/vite/bin/vite.js --host 127.0.0.1 --port "$2" --strictPort' \
+    _ "$ROOT/frontend" "$FRONTEND_PORT" >/dev/null
+}
 
-service_start frontend "$WORKDIR/frontend.log" \
-  env VITE_DEV_PROXY_TARGET="http://127.0.0.1:${APP_PORT}" \
-  bash -c 'cd "$1" && exec bun run dev -- --host 127.0.0.1 --port "$2"' _ "$ROOT/frontend" "$FRONTEND_PORT" >/dev/null
-wait_http "http://127.0.0.1:${FRONTEND_PORT}/"
+start_frontend
+if ! wait_http "http://127.0.0.1:${FRONTEND_PORT}/" "$WORKDIR/frontend.log" 240; then
+  # One retry on a fresh port covers a lost free-port race on a busy CI runner.
+  echo "retrying the frontend on a new port" >&2
+  service_stop "${SERVICE_PIDS[${#SERVICE_PIDS[@]}-1]}" "${SERVICE_STARTTIMES[${#SERVICE_STARTTIMES[@]}-1]}"
+  SERVICE_PIDS=("${SERVICE_PIDS[@]:0:${#SERVICE_PIDS[@]}-1}")
+  SERVICE_STARTTIMES=("${SERVICE_STARTTIMES[@]:0:${#SERVICE_STARTTIMES[@]}-1}")
+  SERVICE_NAMES=("${SERVICE_NAMES[@]:0:${#SERVICE_NAMES[@]}-1}")
+  FRONTEND_PORT="$FRONTEND_PORT_ALT"
+  : >"$WORKDIR/frontend.log"
+  start_frontend
+  wait_http "http://127.0.0.1:${FRONTEND_PORT}/" "$WORKDIR/frontend.log" 240
+fi
 
 # Participants are created once, before Playwright, because registration is
 # limited to 5 per 15 minutes per IP in the backend. Tests then only sign in.

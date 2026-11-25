@@ -217,6 +217,59 @@ contains no window check.
 the window closed returns the original submission; after the group is revoked the
 same replay and own history are `403`.
 
+## Post-approval: default-profile browser step failed in CI
+
+The second gated run (`45604307872`, `acaa26c`) fixed the `cmd/backend` failure but
+then failed later, at `Run default-profile browser acceptance`:
+
+```text
+timed out waiting for http://127.0.0.1:35981/
+```
+
+The backend half was healthy in that log: migrations reached version 20, the
+catalog answered `200` with an empty page, and the CLI-created admin logged in.
+The failure is the Vite dev server never answering on the chosen port within the
+120 s readiness window.
+
+**Root cause (test harness only, no product defect).** The runner probed a free
+port by binding to port 0 and closing it, then started Vite **without
+`--strictPort`**. If the probed port was taken between the probe and the bind — a
+real possibility on a busy shared runner — Vite silently binds a *different* port,
+so a readiness check on the probed port can never succeed. The same script also
+used `bun run dev -- --host …`, whose `--` argument forwarding was never exercised
+by the existing CI suite (the full-stack browser job serves the frontend from the
+Compose nginx container, not from Vite).
+
+**Fix** (`e2e/run-default-profile-e2e.sh`, harness only):
+
+* start Vite by its own entrypoint
+  (`bun node_modules/vite/bin/vite.js --host 127.0.0.1 --port N --strictPort`) so a
+  taken port fails immediately and loudly instead of moving;
+* reserve a second candidate frontend port up front and add both origins to the
+  backend `allowed_origins`, so a single retry can move to it without violating the
+  origin policy;
+* one retry on that reserved port if the first readiness wait fails;
+* `wait_http` now takes the log to dump on timeout (it previously always dumped the
+  backend log, hiding the frontend cause);
+* readiness window raised to 240 s for a cold runner;
+* install the frontend dependencies when `node_modules/vite/bin/vite.js` is
+  missing rather than only when the directory is absent, so a partial install is
+  repaired.
+
+**Local verification after the change** (native PostgreSQL 18.7, same script, no
+Docker daemon needed because the profile has every optional feature off):
+
+```text
+✓ 1 an admin previews an unjoined module/task and authors a template with runtime disabled (6.0s)
+✓ 2 a pre-existing legacy INVITE_ONLY code still enrolls through the UI (4.1s)
+✓ 3 a joined admin with a revoked group sees a safe preview, not a history error (4.3s)
+✓ 4 the join-code panel reveals once and never commits a stale custom value (3.0s)
+4 passed (18.1s)
+```
+
+If the retry path is ever needed in CI, the log now prints the Vite output, so the
+next failure is diagnosable from the job log alone.
+
 ## Post-approval: CI-gate defect found by the first gated run
 
 The first run of the newly gated workflow (run `45600628290`, `edba8d1`) failed in
