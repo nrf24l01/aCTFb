@@ -222,5 +222,3 @@ func TestParticipantOwnABACWithRoutesRegistered(t *testing.T) {
 		t.Fatalf("admin destroy of another subject's instance = %d, want 2xx: %s", adminAction.Code, adminAction.Body.String())
 	}
 }
-
-
