@@ -1385,7 +1385,6 @@ paths:
         '403':
         - BOARD_ACCESS_DENIED
         - JOIN_CODE_INVALID
-        - JOIN_CODE_REQUIRED
         '409':
         - BOARD_REGISTRATION_CLOSED
         - BOARD_FINISHED
@@ -1425,7 +1424,7 @@ paths:
           schema:
             $ref: '#/definitions/Http401_Unauthorized_Error'
         '403':
-          description: '403 Forbidden. Code: JOIN_CODE_INVALID, JOIN_CODE_REQUIRED, BOARD_ACCESS_DENIED.'
+          description: '403 Forbidden. Code: JOIN_CODE_INVALID, BOARD_ACCESS_DENIED.'
           schema:
             $ref: '#/definitions/Http403_Forbidden_Error'
         '409':

@@ -217,6 +217,164 @@ contains no window check.
 the window closed returns the original submission; after the group is revoked the
 same replay and own history are `403`.
 
+## Round-2 re-review — C1, I1, I2
+
+The round-2 review (`docs/admin-module-join-review.md` §8) found one Critical
+regression and two Important evidence gaps. All three are fixed with
+failure-first tests.
+
+### C1 (Critical) — the admin instance lane was tagged as participant-own
+
+**Root cause.** `AdminAction`/`AdminPentestAction` checked
+`module.instances.admin` in the HTTP preflight, then called the shared
+`applyAction`, which unconditionally persisted
+`Permission: instance.manage_own` in the queued `AuthorizedContext` for RESET and
+DESTROY. After the round-1 worker hardening, any stored permission other than
+`module.instances.admin` is treated as participant-own, so a non-participant
+admin/owner got a 2xx and a queued job that the worker then rejected — the
+provider resource was never destroyed.
+
+**Fix.**
+
+* `internal/instances/service.go` adds an internal `operationLane` type with
+  exactly two constants (`laneParticipantOwn`, `laneAdmin`). It is chosen by the
+  service method that already ran its own live authorization check and is never
+  read from a request body, header, query or any other client value;
+  `applyAction` rejects any other lane with a 500 before writing state.
+* `AdminAction` passes `laneAdmin` (and the pentest admin path routes through it),
+  so the persisted permission is `module.instances.admin`.
+  `ActionTask`/`PentestAction` pass `laneParticipantOwn` after their
+  `authorizeParticipant` gate.
+* `revalidateOperation` now trusts the stored lane instead of guessing: the
+  stored permission is validated against the two lanes, authorized once against
+  live state, and only a participant-own lane runs the ABAC/subject/audience
+  checks. The admin lane is authorized by the live admin permission and is not
+  subject to the participant subject equality/audience rules, which is what makes
+  cleanup of a revoked subject work. There is no fallback that upgrades a
+  participant lane to admin.
+* A denied operation is now marked `CANCELED` (terminal) instead of being left
+  retryable, so it cannot block the reconcile loop forever; `destroyInstance`
+  re-queues a canceled destroy with the new authorization context, which lets the
+  system expiry lane finish the cleanup. A `SUCCEEDED` operation is never
+  resurrected.
+
+**RED (pre-fix, actual output).** `internal/instances/admin_lane_pg_test.go`:
+
+```text
+--- FAIL: TestAdminDestroyLaneReachesProviderRealPostgres (0.18s)
+    --- FAIL: .../global_admin: stored permission = "instance.manage_own", want module.instances.admin
+    --- FAIL: .../board_owner:  stored permission = "instance.manage_own", want module.instances.admin
+```
+
+and the HTTP-level chain (`internal/instances/http/participant_abac_pg_test.go`):
+
+```text
+--- FAIL: TestParticipantOwnABACWithRoutesRegistered
+    queued admin job permission = "instance.manage_own", want module.instances.admin
+```
+
+**GREEN.** `TestAdminDestroyLaneReachesProviderRealPostgres` runs the real
+`AdminAction` → captured job → `Orchestrator.HandleJob` chain with a trusted
+recording fake provider and asserts, for **both** a global admin and a
+non-participant board owner:
+
+* the stored permission is `module.instances.admin`;
+* the provider `Destroy` ran exactly once with the exact provider resource id;
+* the instance is `EXPIRED` with `removed_at` set;
+* `instance_endpoints` and `instance_network_leases` have zero live rows;
+* every operation is terminal.
+
+`TestParticipantOwnABACWithRoutesRegistered` additionally proves the same chain
+through the HTTP route (2xx → captured job → worker → provider destroy), and that
+a demoted admin's queued job is refused with zero provider calls while the system
+expiry lane still destroys the resource
+(`TestAdminRoleRevokedBeforeWorkerDeniesAndSystemCleans`).
+
+Note (unchanged, out of scope): the team-subject check in `revalidateOperation`
+still requires the actor to be a team member on a TEAM board.
+
+### I1 (Important) — the in-transaction recheck test did not exercise the race
+
+**Root cause.** The round-1 test revoked the binding before sending the request,
+so the HTTP preflight denied and the store transaction was never reached.
+
+**Fix.** `internal/boards/http/join_code_tx_http_test.go`:
+
+* `TestJoinCodeRotationDeniedAfterLockWaitIsReal` opens its own isolated schema and
+  a **separate** observer pool. It holds the board row with `SELECT … FOR UPDATE`,
+  starts the rotation as a live board owner (preflight passes), waits until
+  PostgreSQL reports a backend in this database waiting on `Lock`
+  (`pg_stat_activity`, real server state, not a sleep heuristic), then revokes the
+  binding and commits from another connection, and only then releases the lock.
+  It asserts 403, an unchanged revision, and that no `board.join_code.set` audit
+  row was added by the denied attempt.
+* The round-1 test is renamed to
+  `TestJoinCodeRotationPreflightDeniesRevokedBinding` and no longer claims race
+  coverage.
+
+**RED (actual output, with the in-transaction recheck removed):**
+
+```text
+--- FAIL: TestJoinCodeRotationDeniedAfterLockWaitIsReal (0.18s)
+    rotation after lock-wait revocation = 200, want 403:
+    {"code":"WAIT-REVOKED-0001","configured":true,"revision":2,...}
+```
+
+**GREEN:** the same test passes (0.17 s) with the recheck, and the stored
+revision/code are untouched.
+
+### I2 (Important) — the in-transaction recheck opened a second pool connection
+
+**Root cause.** `CheckPermissionTx` passed the transaction to `decide`, but
+`decide` then called `a.grants.HasGrant`, which uses `db.Pool.QueryRow`. Every
+rotation held one connection (the transaction) and asked for a second.
+
+**Fix.**
+
+* `GrantStore.HasGrantWithQuerier(ctx, q, …)` evaluates the same live grant
+  lookup (same SQL, same `clock_timestamp()` expiry, same revocation/scope rules)
+  on a caller-supplied querier; `HasGrant` delegates to it with the pool.
+* `TransactionalGrantChecker` is the optional interface; `GrantStore` implements
+  it.
+* `decide` is now `decideWithGrants(..., grants)`; `decide` passes the shared
+  checker, so the non-transactional path is unchanged. `CheckPermissionTx` binds a
+  per-call wrapper to its `pgx.Tx` and passes it in, so the whole evaluation (live
+  user, bindings, participation, grants, plugin status) runs on the transaction's
+  connection. The shared `AuthorizerService.grants` is never mutated (no data
+  race).
+* A checker that cannot run on a transaction returns an explicit
+  `ErrGrantCheckerNotTransactional` instead of silently denying or falling back to
+  the pool.
+
+**RED (actual output, pre-fix):**
+
+```text
+--- FAIL: TestJoinCodeRotationUnderSingleConnectionPool (2.16s)
+    rotation under MaxConns=1 = 500, want 200: {"code":"INTERNAL_ERROR",...}
+```
+
+The pool could not provide a second connection, so the request failed after the
+2 s context deadline.
+
+**GREEN.** `TestJoinCodeRotationUnderSingleConnectionPool` uses a pool with
+`MaxConns=1`, a live board-owner binding **and** a separate scoped
+`board.update` grant (so both the role and grant paths are exercised), and
+asserts a 200 in ~0.17 s plus a deterministic 409 for a stale revision. `-race`
+on `internal/authorization` is clean.
+
+### Round-2 minor dispositions
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | matrix cells not asserted | added: joined **non-admin** with a revoked group + scoped role (`TestJoinedNonAdminWithScopedRoleSeesPreviewOnly`), editor board-shell 403 after revocation, reviewer/editor board-shell + module 200 preview, global admin `/scoreboard/me` 403 |
+| 2 | stale "Crockford-folded" comment | replaced with the real trim+uppercase statement; the literal I/L/O case is `TestJoinCodePaddedAndCaseNormalized` |
+| 3 | docs drift | `revision` added to the documented status shape, the garbled request shape fixed to `{ code, boardUuid? }`, frontend test count corrected to 146, and `JOIN_CODE_REQUIRED` removed from the canonical route (which only ever returns `JOIN_CODE_INVALID`; the per-board route keeps it) |
+| 4 | preview advertised `instance.canStart: true` | `taskModel` now requires `canParticipate && !preview`; unit test added |
+| 5 | `ListModules` N+1 | **deferred** (explicitly): the resolver runs per module. Correctness is unaffected; a board-wide page issues one resolve per module. Recorded here as a known perf item rather than refactored inside a security fix. |
+| 6 | fail-open `accessPolicy == nil` | fail-closed now: `requireParticipantOwnModuleAccess` returns `ErrDependencyUnavailable` (503) and the instances own-read returns a 500 misconfiguration error. The real-PG board fixtures and the plugin checker fixture now construct the real `access.NewService(db, authz)` policy, matching production; no AllowAll default exists. |
+| 7 | dead 413 branch | removed; `readBody` already maps oversized bodies to the documented 400 |
+| 8 | `AdminBoardAction` returned false flags | the action response now resolves the read capability and sets `preview`/`canParticipate` |
+
 ## Minor findings
 
 | # | Finding | Disposition |
@@ -263,6 +421,12 @@ ACTFB_TEST_POSTGRES_DSN=… go test -race ./internal/boards/ ./internal/boards/h
 ACTFB_TEST_POSTGRES_DSN=… go test ./internal/platform/postgres -run TestMigrationsRemainingStages -v
 (cd frontend && bun run typecheck && bun run test && bun run build)
 E2E_PG_DSN=… ./e2e/run-default-profile-e2e.sh      # 4 tests
+
+# Round-2 targeted gates
+ACTFB_TEST_POSTGRES_DSN=… go test ./internal/instances/ -run 'TestAdminDestroyLaneReachesProviderRealPostgres|TestAdminRoleRevokedBeforeWorkerDeniesAndSystemCleans' -v
+ACTFB_TEST_POSTGRES_DSN=… go test ./internal/instances/http/ -run TestParticipantOwnABACWithRoutesRegistered -v
+ACTFB_TEST_POSTGRES_DSN=… go test ./internal/boards/http/ -run 'TestJoinCodeRotationDeniedAfterLockWaitIsReal|TestJoinCodeRotationUnderSingleConnectionPool' -v
+ACTFB_TEST_POSTGRES_DSN=… go test -race ./internal/authorization ./internal/boards ./internal/boards/http ./internal/instances ./internal/instances/http ./internal/access ./cmd/backend ./cmd/instance-worker
 /tmp/opencode/gobin/swagger generate model -f docs/swagger.yaml -t ./internal/generated/openapi  # v0.36.7
 ```
 
@@ -273,9 +437,12 @@ E2E_PG_DSN=… ./e2e/run-default-profile-e2e.sh      # 4 tests
   row still validates by hash — which the browser test proves — but a new legacy
   code cannot be issued; organizers use a join code instead.
 * No Docker daemon is available in this environment, so the Docker-backed
-  instance suite is not re-run locally; the negative authorization tests use a
-  static registry with a counting driver/publisher, which is recorded here rather
-  than claimed as a real provider deployment.
+  instance suite is not re-run locally. The admin-lane proof uses a trusted
+  recording fake provider with a static registry (no Docker socket, no Podman):
+  it proves the worker reached `Destroy` with the exact provider id and released
+  the ports/leases, which is the code path the fix changes. It is **not** a claim
+  of physical container cleanup; that path is unchanged from the previously
+  reviewed lifetime work.
 * `020` is unpublished: it is amended in place (added `revision`), which is safe
   because it has never been applied outside this local work. `001`–`019` are
   untouched.

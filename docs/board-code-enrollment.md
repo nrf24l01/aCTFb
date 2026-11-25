@@ -57,9 +57,9 @@ board_join_codes(
 
 | Route | Purpose |
 | --- | --- |
-| `POST /api/v2/boards/join` | Canonical code-only enrollment. `{ code, boardUuid?, expectedRevision? }`-free body → `BoardJoinResponse`. The board is resolved server-side; no UUID is needed. A valid code that resolves to a different board than the optional hint is refused. A legacy sealed code resolves **only** for the exact hinted board and only while no canonical code is configured. |
+| `POST /api/v2/boards/join` | Canonical code-only enrollment. Request `{ code, boardUuid? }` → `BoardJoinResponse`. The board is resolved server-side; no UUID is needed. A valid code that resolves to a different board than the optional hint is refused. A legacy sealed code resolves **only** for the exact hinted board and only while no canonical code is configured. |
 | `POST /api/v2/boards/{boardUuid}/join` | Existing per-board enrollment. Now requires `code` (or the deprecated `inviteCode`); a bare UUID never enrolls. |
-| `GET /api/v2/admin/boards/{boardUuid}/join-code` | Status only: `{ configured, updatedAt }`. Requires live `board.update`. |
+| `GET /api/v2/admin/boards/{boardUuid}/join-code` | Status only: `{ configured, revision, updatedAt }`. Requires live `board.update`. |
 | `POST /api/v2/admin/boards/{boardUuid}/join-code` | Generates a random code (empty body) or sets a custom one. Returns the plaintext **once** plus the committed `revision`. Requires live `board.update`, re-checked inside the transaction. |
 
 New error codes (additive to the existing enum): `JOIN_CODE_REQUIRED` (no code configured yet, so the UI can

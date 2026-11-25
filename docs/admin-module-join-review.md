@@ -438,3 +438,183 @@ work is **evidence and edge-case correctness**, not a redesign:
 
 I would not publish these six commits as “verified” until B1–B11 are addressed and the test gaps in
 section 4 are covered.
+
+---
+
+## 8. Round-1 re-review — fixes on `ce8bbaa`, HEAD `c5cd7de`
+
+Status: **NOT APPROVED — one Critical regression and two Important verification gaps.**
+
+Scope: only B1–B11 and the minor findings from this report. I read
+`docs/admin-module-join-review-fixes.md`, the updated `docs/admin-module-template-fixes.md`,
+`docs/board-code-enrollment.md`, the 64-file fix diff and the actual source, tests and UI at
+`c5cd7de`. Read-only: no build, test, server, Docker or Podman run; the reported native PostgreSQL
+18.7, 10-package `-race`, 146 frontend tests and 4-test default-profile browser run are accepted as
+reported, not rerun. `gofmt -l cmd internal e2e` and `git diff 5edd6d5..HEAD --check` are clean.
+
+### C1 (Critical) — the admin instance lane is tagged as participant-own, so the worker rejects admin reset/destroy
+
+`AdminAction` is the only staff cleanup path for another subject's instance
+(`/api/v2/admin/instances/{uuid}/actions` and the admin pentest action both call it). It checks
+`module.instances.admin` in the HTTP preflight, then calls the shared `applyAction`
+(`internal/instances/service.go:214-231`). `applyAction` always writes
+
+```go
+Permission: string(authorization.PermissionInstanceManageOwn)
+```
+
+into the persisted `AuthorizedContext` for both reset (`internal/instances/service.go:462-464`) and
+destroy (`internal/instances/service.go:482-484`). The worker now treats every stored permission
+other than `module.instances.admin` as participant-own:
+
+* `internal/instances/orchestrator.go:534-537`: `Authorize(instance.manage_own)` fails for a
+  non-participant admin/owner, and the stored permission is not `module.instances.admin`, so it
+  returns `forbidden()` before the admin fallback;
+* `internal/instances/orchestrator.go:545-552`: even if the first check passed, the ABAC check
+  `CanAccessModuleAsParticipant` runs for the same reason.
+
+For a global admin or a board owner who is **not** a participant — the normal cleanup case — the
+HTTP request returns 2xx (`authorizeGlobal` passed), the operation is queued, and the worker then
+fails it. `finishFailure` (`internal/instances/orchestrator.go:588-591`) marks the instance failed
+without calling the provider destroy, so the provider resource leaks until the system expiry lane
+(which is `System: true` and still works) reaps it. This directly contradicts the requirement that
+admin management and system destroy stay unchanged, and the fix note itself:
+`docs/admin-module-join-review-fixes.md:186-188` (“the admin lane … still uses
+`module.instances.admin` explicitly, so staff cleanup … unchanged”).
+
+The new test does not catch it: `participant_abac_pg_test.go:218-223` asserts only the HTTP 2xx for
+the admin destroy and never runs the worker. `TestInstanceJobRejectsForeignActor` now covers only
+the participant lane.
+
+**Required:** carry the lane into `applyAction` (e.g. a `permission` argument) so
+`AdminAction`/`AdminPentestAction` store `module.instances.admin` and the participant paths keep
+`instance.manage_own`; then add a worker test that handles the admin-queued destroy job and asserts
+the provider destroy ran (not just the 2xx). Note the pre-existing team-subject check in
+`revalidateOperation` still requires the actor to be a team member; that is out of this fix's scope
+but should be stated.
+
+### I1 (Important) — the in-transaction auth recheck test does not exercise the race
+
+`TestJoinCodeRevisionSurvivesAuthRevocationInTx` (`internal/boards/http/join_code_extra_http_test.go:349-374`)
+revokes the binding **before** sending the replace request (line 363-367), so the HTTP preflight
+`requirePermission` returns 403 and the store transaction is never reached. The test proves the
+preflight, not the in-transaction recheck. The fix note claims otherwise
+(`docs/admin-module-join-review-fixes.md:230`).
+
+The recheck code exists (`internal/boards/postgres_join_codes.go:48-68` locks the board row, then
+calls `authorization.CheckPermissionTx`), so this is an evidence gap, not a missing control. A real
+test needs a second connection to hold the board row lock, start the rotation (preflight passes,
+blocks on the lock), revoke the binding and commit, then release the lock and assert the rotation is
+denied and the revision is unchanged.
+
+### I2 (Important, narrow) — the in-transaction recheck opens a second pool connection
+
+`CheckPermissionTx` correctly passes the transaction to `decide`
+(`internal/authorization/tx_check.go:43`), but `decide` then calls
+`a.grants.HasGrant(ctx, …)` for every non-participation permission
+(`internal/authorization/authorizer.go:386-395`), and `GrantStore.HasGrant` uses
+`s.db.Pool.QueryRow` (`internal/authorization/grants.go:96`), not the transaction. `board.update` is
+not participation-only, so every rotation holds one pool connection (the transaction) and asks for a
+second while it is open.
+
+With the default `pgxpool` cap (`max(4, NumCPU)`), four concurrent rotations on four boards can each
+hold one connection and wait for a second; all four block until the 10 s board operation timeout.
+This is not a data race and the blast radius is small (join-code rotation is a rare admin action),
+but it contradicts the helper's own comment (“never the pool: reusing the pool while holding a
+transaction can deadlock a small pool”, `internal/authorization/tx_check.go:17-20`) and the explicit
+review requirement. A transaction-aware grant lookup (or a deliberately documented decision that
+`board.update` grants are checked from the pool) is needed.
+
+### Minor (non-blocking)
+
+1. **The matrix “every cell asserted” claim is still overstated.** Unasserted cells:
+   * “joined participant with a revoked group and a scoped role” — only the joined-admin variant is
+     tested (`TestParticipantAdminKeepsPreviewButNotOwnActions`); no test grants a scoped role to a
+     joined non-admin after revocation.
+   * “same editor after binding revoked → board shell 403” — `staff_read_http_test.go:235-241`
+     asserts only the task list.
+   * “reviewer → board shell 200 preview / module detail 200 preview” and the same module-editor
+     row — `read_scope_extra_http_test.go:27-60` asserts the list and draft detail only.
+   * “global admin → scoreboard-me 403” — `staff_read_http_test.go:183-197` asserts submit and own
+     history, not `/scoreboard/me`.
+   The behaviour is correct by inspection; only the “every cell” evidence claim is wrong.
+2. **Stale test comment.** `internal/boards/http/join_code_http_test.go:187` still says
+   “Crockford-folded input is accepted” while the test only pads; the real normalization test is
+   `TestJoinCodePaddedAndCaseNormalized`.
+3. **Docs drift.** `docs/board-code-enrollment.md:62` still documents the status shape as
+   `{ configured, updatedAt }` (it now returns `revision`); line 58 has the garbled
+   “`{ code, boardUuid?, expectedRevision? }`-free body”; `docs/admin-module-template-fixes.md:197`
+   still says 130 frontend tests (the fixes doc says 146); the canonical `/boards/join` documents
+   `JOIN_CODE_REQUIRED` (`docs/swagger.yaml:1388`) which that route never returns (its misses are
+   `JOIN_CODE_INVALID`).
+4. **Preview DTO says `instance.canStart: true`.** `internal/boards/http/mappers.go:303` computes it
+   from `InstanceEnabled && Status == AVAILABLE` without checking `preview`/`canParticipate`, so a
+   staff preview response advertises a startable instance the caller cannot start. The current UI
+   hides `InstancePanel` for a preview, so there is no functional break.
+5. **`ListModules` is now an N+1 resolver.** `internal/boards/service_boards.go:269-282` calls
+   `resolveReadScope` per module, and each call repeats `staffContext`/`Permissions` plus
+   `CanAccessModuleAsParticipant` queries. Correct, but a large board now issues many queries per
+   page. Worth resolving the board/staff scope once.
+6. **Dead fail-open branches.** `requireParticipantOwnModuleAccess`
+   (`internal/boards/service_tasks.go:192-195`) and `authorizeRead`
+   (`internal/instances/service.go:649-653`) return success when the access policy is nil. Production
+   always wires it; the defaults added in this round make it unreachable, but the fail-open shape
+   remains.
+7. **Dead 413 branch.** `internal/boards/http/bind.go:135-142` still maps a `*http.MaxBytesError` to
+   413, but `readBody` now intercepts the read error and returns 400, so the branch is unreachable.
+8. **`AdminBoardAction` returns `Board` with `preview:false` / `canParticipate:false`**
+   (`internal/boards/http/admin_boards.go:211`). The fields are required in the `Board` model; an
+   admin who is also a participant gets false/false on the action response. No consumer today.
+
+### Confirmed fixed (B1–B11 and the minors)
+
+* **B1** — CI now runs `TestMigrationsRemainingStages` (includes the `020` down/up) and the whole
+  affected packages with the DSN, including `./internal/boards/...`, `./internal/instances/...`
+  (so `internal/instances/http`), `./internal/deployment/...`, `./internal/platform/postgres/...`
+  and `./cmd/backend/...`; the old `-run TestP1R` steps are replaced by broader steps, not deleted;
+  four jobs remain and the integration timeout is 120 minutes.
+* **B2** — the canonical route accepts the optional `boardUuid` hint and resolves a legacy sealed
+  code only for that exact board, only while no canonical code exists, with the original
+  case-sensitive trimmed hash; a wrong/unknown hint is one generic `JOIN_CODE_INVALID` with no board
+  identity; no global legacy directory; the board page mounts the dialog outside the `board`
+  template so the access-denied button works.
+* **B3/B4** — `resolveBoardRead`/`resolveReadScope` are participant-first with a staff preview
+  fallback; `GetBoard`, `GetBoardMe`, `ListModules`, `GetModule`, `ListTasks` and `GetTask` use them;
+  the authoritative `preview`/`canParticipate` fields are on `Board`, `BoardMe`, `Module`,
+  `ModuleListItem`, `Task` and `TaskListItem` (Swagger + regenerated models); the UI uses
+  `task.preview`/`canParticipate` and `module.preview`, never `board.joined`, so the mixed role no
+  longer calls own history or shows the submit/instance panel; scoped staff are SQL-filtered to
+  their module and drafts still require `module.tasks.manage`.
+* **B5** — the generated `BoardJoinByCodeRequest` comment now matches `NormalizeJoinCode` (no I/L/O
+  folding); `/boards/join` documents 409; the board-route oversized-body mapping is back to 400.
+* **B6** — `bindOptionalJSON` reads and bounds the body first: non-empty without a content type is
+  415 with no mutation, empty without a header can still generate, malformed JSON stays 400, unknown
+  fields stay 422.
+* **B7** — the panel freezes the intended action, disables every mutating control until a successful
+  status read, fails closed on a failed read with a retry, clears the revealed plaintext and the
+  custom draft on hide/unmount, and sends `expectedRevision` only for a live code.
+* **B8** — the wrong-code E2E asserts the target board UUID/slug/name are absent and the code is
+  exactly `JOIN_CODE_INVALID`.
+* **B9/B11 (participant lane)** — `authorizeParticipant` requires live
+  `CanAccessModuleAsParticipant` plus the participation-only permission; the worker revalidates a
+  queued participant operation before any provider call and never upgrades it; the participant HTTP
+  test registers the routes, counts zero jobs on denial, covers a revoked group and a revoked
+  audience, and the admin lane's HTTP preflight still uses `module.instances.admin`. (The admin
+  *queued* lane is the C1 defect above.)
+* **B10** — the replay comment now states the real order (membership gate before replay, time/state
+  checks after); `TestSubmissionReplayHonoursLiveRevocation` proves an eligible replay after the
+  deadline still returns the original verdict while a revoked group blocks it and own history.
+* **Minors** — gofmt is clean; `BoardPage.onJoined` uses `alreadyParticipating`; the stale invite
+  copy is gone; join-code bodies trim before the generated length check; rotation has a revision
+  CAS with the committed `updated_at` from `RETURNING`, one winner under concurrency and a 409 for a
+  stale/missing revision; the live `board.update` recheck runs after the board row lock (see I1/I2);
+  `isInviteBoard` is removed; the runner uses the owned-PID/start-time process-group helper with
+  bounded escalation and no broad `pkill`.
+
+### Bottom line for this round
+
+The previous Critical/Important items are mostly closed, and the security direction is still sound.
+The admin instance lane regression (C1) is a real functional break with a resource-leak consequence
+and must be fixed and worker-tested before publication. I1 and I2 are narrow but were explicit
+acceptance criteria for the rotation fix. The minors can ship after the C1 fix if main chooses to
+defer them, but items 1–3 are cheap documentation/test corrections.

@@ -103,7 +103,12 @@ with no staff scope and no live participant eligibility is denied.
 | module editor (`module.tasks.manage`) | 200 preview | 200 preview | visible + draft | draft detail 200 | — |
 
 Every cell above is asserted in `internal/boards/http/staff_read_http_test.go` and
-`internal/boards/http/read_scope_extra_http_test.go`. Preview responses are
+`internal/boards/http/read_scope_extra_http_test.go` (board shell, module detail,
+task list, task detail, submit, own history and `/scoreboard/me`; the joined
+non-admin with a scoped role is `TestJoinedNonAdminWithScopedRoleSeesPreviewOnly`,
+the reviewer/editor shell and module reads are in
+`TestDraftVisibilityRequiresTasksManage`, and the revoked editor's board shell is in
+`TestModuleScopedStaffReadsOnlyAssignedModule`). Preview responses are
 asserted to contain no `acceptedAnswers`, `answerHash`, `hashes`,
 `secretParameters` or `credentials`, no flag value, and `solved: false` with
 `preview: true` / `canParticipate: false`.
@@ -194,7 +199,7 @@ Real PostgreSQL 18 (server `18.7`), real Echo routes, real JWT auth.
 | CI gate | `.github/workflows/go.yml` integration job runs whole affected packages with the DSN plus the migration down/up step | PASS locally, job timeout raised to 120m |
 | Vet / build | `go vet ./...`, `go build ./...` | PASS |
 | Frontend typecheck | `bun run typecheck` | PASS |
-| Frontend unit | `bun run test` | PASS (28 files, 130 tests) |
+| Frontend unit | `bun run test` | PASS (30 files, 146 tests) |
 | Frontend build | `bun run build` | PASS |
 | Default-profile browser | `E2E_PG_DSN=… ./e2e/run-default-profile-e2e.sh` | PASS (1 test) |
 
