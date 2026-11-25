@@ -1,7 +1,7 @@
 # Status colours verification (2026-11-25)
 
 Scope: accessible, semantic colours for frontend status badges only. No API, backend, dependency, layout,
-or dark-theme changes. Local and unpushed pending review.
+or dark-theme changes.
 
 ## What changed
 
@@ -134,6 +134,20 @@ run left no survivors.
   `RoleBindingsPanel.vue`'s pine active/expired binding badges are left as recorded follow-up, out of
   scope for this slice.
 
+### Final-review nits (tone lookup, harness coverage, hygiene)
+
+- **Tone lookup uses `Object.hasOwn`.** A regression test for `toString`/`constructor`/`hasOwnProperty`
+  found a real hole: the plain-object legacy alias table resolved inherited keys, so `tone="toString"`
+  produced a function-shaped tone and an empty `style` attribute. Both lookups (legacy aliases and tone
+  icons) now use `Object.hasOwn`, and the test asserts those inherited names render the neutral palette.
+- **Harness asserts every expected key is measured.** Besides the `>= 60` floor, the browser run now
+  requires each of the 27 `EXPECTED_TONE` keys (19 API statuses + 8 legacy aliases) and every
+  `EXPECTED_LABEL` case to appear in the measured set, so a dropped or renamed fixture badge fails
+  instead of quietly shrinking the sample.
+- **Hygiene** — `frontend/tsconfig.app.json` ends with a newline again, and the legacy tone comment now
+  states explicitly that the old names are retained only for compatibility with existing call sites.
+- Reviewer artifact `docs/status-colors-review.md` is preserved verbatim and committed unchanged.
+
 ## Commands actually run (serial, low-memory)
 
 ```
@@ -141,13 +155,13 @@ cd frontend
 NODE_OPTIONS=--max-old-space-size=2048 bun run typecheck   # exit 0, no diagnostics
 NODE_OPTIONS=--max-old-space-size=2048 bun run test -- --maxWorkers=1
   # Test Files  33 passed (33)
-  # Tests       174 passed (174)
-NODE_OPTIONS=--max-old-space-size=2048 bun run build       # ✓ built in 820ms, no fixture in dist
+  # Tests       175 passed (175)
+NODE_OPTIONS=--max-old-space-size=2048 bun run build       # ✓ built in 986ms, no fixture in dist
 ```
 
-The first slice ran 171 tests; the three added precedence/fallback tests make 174. The full unit run
-prints `ECONNREFUSED 127.0.0.1:3000` lines on stderr; no test failed, and they are not emitted by the
-status tests.
+The first slice ran 171 tests; the precedence/fallback tests and the inherited-key regression make 175.
+The full unit run prints `ECONNREFUSED 127.0.0.1:3000` lines on stderr; no test failed, and they are not
+emitted by the status tests.
 
 ## Limits
 
@@ -159,4 +173,50 @@ status tests.
 - The tokens are fixed dark-theme values; there is no light theme to re-measure.
 - Contrast is measured against the badge's own opaque surface. Against the page/card surfaces the same
   inks measure higher, so no surface makes a badge fail.
-- No commit was pushed. Backend, database and Docker were not touched or run.
+- This slice is frontend-only; no local backend test suite was run. The existing CI jobs remain the
+  authoritative gate for the whole repository.
+- Nothing was pulled or run locally as a container: this environment has no Docker daemon, so image
+  behaviour rests on the CI publish job and the anonymous registry verification below.
+
+## Publication (DONE)
+
+Source commit `332fdcb422e9eb35d155c07dd28aee270445f00f` on `main`, pushed as a normal fast-forward
+(`bc13047..332fdcb`; `origin/main` was an ancestor, 0 behind / 6 ahead, no force/reset/rebase).
+
+| Field | Value |
+| --- | --- |
+| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/45644672697 |
+| Commit | `332fdcb422e9eb35d155c07dd28aee270445f00f` |
+| Conclusion | success — Backend quality, Frontend quality, Integration, Publish images |
+| Immutable tag | `sha-332fdcb422e9eb35d155c07dd28aee270445f00f` |
+| Platform | `linux/amd64` only (`os`/`architecture` in each image config) |
+
+Job timings from the run: Backend quality 15:23:47→15:27:45Z, Frontend quality 15:23:47→15:24:18Z,
+Integration 15:27:47→15:40:12Z, Publish images 15:40:14→15:41:19Z (all `success`; `gh run watch
+--exit-status` exited 0).
+
+Anonymous registry verification (no credentials, no Docker daemon; token + manifest + config-blob reads):
+all ten images are publicly readable, `latest` and `sha-332fdcb…` resolve to the same manifest digest,
+each config reports `linux/amd64`, and every `org.opencontainers.image.revision` label equals the source
+commit above.
+
+| Image | Digest | Compressed |
+| --- | --- | --- |
+| `ghcr.io/nrf24l01/actfb-backend` | `sha256:1fd48237595afee34c9abca42ad8b4651f4e57b5071d225ad61883c10e79cb9b` | 20,448,093 B |
+| `ghcr.io/nrf24l01/actfb-notification` | `sha256:30c1699e84439d8f4d03d269e33f5ba72ad14675d04496d989f3c1b904875a72` | 12,342,732 B |
+| `ghcr.io/nrf24l01/actfb-retention` | `sha256:9db9952957b86ac8bc708006f37726b2022ef0196ec1344e367a7ced6687c5de` | 10,940,563 B |
+| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `sha256:a2b5a887d8b8c9fd21fd94958a4edfdbf2b3aa877fa856b35238e3b9898a303e` | 12,001,243 B |
+| `ghcr.io/nrf24l01/actfb-file-scanner` | `sha256:ff3857b1ec0896c50c33e94805eaa30e51c7eedeab01c94812bf9d0a896f8976` | 13,359,289 B |
+| `ghcr.io/nrf24l01/actfb-storage-init` | `sha256:67e92043f6572ad122be24c6cfb3525ba2a0b3cb5b93829b5743d317a732044e` | 10,956,257 B |
+| `ghcr.io/nrf24l01/actfb-plugin-runner` | `sha256:d9c3b732fc765d1f104f694e087b893d4310d695df39987219332aa9a22f88fd` | 10,292,879 B |
+| `ghcr.io/nrf24l01/actfb-ad-worker` | `sha256:ecfb21e8c01ad5349a29a8452ec1cfe92512891b1c130b51536a587d8f0ade81` | 27,023,831 B |
+| `ghcr.io/nrf24l01/actfb-instance-worker` | `sha256:bf6ead91a190e8ace25b65dcecdbd7a93a4302d06ac01402466705f465dafd2a` | 13,932,157 B |
+| `ghcr.io/nrf24l01/actfb-frontend` | `sha256:7f60a206a6adfed105294e69edf43a99f90a6d1dfae47e432deecceaa5a913f1` | 23,690,231 B |
+
+The published frontend image really carries this change: its 613,298 B SPA-asset layer contains
+`--status-success-ink` and three `PENDING_REVIEW` occurrences, i.e. the built bundle ships the new
+tokens and the shared mapping, not just a matching revision label.
+
+Deployment for this UI-only change is the standard `docker compose pull && docker compose up -d`
+in `deploy/`; no migration, config or `.env` edit is required (the frontend is a static bundle and no
+`/api/v2` contract changed).

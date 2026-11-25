@@ -1,10 +1,55 @@
 # GHCR publication verification
 
+Status: **published and verified from `main` at commit `332fdcb`** (accessible status badge colours).
+Ten separate images are publicly pullable without registry credentials, each with `latest` and an
+immutable `sha-<full-sha>` tag resolving to the same digest.
+
+## Current publication (`332fdcb`)
+
+| Field | Value |
+| --- | --- |
+| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/45644672697 |
+| Commit | `332fdcb422e9eb35d155c07dd28aee270445f00f` |
+| Conclusion | success (Backend quality, Frontend quality, Integration, Publish images) |
+| Immutable tag | `sha-332fdcb422e9eb35d155c07dd28aee270445f00f` |
+| Platform | `linux/amd64` only (`os`/`architecture` in each image config) |
+| Registry visibility | public, anonymous manifest + config-blob reads for all ten images |
+| `latest` vs `sha-*` | same manifest digest for every image |
+
+This publication ships one frontend change: semantic, accessible status colours (shared status → label/
+tone mapping, tokenised `--status-*` palette, visible labels plus decorative icons, ≥4.5:1 contrast,
+`EXPIRED`/`CANCELED` no longer rendered as running). No `/api/v2` contract, migration, configuration or
+backend behaviour changed, so operators only need `docker compose pull && docker compose up -d` in
+`deploy/`; no migration and no `config.yaml`/`.env` edit is required.
+
+| Image | Digest | Compressed |
+| --- | --- | --- |
+| `ghcr.io/nrf24l01/actfb-backend` | `sha256:1fd48237595afee34c9abca42ad8b4651f4e57b5071d225ad61883c10e79cb9b` | 20,448,093 B |
+| `ghcr.io/nrf24l01/actfb-frontend` | `sha256:7f60a206a6adfed105294e69edf43a99f90a6d1dfae47e432deecceaa5a913f1` | 23,690,231 B |
+| `ghcr.io/nrf24l01/actfb-notification` | `sha256:30c1699e84439d8f4d03d269e33f5ba72ad14675d04496d989f3c1b904875a72` | 12,342,732 B |
+| `ghcr.io/nrf24l01/actfb-retention` | `sha256:9db9952957b86ac8bc708006f37726b2022ef0196ec1344e367a7ced6687c5de` | 10,940,563 B |
+| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `sha256:a2b5a887d8b8c9fd21fd94958a4edfdbf2b3aa877fa856b35238e3b9898a303e` | 12,001,243 B |
+| `ghcr.io/nrf24l01/actfb-file-scanner` | `sha256:ff3857b1ec0896c50c33e94805eaa30e51c7eedeab01c94812bf9d0a896f8976` | 13,359,289 B |
+| `ghcr.io/nrf24l01/actfb-storage-init` | `sha256:67e92043f6572ad122be24c6cfb3525ba2a0b3cb5b93829b5743d317a732044e` | 10,956,257 B |
+| `ghcr.io/nrf24l01/actfb-plugin-runner` | `sha256:d9c3b732fc765d1f104f694e087b893d4310d695df39987219332aa9a22f88fd` | 10,292,879 B |
+| `ghcr.io/nrf24l01/actfb-ad-worker` | `sha256:ecfb21e8c01ad5349a29a8452ec1cfe92512891b1c130b51536a587d8f0ade81` | 27,023,831 B |
+| `ghcr.io/nrf24l01/actfb-instance-worker` | `sha256:bf6ead91a190e8ace25b65dcecdbd7a93a4302d06ac01402466705f465dafd2a` | 13,932,157 B |
+
+Verified for this publication, anonymously and without a local Docker daemon: each tag resolves to one
+manifest, `latest` and `sha-332fdcb…` share that digest, every config reports `linux/amd64`, every
+`org.opencontainers.image.revision` label equals `332fdcb422e9eb35d155c07dd28aee270445f00f`, and the
+published frontend asset layer contains `--status-success-ink` plus the `PENDING_REVIEW` mapping, so the
+new UI is really inside the image. No image was pulled or run locally (no Docker daemon here); runtime
+behaviour rests on the CI Integration job's production image/runtime and auth/proxy smokes. Evidence:
+`docs/status-colors-verification.md`.
+
+## Earlier publication (`925e456`)
+
 Status: **published and verified from `main` at commit `925e456`** (admin module/task preview, default-profile
 template catalog, code-only enrollment). Ten separate images are publicly pullable without registry
 credentials, each with `latest` and an immutable `sha-<full-sha>` tag resolving to the same digest.
 
-Current publication: run https://github.com/nrf24l01/aCTFb/actions/runs/45615311019, image source commit
+Publication: run https://github.com/nrf24l01/aCTFb/actions/runs/45615311019, image source commit
 `925e45665f8622175e74d84eec2bd7dfcf43b978`, immutable tag
 `sha-925e45665f8622175e74d84eec2bd7dfcf43b978`. That run's four jobs are green (Backend quality, Frontend
 quality, Integration, Publish images) and the integration job actually executed the whole real-PostgreSQL
@@ -29,9 +74,14 @@ change the images: the CI workflow's `paths` filter excludes documentation, so n
 and the tags above remain the current images. Check `git log --oneline <image-source>..main -- ':!docs' ':!*.md'`
 before assuming a newer image exists.
 
-Earlier publications (retained for history): `511e039` (organizer UX pass), `29227d7` (YAML application
+Earlier publications (retained for history): `925e456` (admin read, default-profile catalog, code-only
+enrollment), `511e039` (organizer UX pass), `29227d7` (YAML application
 settings + datasource-only env), `3ef4d5b`/`fea429a` (shared backend/worker image), `f133e3b` (first
 one-process-per-container), `2191282` (docs/tests/labels only).
+
+Note that the "images built from source commit `925e456`" paragraph above and the digest table in the
+`## Publication` section below describe the `925e456` publication; the current images are the `332fdcb`
+ones in the first section.
 
 ## Publication
 

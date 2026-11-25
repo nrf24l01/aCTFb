@@ -832,5 +832,14 @@ black/card/table surfaces at 1440 px, 375 px and 200 % zoom: 65 badges measured 
 5.13:1–8.37:1, visible labels, `aria-hidden` icons, no animation, no clipping or horizontal overflow. The
 independent review (`docs/status-colors-review.md`) approved the range with minor notes; M3 (token-comment
 wording), M6 (precedence tests plus a neutral fallback for unexpected tones) and M8 (`TaskCard` duplicate
-"Solved", `TeamPanel` category tone) were applied. Status: **implemented; local unit/typecheck/build and
-real-browser evidence; unpushed pending review.** Evidence: `docs/status-colors-verification.md`.
+"Solved", `TeamPanel` category tone) were applied, plus the final-review nits (`Object.hasOwn` tone lookup
+so inherited keys such as `toString` stay neutral, and a harness check that every expected status/alias is
+measured). Evidence: `docs/status-colors-verification.md`.
+
+**Published:** `main` at `332fdcb422e9eb35d155c07dd28aee270445f00f`, CI run
+https://github.com/nrf24l01/aCTFb/actions/runs/45644672697 — Backend quality, Frontend quality, Integration
+and Publish images all green. Local evidence before the push: frontend typecheck, 33 files / 175 unit tests,
+production build, and a real-Chromium pass over the committed fixture (65 badges, minimum contrast 5.13:1,
+desktop/375 px/200 % zoom). All ten `linux/amd64` images were verified anonymously at `latest` +
+`sha-332fdcb…` with matching `org.opencontainers.image.revision`, and the published frontend asset layer
+contains the new status tokens. Status: **implemented; published and registry-verified.**
