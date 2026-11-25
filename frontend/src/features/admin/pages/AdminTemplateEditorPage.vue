@@ -14,6 +14,7 @@ import PageContainer from '@/components/layout/PageContainer.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import { templatesApi } from '@/features/templates/api'
 import { integrationsApi } from '@/features/integrations/api'
+import { isApiError } from '@/shared/api/errors'
 import { fileToBase64 } from '@/shared/lib/base64'
 import { validateRelativePath } from '@/features/templates/validation'
 import { formatDateTime } from '@/shared/lib/format'
@@ -57,32 +58,49 @@ const allowlistBoard = ref('')
 const allowlistModule = ref('')
 const allowlistError = ref<unknown>(null)
 const allowlistPending = ref(false)
+// Allowlists bind a published version to a live integration target, so they
+// only exist while runtime instances and integrations are enabled. The template
+// catalog itself stays usable without them.
+const allowlistUnavailable = ref(false)
 
 const fileInputKey = ref(0)
 
 async function load() {
   loading.value = true
   error.value = null
+  allowlistUnavailable.value = false
   try {
-    const [loadedTemplate, loadedDraft, versionPage, allowlistResponse, integrationPage] = await Promise.all([
+    const [loadedTemplate, loadedDraft, versionPage] = await Promise.all([
       templatesApi.get(templateUuid.value),
       templatesApi.getDraft(templateUuid.value),
       templatesApi.listVersions(templateUuid.value, 100, 0),
-      templatesApi.listAllowlists(templateUuid.value),
-      integrationsApi.list(100, 0),
     ])
     template.value = loadedTemplate
     draft.value = loadedDraft
     yaml.value = loadedDraft.manifestYaml
     files.value = [...loadedDraft.files]
     versions.value = versionPage.items
-    allowlists.value = allowlistResponse.items
-    integrations.value = integrationPage.items
     if (versions.value.length > 1) {
       fromVersion.value = String(versions.value[1].version)
       toVersion.value = String(versions.value[0].version)
     }
     if (versions.value.length > 0 && !allowlistVersion.value) allowlistVersion.value = versions.value[0].uuid
+    try {
+      const [allowlistResponse, integrationPage] = await Promise.all([
+        templatesApi.listAllowlists(templateUuid.value),
+        integrationsApi.list(100, 0),
+      ])
+      allowlists.value = allowlistResponse.items
+      integrations.value = integrationPage.items
+    } catch (caught) {
+      // Runtime-gated sub-resources: a 404/403 here means the deployment does
+      // not expose them. That is an operator state, not a template error.
+      if (isApiError(caught) && (caught.status === 404 || caught.status === 403 || caught.code === 'FEATURE_DISABLED')) {
+        allowlistUnavailable.value = true
+      } else {
+        throw caught
+      }
+    }
   } catch (caught) {
     error.value = caught
   } finally {
@@ -362,7 +380,11 @@ void load()
           <h2 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Allowlists</h2>
           <p class="mt-1 text-xs text-muted-foreground">Only exact published versions and exact integration targets. Owners bind from these rows; no raw image/driver options.</p>
         </div>
-        <div class="space-y-3 px-4 py-4">
+        <div v-if="allowlistUnavailable" class="px-4 py-4 text-sm text-muted-foreground">
+          Allowlists require runtime instances and integrations. This deployment keeps template authoring available
+          without them, so there is nothing to bind yet.
+        </div>
+        <div v-else class="space-y-3 px-4 py-4">
           <ErrorAlert v-if="allowlistError" :error="allowlistError" title="Allowlist action failed" />
           <EmptyState v-if="allowlists.length === 0" title="No allowlist rows" description="Create one to let a board/module bind this template version." />
           <div v-for="entry in allowlists" :key="entry.uuid" class="flex flex-wrap items-center justify-between gap-2 border border-border p-2 text-xs">

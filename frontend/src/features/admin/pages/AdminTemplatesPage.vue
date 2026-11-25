@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import EmptyState from '@/components/layout/EmptyState.vue'
 import ErrorAlert from '@/components/layout/ErrorAlert.vue'
@@ -9,6 +10,7 @@ import PageContainer from '@/components/layout/PageContainer.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import { templatesApi } from '@/features/templates/api'
 import { useSession } from '@/features/auth/session'
+import { isApiError } from '@/shared/api/errors'
 import { formatDateTime } from '@/shared/lib/format'
 import type { DeploymentTemplate } from '@/shared/types/api'
 
@@ -21,6 +23,13 @@ const creating = ref(false)
 const error = ref<unknown>(null)
 const createError = ref<unknown>(null)
 
+// An explicit FEATURE_DISABLED answer is an operator state, not a load failure:
+// the catalog itself is unavailable on this deployment. Anything else (403,
+// 404 for a wrong route, 500) is a real error and must not be shown as an empty
+// catalog.
+const featureDisabled = computed(() => isApiError(error.value) && error.value.code === 'FEATURE_DISABLED')
+const canCreate = computed(() => isAdmin.value && error.value === null)
+
 async function load() {
   if (!isAdmin.value) return
   loading.value = true
@@ -28,6 +37,7 @@ async function load() {
   try {
     items.value = (await templatesApi.list(100, 0)).items
   } catch (caught) {
+    items.value = []
     error.value = caught
   } finally {
     loading.value = false
@@ -54,7 +64,7 @@ void load()
   <PageContainer>
     <PageHeader title="Deployment templates" description="YAML manifests and bounded package files. Published versions are immutable.">
       <template #actions>
-        <Button variant="outline" :disabled="creating" @click="createTemplate">
+        <Button v-if="canCreate && items.length > 0" variant="outline" :disabled="creating" @click="createTemplate">
           {{ creating ? 'Creating…' : 'Create template' }}
         </Button>
         <Button variant="outline" :disabled="loading" @click="load">Refresh</Button>
@@ -64,8 +74,26 @@ void load()
     <template v-else>
       <ErrorAlert v-if="createError" :error="createError" title="Could not create deployment template" class="mb-4" />
       <LoadingState v-if="loading && items.length === 0" />
-      <ErrorAlert v-else-if="error" :error="error" title="Could not load deployment templates" />
-      <EmptyState v-else-if="items.length === 0" title="No deployment templates" description="Create a template to start a draft, then edit its manifest and publish an immutable version." />
+      <Alert v-else-if="featureDisabled" class="rounded-none border-border bg-black">
+        <AlertTitle>Template management is disabled</AlertTitle>
+        <AlertDescription>
+          <p>This deployment does not expose the deployment template catalog. An operator can enable it in the
+            deployment settings; runtime instances stay a separate switch.</p>
+          <RouterLink to="/admin" class="mt-2 inline-block underline underline-offset-4">Back to administration</RouterLink>
+        </AlertDescription>
+      </Alert>
+      <ErrorAlert v-else-if="error" :error="error" title="Could not load deployment templates">
+        <Button variant="ghost" class="mt-2" @click="load">Retry</Button>
+      </ErrorAlert>
+      <EmptyState
+        v-else-if="items.length === 0"
+        title="No deployment templates yet"
+        description="Create a template to start a draft, then edit its manifest and publish an immutable version."
+      >
+        <Button variant="outline" :disabled="creating" @click="createTemplate">
+          {{ creating ? 'Creating…' : 'Create template' }}
+        </Button>
+      </EmptyState>
       <div v-else class="space-y-2">
         <RouterLink
           v-for="template in items"

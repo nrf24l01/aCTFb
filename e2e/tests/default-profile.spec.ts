@@ -1,0 +1,127 @@
+import { expect, test, type Page } from '@playwright/test'
+
+const enabled = process.env.E2E_DEFAULT_PROFILE === '1'
+const base = process.env.E2E_BASE_URL || 'http://127.0.0.1:5173'
+const adminUser = process.env.E2E_ADMIN_USERNAME || ''
+const adminPass = process.env.E2E_ADMIN_PASSWORD || ''
+
+/**
+ * Default-profile acceptance: deployment.enabled=false, integrations disabled,
+ * SMTP off and no credential key — the exact operator profile from the bug
+ * reports. Everything here drives the real Vue app against the real backend; no
+ * response is intercepted and no empty state is faked.
+ */
+test.describe('default profile acceptance', () => {
+  test.skip(!enabled, 'requires E2E_DEFAULT_PROFILE=1 from e2e/run-default-profile-e2e.sh')
+
+  test('an admin previews an unjoined module/task and authors a template with runtime disabled', async ({ page }) => {
+    await signIn(page, adminUser, adminPass)
+    const token = await accessToken(page)
+
+    // The admin creates the board but never joins it. The board is PRIVATE and
+    // gated by an access group the admin is not a member of.
+    const suffix = Date.now().toString(36)
+    const group = await api(page, token, 'POST', '/api/v2/admin/access-groups', { name: `e2e-group-${suffix}` })
+    const start = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const end = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    const board = await api(page, token, 'POST', '/api/v2/admin/boards', {
+      slug: `e2e-preview-${suffix}`,
+      name: `E2E preview ${suffix}`,
+      participationMode: 'INDIVIDUAL',
+      registrationMode: 'OPEN',
+      visibility: 'PRIVATE',
+      accessMode: 'AUDIENCE',
+      accessGroupUuids: [group.uuid],
+      startsAt: start,
+      endsAt: end,
+      rating: { visibility: 'PUBLIC' },
+    })
+    const boardUuid = String(board.uuid)
+    const module = await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/modules`, {
+      name: 'Flag module',
+      type: 'TASKS',
+      allowedTaskTypes: ['FLAG'],
+      enabled: true,
+    })
+    const moduleUuid = String(module.uuid)
+    const task = await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/modules/${moduleUuid}/tasks`, {
+      title: 'Preview flag',
+      type: 'FLAG',
+      category: 'web',
+      description: 'Organizer preview task',
+      points: 100,
+      visible: true,
+      submission: { mode: 'TEXT', checker: 'AUTOMATIC' },
+      acceptedAnswers: [`flag{e2e_preview_${suffix}}`],
+      instance: { enabled: false },
+    })
+    await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/actions`, { action: 'PUBLISH' })
+
+    // The module page renders the real staff task list, not an error.
+    await page.goto(`/boards/${boardUuid}/modules/${moduleUuid}`)
+    await expect(page.getByRole('heading', { name: 'Flag module' })).toBeVisible()
+    await expect(page.getByText('Organizer preview', { exact: true })).toBeVisible()
+    await expect(page.getByText('Preview flag')).toBeVisible()
+    await expect(page.getByText('Could not load module')).toHaveCount(0)
+
+    // The task page renders the preview without calling own history or showing
+    // a submission form, and never leaks the accepted answer.
+    await page.goto(`/boards/${boardUuid}/modules/${moduleUuid}/tasks/${task.uuid}`)
+    await expect(page.getByRole('heading', { name: 'Preview flag' })).toBeVisible()
+    await expect(page.getByText('Organizer preview', { exact: true })).toBeVisible()
+    await expect(page.getByText('Could not load submission history')).toHaveCount(0)
+    await expect(page.getByText('Your submissions')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Submit/i })).toHaveCount(0)
+    const body = await page.locator('body').innerText()
+    expect(body).not.toContain(`flag{e2e_preview_${suffix}}`)
+
+    // The catalog is empty but valid: no error, a create action, and a working
+    // editor even though runtime instances are disabled.
+    await page.goto('/admin/templates')
+    await expect(page.getByText('No deployment templates yet')).toBeVisible()
+    await expect(page.getByText('Could not load deployment templates')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Create template' }).click()
+    await expect(page).toHaveURL(/\/admin\/templates\/[0-9a-f-]{36}/)
+    await expect(page.getByLabel('Template manifest YAML')).toBeVisible()
+    await expect(page.getByText('Allowlists require runtime instances and integrations.')).toBeVisible()
+    await expect(page.getByText('Could not load template')).toHaveCount(0)
+  })
+})
+
+async function signIn(page: Page, username: string, password: string) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await page.goto('/sign-in')
+    await page.locator('#sign-in-username').fill(username)
+    await page.locator('#sign-in-password').fill(password)
+    await page.getByRole('button', { name: 'Sign in' }).click()
+    const signedIn = await expect(page).toHaveURL(/\/boards/, { timeout: 8_000 }).then(() => true).catch(() => false)
+    if (signedIn) return
+    if (attempt === 0) await page.waitForTimeout(61_000)
+  }
+  await expect(page).toHaveURL(/\/boards/)
+}
+
+async function accessToken(page: Page): Promise<string> {
+  const response = await page.request.post(`${base}/api/v2/auth/refresh`, { headers: { Origin: base } })
+  expect(response.ok()).toBeTruthy()
+  return ((await response.json()) as { accessToken: string }).accessToken
+}
+
+async function api(
+  page: Page,
+  token: string,
+  method: string,
+  path: string,
+  data?: unknown,
+): Promise<Record<string, unknown>> {
+  const response = await page.request.fetch(`${base}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    data: data === undefined ? undefined : JSON.stringify(data),
+  })
+  if (!response.ok()) {
+    throw new Error(`${method} ${path} -> ${response.status()} ${await response.text()}`)
+  }
+  if (response.status() === 204) return {}
+  return (await response.json()) as Record<string, unknown>
+}

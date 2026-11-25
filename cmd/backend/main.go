@@ -36,7 +36,6 @@ import (
 	platforms3 "github.com/nrf24l01/actfb/internal/platform/s3"
 	"github.com/nrf24l01/actfb/internal/platform/secrets"
 	"github.com/nrf24l01/actfb/internal/plugins"
-	"github.com/nrf24l01/actfb/internal/runtime"
 	"github.com/nrf24l01/actfb/internal/site"
 	"github.com/nrf24l01/actfb/internal/users"
 	usersnats "github.com/nrf24l01/actfb/internal/users/nats"
@@ -225,23 +224,23 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		}
 	}
 
-	var runtimeRegistry *runtime.DriverRegistry
-	if cfg.Deployment.Enabled || integrationsEnabled {
-		runtimeRegistry, err = buildRuntimeRegistry(logger)
-		if err != nil {
-			return fmt.Errorf("initialize runtime driver registry: %w", err)
-		}
+	// The runtime driver registry is pure static metadata: constructing it never
+	// contacts Docker, Proxmox, Kubernetes or a VM host. It is always built so
+	// the deployment template catalog can validate driver options and report
+	// honest capabilities while runtime instances are disabled.
+	runtimeRegistry, err := buildRuntimeRegistry(logger)
+	if err != nil {
+		return fmt.Errorf("initialize runtime driver registry: %w", err)
 	}
 
+	// The admin template catalog is independent of runtime provisioning: it
+	// needs no credential sealer, no NATS stream and no provider connection, so
+	// operators can author, validate, preview and publish immutable template
+	// versions before enabling runtime instances. Only binding/sealing and
+	// provisioning stay gated by cfg.Deployment.Enabled below.
 	var deploymentService *deployment.Service
-	if cfg.Deployment.Enabled {
-		deploymentService, err = deployment.NewService(
-			db,
-			authorizer,
-			sealer,
-			deployment.WithDriverMetadataProvider(runtimeRegistry),
-			deployment.WithLogger(logger),
-		)
+	if templateCatalogEnabled(cfg) {
+		deploymentService, err = newDeploymentCatalog(cfg, db, authorizer, sealer, runtimeRegistry, logger)
 		if err != nil {
 			return fmt.Errorf("initialize deployment templates: %w", err)
 		}

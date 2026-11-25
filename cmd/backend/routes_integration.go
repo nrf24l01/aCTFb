@@ -101,10 +101,44 @@ func registerExtendedRoutes(e *echo.Echo, services extendedServices, userService
 	}
 }
 
+// newDeploymentCatalog builds the admin deployment-template catalog. The
+// catalog is authoring-only: it stores drafts and immutable versions and never
+// provisions, seals or contacts a provider. That is why it must not be gated on
+// cfg.Deployment.Enabled or on a configured credential key — those gate runtime
+// instances, not template authoring.
+func newDeploymentCatalog(
+	cfg *config.Config,
+	db *postgres.DB,
+	authz authorization.Authorizer,
+	sealer secrets.Sealer,
+	provider deployment.DriverMetadataProvider,
+	logger *slog.Logger,
+) (*deployment.Service, error) {
+	service, err := deployment.NewService(
+		db,
+		authz,
+		sealer,
+		deployment.WithDriverMetadataProvider(provider),
+		deployment.WithLogger(logger),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if logger != nil && cfg != nil {
+		logger.Info("deployment template catalog ready", "runtime_instances_enabled", cfg.Deployment.Enabled)
+	}
+	return service, nil
+}
+
+// templateCatalogEnabled reports whether the admin deployment-template catalog
+// is served. Template authoring has no runtime side effects, so the catalog is
+// always enabled; only allowlist binding, secret sealing and provisioning are
+// gated on the runtime feature flag.
+func templateCatalogEnabled(*config.Config) bool { return true }
+
 // buildRuntimeRegistry registers all five trusted static adapters. Capabilities
 // still perform their own live provider checks; this only builds metadata.
-func buildRuntimeRegistry(logger *slog.Logger) (*runtime.DriverRegistry, error) {
-	drivers := make([]runtime.Driver, 0, 5)
+func buildRuntimeRegistry(logger *slog.Logger) (*runtime.DriverRegistry, error) {	drivers := make([]runtime.Driver, 0, 5)
 	dockerDriver, err := runtimedocker.New()
 	if err != nil {
 		return nil, fmt.Errorf("docker driver: %w", err)
