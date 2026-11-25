@@ -37,7 +37,6 @@ func TestP1RTeamsManualAudienceGroupsAdjustments(t *testing.T) {
 	accessSvc := access.NewService(db, authz)
 	outbox := events.NewOutbox(db)
 	service := NewService(NewPostgresStore(db), authz, SystemClock{}, ratelimit.NewMemoryLimiter(512),
-		WithAccessPolicy(access.NewService(db, authz)),
 		WithArgon2Config(argon), WithIdempotencySecret("p1r-secret"),
 		WithAccessPolicy(accessSvc), WithAccessService(accessSvc), WithSealer(sealer), WithOutbox(outbox))
 
@@ -532,7 +531,6 @@ func TestMyTeamMembersRevokedGroupAccessStopsRoster(t *testing.T) {
 	authz := authorization.NewAuthorizer(db)
 	accessSvc := access.NewService(db, authz)
 	service := NewService(NewPostgresStore(db), authz, SystemClock{}, ratelimit.NewMemoryLimiter(64),
-		WithAccessPolicy(access.NewService(db, authz)),
 		WithAccessPolicy(accessSvc), WithAccessService(accessSvc))
 
 	adminID := createBoardUser(t, ctx, db, "roster_admin", []string{"admin"})

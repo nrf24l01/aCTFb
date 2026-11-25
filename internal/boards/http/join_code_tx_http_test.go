@@ -146,32 +146,83 @@ func (f txFixture) newUser(t *testing.T, name string) (uuid.UUID, string) {
 	return user.ID, token
 }
 
-// waitForLockWait polls pg_locks from the observer pool until one waiter is
-// blocked on the boards relation. It is a real PostgreSQL lock observation, not
-// a sleep-based guess.
-func (f txFixture) waitForLockWait(t *testing.T) {
+// backendPID reads the server-side PID of a connection so a lock wait can be
+// attributed to the exact backend that holds the lock.
+func backendPID(t *testing.T, conn *pgxpool.Conn) int32 {
+	t.Helper()
+	var pid int32
+	if err := conn.QueryRow(context.Background(), `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+		t.Fatalf("read backend pid: %v", err)
+	}
+	return pid
+}
+
+// lockWaitersBlockedBy returns the active backends in this database that are
+// waiting on a lock held by holderPID.
+//
+// The gate is bound to the holder's own backend PID through
+// pg_blocking_pids(pid), so an unrelated backend in the same database cannot
+// satisfy it. This matters because the gating CI step runs several PostgreSQL
+// packages in parallel against one database, and other suites deliberately take
+// row/advisory/DDL locks.
+func (f txFixture) lockWaitersBlockedBy(holderPID int32) ([]int32, error) {
+	rows, err := f.observer.Query(f.ctx, `
+		SELECT pid FROM pg_stat_activity
+		WHERE datname = current_database()
+		  AND state = 'active'
+		  AND wait_event_type = 'Lock'
+		  AND $1 = ANY(pg_blocking_pids(pid))
+	`, holderPID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	waiters := make([]int32, 0, 2)
+	for rows.Next() {
+		var pid int32
+		if err := rows.Scan(&pid); err != nil {
+			return nil, err
+		}
+		waiters = append(waiters, pid)
+	}
+	return waiters, rows.Err()
+}
+
+// anyLockWait is the database-wide predicate the earlier revision of this test
+// used. It is kept only to prove, in the negative control, that a predicate
+// without the holder binding would be satisfied by an unrelated waiter.
+func (f txFixture) anyLockWait(t *testing.T) bool {
+	t.Helper()
+	var waiting int
+	if err := f.observer.QueryRow(f.ctx, `
+		SELECT count(*)::int FROM pg_stat_activity
+		WHERE datname = current_database()
+		  AND wait_event_type = 'Lock'
+		  AND state = 'active'
+	`).Scan(&waiting); err != nil {
+		t.Fatalf("observe pg_stat_activity: %v", err)
+	}
+	return waiting > 0
+}
+
+// waitForLockWaitBlockedBy polls until some active backend is waiting on a lock
+// held by holderPID, and returns the waiting backend PID. It is a real
+// PostgreSQL observation of our own holder, not a sleep heuristic.
+func (f txFixture) waitForLockWaitBlockedBy(t *testing.T, holderPID int32) int32 {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		// A blocked row lock shows up as a backend in this database waiting on
-		// Lock (PostgreSQL reports a tuple/transactionid wait for a FOR UPDATE
-		// conflict). This is real server-side state, not a sleep heuristic. The
-		// holder is "idle in transaction", so it is never counted.
-		var waiting int
-		if err := f.observer.QueryRow(f.ctx, `
-			SELECT count(*)::int FROM pg_stat_activity
-			WHERE datname = current_database()
-			  AND wait_event_type = 'Lock'
-			  AND state = 'active'
-		`).Scan(&waiting); err != nil {
+		waiters, err := f.lockWaitersBlockedBy(holderPID)
+		if err != nil {
 			t.Fatalf("observe pg_stat_activity: %v", err)
 		}
-		if waiting > 0 {
-			return
+		if len(waiters) > 0 {
+			return waiters[0]
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("rotation never blocked on the board row lock; the in-transaction recheck was not exercised")
+	t.Fatalf("no backend was ever blocked by holder backend %d; the in-transaction recheck was not exercised", holderPID)
+	return 0
 }
 
 // TestJoinCodeRotationDeniedAfterLockWaitIsReal proves the in-transaction
@@ -204,6 +255,7 @@ func TestJoinCodeRotationDeniedAfterLockWaitIsReal(t *testing.T) {
 	if err := holder.QueryRow(f.ctx, `SELECT id::text FROM boards WHERE id=$1 FOR UPDATE`, f.boardID).Scan(&locked); err != nil {
 		t.Fatalf("lock board row: %v", err)
 	}
+	holderPID := backendPID(t, holder)
 
 	// Start the rotation: the preflight passes (the owner is live), then the
 	// store transaction blocks on the row lock.
@@ -222,8 +274,19 @@ func TestJoinCodeRotationDeniedAfterLockWaitIsReal(t *testing.T) {
 		done <- result{status: recorder.Code, body: recorder.Body.Bytes()}
 	}()
 
-	// Prove the request is really waiting inside the transaction.
-	f.waitForLockWait(t)
+	// Prove the request is really waiting inside the transaction on OUR board row
+	// lock, and that it is still in flight when we observe it. The gate is bound
+	// to the holder's backend PID, so an unrelated lock waiter in this database
+	// (parallel CI packages share it) cannot satisfy it.
+	rotationPID := f.waitForLockWaitBlockedBy(t, holderPID)
+	if rotationPID == holderPID {
+		t.Fatalf("holder backend %d reported as blocked by itself", holderPID)
+	}
+	select {
+	case got := <-done:
+		t.Fatalf("rotation finished (status %d) before the lock was released; the observed wait was not ours", got.status)
+	default:
+	}
 
 	// Revoke the binding and commit it from another connection while the
 	// rotation still waits.
@@ -355,4 +418,110 @@ func itoa64(value int64) string {
 		buf[index] = '-'
 	}
 	return string(buf[index:])
+}
+
+// TestLockWaitGateIgnoresUnrelatedWaiters is the negative control for the I1
+// evidence. It creates a real lock wait that belongs to a DIFFERENT holder while
+// our board row is held but nothing waits on it yet.
+//
+// The database-wide predicate the earlier revision used is satisfied by that
+// unrelated waiter, so it would have let the rotation test proceed before the
+// rotation was actually blocked. The holder-bound predicate must stay false for
+// our holder and true for the decoy holder, which is what makes the observation
+// attributable to our own rotation.
+func TestLockWaitGateIgnoresUnrelatedWaiters(t *testing.T) {
+	f := newTxFixture(t, 0)
+
+	// Our board-row holder: the row is locked, but no one waits on it yet.
+	boardHolder, err := f.observer.Acquire(f.ctx)
+	if err != nil {
+		t.Fatalf("acquire board holder: %v", err)
+	}
+	defer boardHolder.Release()
+	if _, err := boardHolder.Exec(f.ctx, "BEGIN"); err != nil {
+		t.Fatalf("begin board holder: %v", err)
+	}
+	var locked string
+	if err := boardHolder.QueryRow(f.ctx, `SELECT id::text FROM boards WHERE id=$1 FOR UPDATE`, f.boardID).Scan(&locked); err != nil {
+		t.Fatalf("lock board row: %v", err)
+	}
+	boardHolderPID := backendPID(t, boardHolder)
+
+	// A decoy lock wait on an unrelated row: decoyHolder owns it, decoyWaiter
+	// blocks on it. This is the shape another package produces in parallel CI.
+	decoyHolder, err := f.observer.Acquire(f.ctx)
+	if err != nil {
+		t.Fatalf("acquire decoy holder: %v", err)
+	}
+	defer decoyHolder.Release()
+	if _, err := decoyHolder.Exec(f.ctx, "BEGIN"); err != nil {
+		t.Fatalf("begin decoy holder: %v", err)
+	}
+	var lockedUser string
+	if err := decoyHolder.QueryRow(f.ctx, `SELECT id::text FROM users WHERE id=$1 FOR UPDATE`, f.adminID).Scan(&lockedUser); err != nil {
+		t.Fatalf("lock decoy row: %v", err)
+	}
+	decoyHolderPID := backendPID(t, decoyHolder)
+
+	decoyWaiter, err := f.observer.Acquire(f.ctx)
+	if err != nil {
+		t.Fatalf("acquire decoy waiter: %v", err)
+	}
+	defer decoyWaiter.Release()
+	decoyStarted := make(chan struct{})
+	decoyDone := make(chan struct{})
+	go func() {
+		close(decoyStarted)
+		var id string
+		// Blocks until the decoy holder commits.
+		_ = decoyWaiter.QueryRow(f.ctx, `SELECT id::text FROM users WHERE id=$1 FOR UPDATE`, f.adminID).Scan(&id)
+		close(decoyDone)
+	}()
+	<-decoyStarted
+
+	// Wait until the decoy waiter is really blocked by the decoy holder.
+	deadline := time.Now().Add(10 * time.Second)
+	decoyObserved := false
+	for time.Now().Before(deadline) {
+		waiters, err := f.lockWaitersBlockedBy(decoyHolderPID)
+		if err != nil {
+			t.Fatalf("observe decoy wait: %v", err)
+		}
+		if len(waiters) > 0 {
+			decoyObserved = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !decoyObserved {
+		t.Fatal("decoy waiter never blocked on the decoy holder")
+	}
+
+	// The old, database-wide predicate is satisfied right now...
+	if !f.anyLockWait(t) {
+		t.Fatal("expected a database-wide Lock wait from the decoy")
+	}
+	// ...but the holder-bound gate for OUR board holder must not be.
+	waiters, err := f.lockWaitersBlockedBy(boardHolderPID)
+	if err != nil {
+		t.Fatalf("observe our holder: %v", err)
+	}
+	if len(waiters) != 0 {
+		t.Fatalf("holder-bound gate reported our board holder %d as blocked by %v while only a decoy wait exists",
+			boardHolderPID, waiters)
+	}
+
+	// Release the decoy pair; the observation window is over.
+	if _, err := decoyHolder.Exec(f.ctx, "COMMIT"); err != nil {
+		t.Fatalf("commit decoy holder: %v", err)
+	}
+	decoyHolder.Release()
+	select {
+	case <-decoyDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("decoy waiter did not finish after the decoy holder committed")
+	}
+	if _, err := boardHolder.Exec(f.ctx, "COMMIT"); err != nil {
+		t.Fatalf("commit board holder: %v", err)
+	}
 }
