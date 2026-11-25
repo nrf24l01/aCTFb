@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/nrf24l01/actfb/internal/access"
 	"github.com/nrf24l01/actfb/internal/authorization"
 	"github.com/nrf24l01/actfb/internal/boards"
 	"github.com/nrf24l01/actfb/internal/events"
@@ -67,6 +68,9 @@ func mapCheckerTestError(err error) error {
 }
 
 func testBoardsService(env *testEnv) *boards.Service {
+	// Participant-own submission requires the live access policy, exactly as the
+	// production backend wires it.
+	accessSvc := access.NewService(env.db, env.manager.authorizer)
 	return boards.NewService(
 		boards.NewPostgresStore(env.db),
 		env.manager.authorizer,
@@ -75,6 +79,7 @@ func testBoardsService(env *testEnv) *boards.Service {
 		boards.WithPluginChecker(boardsPluginCheckerAdapter{manager: env.manager}),
 		boards.WithOutbox(events.NewOutbox(env.db)),
 		boards.WithIdempotencySecret("plugin-checker-test-secret"),
+		boards.WithAccessPolicy(accessSvc),
 	)
 }
 

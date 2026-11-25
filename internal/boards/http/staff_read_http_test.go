@@ -180,12 +180,23 @@ func TestGlobalAdminReadsModuleAndTasksWithoutJoining(t *testing.T) {
 		t.Fatalf("staff preview task = %+v", detail)
 	}
 
+	// The board shell reports the preview explicitly.
+	boardShell := decode[oapimodels.Board](t, doJSON(t, f.router, http.MethodGet,
+		"/api/v2/boards/"+b.boardID, b.adminToken, nil, nil, http.StatusOK), http.StatusOK)
+	if boardShell.Preview == nil || !*boardShell.Preview || boardShell.CanParticipate == nil || *boardShell.CanParticipate {
+		t.Fatalf("admin board shell flags = preview:%v canParticipate:%v, want preview", boardShell.Preview, boardShell.CanParticipate)
+	}
+
 	// Preview is a read capability only: participation-gated actions stay denied.
 	submitPath := b.modulePath(b.moduleID) + "/tasks/" + b.taskID + "/submissions"
 	doJSON(t, f.router, http.MethodPost, submitPath, b.adminToken,
 		map[string]any{"text": "flag{staff-preview-secret}"},
 		map[string]string{"Idempotency-Key": "staff-read-submit-0001"}, http.StatusForbidden)
 	doJSON(t, f.router, http.MethodGet, submitPath+"/me", b.adminToken, nil, nil, http.StatusForbidden)
+	// Own scoreboard entry is participant-only and is never fabricated for a
+	// preview.
+	doJSON(t, f.router, http.MethodGet, "/api/v2/boards/"+b.boardID+"/scoreboard/me",
+		b.adminToken, nil, nil, http.StatusForbidden)
 	// Instance start is not a preview capability. With runtime instances
 	// disabled the route is not registered at all (404); when it is registered
 	// the participation check denies it (403). Neither is a success.
@@ -232,12 +243,15 @@ func TestModuleScopedStaffReadsOnlyAssignedModule(t *testing.T) {
 	// A task UUID from module A cannot be read through the sibling parent.
 	doJSON(t, f.router, http.MethodGet, b.modulePath(b.siblingID)+"/tasks/"+b.taskID, editorToken, nil, nil, http.StatusForbidden)
 
-	// Revoking the binding denies the next request without a token change.
+	// Revoking the binding denies the next request without a token change: the
+	// board shell, module and tasks all deny (the editor is not a participant).
 	if _, err := f.db.Pool.Exec(f.ctx, `
 		UPDATE board_role_bindings SET revoked_at = clock_timestamp()
 		WHERE board_id=$1 AND user_id=(SELECT id FROM users WHERE username='scoped_editor')`, b.boardID); err != nil {
 		t.Fatalf("revoke binding: %v", err)
 	}
+	doJSON(t, f.router, http.MethodGet, "/api/v2/boards/"+b.boardID, editorToken, nil, nil, http.StatusForbidden)
+	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID), editorToken, nil, nil, http.StatusForbidden)
 	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID)+"/tasks", editorToken, nil, nil, http.StatusForbidden)
 }
 

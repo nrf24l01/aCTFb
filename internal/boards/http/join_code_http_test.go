@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -184,10 +185,12 @@ func TestAdminJoinCodeLifecycle(t *testing.T) {
 		t.Fatalf("replay reported a new membership: %+v", again)
 	}
 
-	// Normalization: lowercase, padded and Crockford-folded input is accepted.
+	// Normalization: outer whitespace is trimmed and case is uppercased. Interior
+	// characters are never rewritten (see TestJoinCodePaddedAndCaseNormalized for
+	// the literal I/L/O case).
 	_, token2 := f.newUser(t, "normalized")
-	folded := " " + first + " "
-	doJSON(t, f.router, http.MethodPost, "/api/v2/boards/join", token2, map[string]any{"code": folded}, nil, http.StatusOK)
+	padded := " " + strings.ToLower(first) + " "
+	doJSON(t, f.router, http.MethodPost, "/api/v2/boards/join", token2, map[string]any{"code": padded}, nil, http.StatusOK)
 
 	// A custom code replaces the generated one; the old code stops working.
 	custom := issueCustomJoinCode(t, f.router, f.boardID, f.admin, "team-ALPHA-2026")

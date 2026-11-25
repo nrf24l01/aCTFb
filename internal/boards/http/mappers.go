@@ -300,14 +300,18 @@ func taskModel(task boards.Task) *oapimodels.Task {
 		}
 	}
 	requiredInstance := task.InstanceEnabled
-	canStart := task.InstanceEnabled && task.Status == boards.TaskStatusAvailable
+	// A staff preview (or an ineligible reader) is never able to start an
+	// instance: instance start is a participant-own action. Reporting a startable
+	// instance here would advertise an action the backend refuses.
+	preview := task.Preview
+	canParticipate := task.CanParticipate
+	canStart := task.InstanceEnabled && task.Status == boards.TaskStatusAvailable &&
+		canParticipate && !preview
 	instanceStatus := "NOT_CREATED"
 	instance := &oapimodels.TaskInstanceSummary{
 		Required: &requiredInstance, Status: &instanceStatus, CanStart: &canStart,
 		TTLSeconds: effectiveInitialTTL(task),
 	}
-	preview := task.Preview
-	canParticipate := task.CanParticipate
 	result := &oapimodels.Task{
 		UUID:             &uuidValue,
 		ModuleUUID:       &moduleUUID,

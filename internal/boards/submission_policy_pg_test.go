@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/nrf24l01/actfb/internal/access"
 	"github.com/nrf24l01/actfb/internal/authorization"
 	"github.com/nrf24l01/actfb/internal/platform/ratelimit"
 )
@@ -24,8 +25,10 @@ func TestTeamMyScoreboardMatchesCanonicalPlaceRealPostgres(t *testing.T) {
 	defer cancel()
 	db, cleanup := openIsolatedBoardDB(t, ctx, dsn)
 	defer cleanup()
-	service := NewService(NewPostgresStore(db), authorization.NewAuthorizer(db), SystemClock{},
-		ratelimit.NewMemoryLimiter(1024), WithIdempotencySecret("team-my-score-secret"))
+	policyAuthz := authorization.NewAuthorizer(db)
+	service := NewService(NewPostgresStore(db), policyAuthz, SystemClock{},
+		ratelimit.NewMemoryLimiter(1024),
+		WithAccessPolicy(access.NewService(db, policyAuthz)), WithIdempotencySecret("team-my-score-secret"))
 	adminID := createBoardUser(t, ctx, db, "team_my_admin", []string{"admin"})
 	playerID := createBoardUser(t, ctx, db, "team_my_player", []string{"user"})
 	admin := authorization.Principal{UserID: adminID, GlobalRoles: []string{"admin"}}
@@ -107,8 +110,10 @@ func TestSubmissionPolicyAndInstanceTaskRealPostgres(t *testing.T) {
 	db, cleanup := openIsolatedBoardDB(t, ctx, dsn)
 	defer cleanup()
 
-	service := NewService(NewPostgresStore(db), authorization.NewAuthorizer(db), SystemClock{},
-		ratelimit.NewMemoryLimiter(1024), WithIdempotencySecret("submission-policy-secret"))
+	policyAuthz := authorization.NewAuthorizer(db)
+	service := NewService(NewPostgresStore(db), policyAuthz, SystemClock{},
+		ratelimit.NewMemoryLimiter(1024),
+		WithAccessPolicy(access.NewService(db, policyAuthz)), WithIdempotencySecret("submission-policy-secret"))
 	adminID := createBoardUser(t, ctx, db, "policy_admin", []string{"admin"})
 	playerID := createBoardUser(t, ctx, db, "policy_player", []string{"user"})
 	admin := authorization.Principal{UserID: adminID, GlobalRoles: []string{"admin"}}

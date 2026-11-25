@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/nrf24l01/actfb/internal/access"
 	"github.com/nrf24l01/actfb/internal/authorization"
 	"github.com/nrf24l01/actfb/internal/config"
 	"github.com/nrf24l01/actfb/internal/platform/ratelimit"
@@ -30,6 +31,7 @@ func TestP1AuditAtomicFaultInjection(t *testing.T) {
 	admin := authorization.Principal{UserID: adminID, GlobalRoles: []string{"admin"}}
 	player := authorization.Principal{UserID: playerID, GlobalRoles: []string{"user"}}
 	service := NewService(NewPostgresStore(db), authz, SystemClock{}, ratelimit.NewMemoryLimiter(128),
+		WithAccessPolicy(access.NewService(db, authz)),
 		WithArgon2Config(argon), WithIdempotencySecret("audit-atomic-secret"))
 
 	installAuditFailure := func() {
@@ -193,6 +195,7 @@ func TestP1SiblingSubmissionReadUniformNotFound(t *testing.T) {
 	player := authorization.Principal{UserID: playerID, GlobalRoles: []string{"user"}}
 	reviewer := authorization.Principal{UserID: reviewerID, GlobalRoles: []string{"user"}}
 	service := NewService(NewPostgresStore(db), authz, SystemClock{}, ratelimit.NewMemoryLimiter(128),
+		WithAccessPolicy(access.NewService(db, authz)),
 		WithArgon2Config(argon), WithIdempotencySecret("l2-secret"))
 
 	start := time.Now().UTC().Add(-time.Hour)

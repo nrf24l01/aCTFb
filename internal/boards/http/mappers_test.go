@@ -32,7 +32,7 @@ func TestTaskInstanceSummaryReflectsEnabledTask(t *testing.T) {
 		Title:    "Instance", Category: "web", Description: "description", Type: boards.TaskTypeInstance,
 		Points: 10, Visible: true, SubmissionMode: boards.SubmissionModeText,
 		SubmissionChecker: boards.SubmissionCheckerManual, InstanceEnabled: true,
-		Status: boards.TaskStatusAvailable,
+		Status: boards.TaskStatusAvailable, CanParticipate: true,
 	}
 	model := taskModel(task)
 	if model.Instance == nil || model.Instance.Required == nil || !*model.Instance.Required {
@@ -45,6 +45,16 @@ func TestTaskInstanceSummaryReflectsEnabledTask(t *testing.T) {
 	if solved := taskModel(task); solved.Instance == nil || solved.Instance.CanStart == nil || *solved.Instance.CanStart {
 		t.Fatalf("solved task must not advertise canStart: %#v", solved.Instance)
 	}
+	// A staff preview (or an ineligible reader) must never advertise a startable
+	// instance, even when the task itself is instance-enabled and available.
+	previewTask := task
+	previewTask.Preview = true
+	previewTask.CanParticipate = false
+	if preview := taskModel(previewTask); preview.Instance == nil || preview.Instance.CanStart == nil ||
+		*preview.Instance.CanStart {
+		t.Fatalf("preview task advertised canStart: %#v", preview.Instance)
+	}
+
 	flag := taskModel(boards.Task{
 		ID:       uuid.MustParse("33333333-3333-4333-8333-333333333333"),
 		ModuleID: uuid.MustParse("44444444-4444-4444-8444-444444444444"),

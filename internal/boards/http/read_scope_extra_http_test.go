@@ -36,6 +36,14 @@ func TestDraftVisibilityRequiresTasksManage(t *testing.T) {
 	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID)+"/tasks/"+b.draftID,
 		reviewerToken, nil, nil, http.StatusForbidden)
 
+	// A reviewer also reads the board shell and module detail as a preview.
+	doJSON(t, f.router, http.MethodGet, "/api/v2/boards/"+b.boardID, reviewerToken, nil, nil, http.StatusOK)
+	reviewerModule := decode[oapimodels.Module](t, doJSON(t, f.router, http.MethodGet,
+		b.modulePath(b.moduleID), reviewerToken, nil, nil, http.StatusOK), http.StatusOK)
+	if reviewerModule.Preview == nil || !*reviewerModule.Preview {
+		t.Fatalf("reviewer module read is not a preview: %+v", reviewerModule)
+	}
+
 	// A module editor holds module.tasks.manage and sees the draft.
 	editorUser, editorToken := registerHTTPUser(t, f.ctx, f.users, f.db, "draft_editor", false)
 	editor := editorUser.ID
@@ -58,6 +66,68 @@ func TestDraftVisibilityRequiresTasksManage(t *testing.T) {
 	}
 	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID)+"/tasks/"+b.draftID,
 		editorToken, nil, nil, http.StatusOK)
+	// The module editor reads the board shell and module detail as a preview too.
+	doJSON(t, f.router, http.MethodGet, "/api/v2/boards/"+b.boardID, editorToken, nil, nil, http.StatusOK)
+	editorModule := decode[oapimodels.Module](t, doJSON(t, f.router, http.MethodGet,
+		b.modulePath(b.moduleID), editorToken, nil, nil, http.StatusOK), http.StatusOK)
+	if editorModule.Preview == nil || !*editorModule.Preview {
+		t.Fatalf("module editor read is not a preview: %+v", editorModule)
+	}
+}
+
+// TestJoinedNonAdminWithScopedRoleSeesPreviewOnly covers the matrix cell that the
+// joined-admin test does not: a joined NON-admin participant whose access group
+// was revoked, then granted a scoped role, reads a preview and gains no
+// participant-own action.
+func TestJoinedNonAdminWithScopedRoleSeesPreviewOnly(t *testing.T) {
+	f := newStaffReadHTTPFixture(t)
+	b := seedStaffReadBoard(t, f, "staff-nonadmin-mixed")
+
+	player, playerToken := registerHTTPUser(t, f.ctx, f.users, f.db, "nonadmin_mixed", false)
+	if _, err := f.db.Pool.Exec(f.ctx, `
+		INSERT INTO access_group_members (group_id, user_id) VALUES ($1,$2)`, b.groupID, player.ID); err != nil {
+		t.Fatalf("join group: %v", err)
+	}
+	doJSON(t, f.router, http.MethodPost, "/api/v2/boards/"+b.boardID+"/join", playerToken,
+		map[string]any{"code": issueJoinCode(t, f.router, b.boardID, b.adminToken)}, nil, http.StatusOK)
+
+	// Revoke the group, then grant a board-wide editor role. Roles never make a
+	// revoked participant eligible for own actions.
+	if _, err := f.db.Pool.Exec(f.ctx, `
+		DELETE FROM access_group_members WHERE group_id=$1 AND user_id=$2`, b.groupID, player.ID); err != nil {
+		t.Fatalf("revoke group: %v", err)
+	}
+	if _, err := f.db.Pool.Exec(f.ctx, `
+		INSERT INTO board_role_bindings (board_id, user_id, role, granted_by)
+		VALUES ($1,$2,'board_editor',(SELECT id FROM users WHERE username='admin_staff-nonadmin-mixed'))`,
+		b.boardID, player.ID); err != nil {
+		t.Fatalf("grant editor: %v", err)
+	}
+
+	// Board shell, module and tasks: 200 preview.
+	shell := decode[oapimodels.Board](t, doJSON(t, f.router, http.MethodGet, "/api/v2/boards/"+b.boardID,
+		playerToken, nil, nil, http.StatusOK), http.StatusOK)
+	if shell.Preview == nil || !*shell.Preview || shell.CanParticipate == nil || *shell.CanParticipate {
+		t.Fatalf("non-admin mixed board shell = preview:%v canParticipate:%v", shell.Preview, shell.CanParticipate)
+	}
+	module := decode[oapimodels.Module](t, doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID),
+		playerToken, nil, nil, http.StatusOK), http.StatusOK)
+	if module.Preview == nil || !*module.Preview || module.CanParticipate == nil || *module.CanParticipate {
+		t.Fatalf("non-admin mixed module = preview:%v canParticipate:%v", module.Preview, module.CanParticipate)
+	}
+	task := decode[oapimodels.Task](t, doJSON(t, f.router, http.MethodGet,
+		b.modulePath(b.moduleID)+"/tasks/"+b.taskID, playerToken, nil, nil, http.StatusOK), http.StatusOK)
+	if task.Preview == nil || !*task.Preview || task.Solved != nil && *task.Solved {
+		t.Fatalf("non-admin mixed task = %+v", task)
+	}
+	// No participant-own action or own progress.
+	submitPath := b.modulePath(b.moduleID) + "/tasks/" + b.taskID + "/submissions"
+	doJSON(t, f.router, http.MethodPost, submitPath, playerToken,
+		map[string]any{"text": "flag{staff-preview-secret}"},
+		map[string]string{"Idempotency-Key": "nonadmin-mixed-submit-01"}, http.StatusForbidden)
+	doJSON(t, f.router, http.MethodGet, submitPath+"/me", playerToken, nil, nil, http.StatusForbidden)
+	doJSON(t, f.router, http.MethodGet, "/api/v2/boards/"+b.boardID+"/scoreboard/me",
+		playerToken, nil, nil, http.StatusForbidden)
 }
 
 // TestSubmissionReplayHonoursLiveRevocation covers B10: an eligible replay after

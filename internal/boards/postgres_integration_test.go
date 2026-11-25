@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/nrf24l01/actfb/internal/access"
 	"github.com/nrf24l01/actfb/internal/authorization"
 	"github.com/nrf24l01/actfb/internal/config"
 	"github.com/nrf24l01/actfb/internal/platform/postgres"
@@ -45,6 +46,7 @@ func TestP1CorePostgresIntegration(t *testing.T) {
 	argon := config.Argon2idConfig{Time: 1, Memory: 8 * 1024, Threads: 1, KeyLen: 32}
 	authz := authorization.NewAuthorizer(db)
 	service := NewService(NewPostgresStore(db), authz, SystemClock{}, ratelimit.NewMemoryLimiter(1024),
+		WithAccessPolicy(access.NewService(db, authz)),
 		WithArgon2Config(argon), WithIdempotencySecret("integration-idempotency-secret"))
 
 	adminID := createBoardUser(t, ctx, db, "p1_admin", []string{"admin"})
@@ -404,6 +406,7 @@ func TestIndividualScoreboardIsBoardScoped(t *testing.T) {
 
 	authz := authorization.NewAuthorizer(db)
 	service := NewService(NewPostgresStore(db), authz, SystemClock{}, ratelimit.NewMemoryLimiter(64),
+		WithAccessPolicy(access.NewService(db, authz)),
 		WithIdempotencySecret("scoreboard-isolation-secret"))
 	adminID := createBoardUser(t, ctx, db, "iso_admin", []string{"admin"})
 	aliceID := createBoardUser(t, ctx, db, "iso_alice", []string{"user"})

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nrf24l01/actfb/internal/access"
 	"github.com/nrf24l01/actfb/internal/authorization"
 	"github.com/nrf24l01/actfb/internal/config"
 	"github.com/nrf24l01/actfb/internal/platform/ratelimit"
@@ -28,6 +29,7 @@ func TestP1ListBoardsStoreRegression(t *testing.T) {
 	argon := config.Argon2idConfig{Time: 1, Memory: 8 * 1024, Threads: 1, KeyLen: 32}
 	authz := authorization.NewAuthorizer(db)
 	service := NewService(NewPostgresStore(db), authz, SystemClock{}, ratelimit.NewMemoryLimiter(128),
+		WithAccessPolicy(access.NewService(db, authz)),
 		WithArgon2Config(argon), WithIdempotencySecret("list-boards-regression-secret"))
 	store := NewPostgresStore(db)
 

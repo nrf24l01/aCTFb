@@ -349,16 +349,31 @@ func (s *Service) AdminBoardAction(ctx context.Context, principal authorization.
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
+	var board *Board
+	var err error
 	switch action {
 	case BoardActionPublish:
-		return s.publishBoard(ctx, principal, boardID)
+		board, err = s.publishBoard(ctx, principal, boardID)
 	case BoardActionUnpublish:
-		return s.unpublishBoard(ctx, principal, boardID)
+		board, err = s.unpublishBoard(ctx, principal, boardID)
 	case BoardActionArchive:
-		return s.archiveBoard(ctx, principal, boardID)
+		board, err = s.archiveBoard(ctx, principal, boardID)
 	default:
 		return nil, Invalid("body.action", "must be PUBLISH, UNPUBLISH or ARCHIVE", "INVALID_VALUE")
 	}
+	if err != nil {
+		return nil, err
+	}
+	// The action response is the same Board projection as every other read, so
+	// its preview/canParticipate flags must be the resolved values rather than a
+	// hardcoded false.
+	scope, scopeErr := s.resolveBoardRead(ctx, principal, boardID)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+	board.Preview = scope.preview
+	board.CanParticipate = scope.participant
+	return board, nil
 }
 
 func (s *Service) publishBoard(ctx context.Context, principal authorization.Principal, boardID uuid.UUID) (*Board, error) {

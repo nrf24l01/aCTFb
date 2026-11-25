@@ -191,7 +191,10 @@ func taskStatus(task Task) string {
 // after the access group or audience was revoked.
 func (s *Service) requireParticipantOwnModuleAccess(ctx context.Context, principal authorization.Principal, boardID, moduleID uuid.UUID) error {
 	if s.accessPolicy == nil {
-		return nil
+		// A participant-own action must never be authorized without the policy
+		// that proves live group/audience eligibility. Failing closed is a
+		// configuration error (503), not a permission denial.
+		return ErrDependencyUnavailable
 	}
 	allowed, err := s.accessPolicy.CanAccessModuleAsParticipant(ctx, principal, boardID, moduleID)
 	if err != nil {

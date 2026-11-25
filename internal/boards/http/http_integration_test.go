@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/labstack/echo/v5"
 
+	"github.com/nrf24l01/actfb/internal/access"
 	"github.com/nrf24l01/actfb/internal/authorization"
 	"github.com/nrf24l01/actfb/internal/boards"
 	"github.com/nrf24l01/actfb/internal/config"
@@ -58,10 +59,14 @@ func TestP1BoardHTTPIntegration(t *testing.T) {
 	}
 	userService := users.NewUserService(db, cfg, nil)
 	authz := authorization.NewAuthorizer(db)
+	// Participant-own actions require a live access policy; the production
+	// backend always wires it, so the fixture does too.
+	accessSvc := access.NewService(db, authz)
 	service := boards.NewService(boards.NewPostgresStore(db), authz, boards.SystemClock{},
 		ratelimit.NewMemoryLimiter(1024),
 		boards.WithArgon2Config(cfg.Argon2id),
-		boards.WithIdempotencySecret("p1-http-idempotency-secret"))
+		boards.WithIdempotencySecret("p1-http-idempotency-secret"),
+		boards.WithAccessPolicy(accessSvc))
 
 	router := httpapi.NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), func(context.Context) error { return nil })
 	NewHandler(service, userService).RegisterRoutes(router)

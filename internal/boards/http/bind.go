@@ -132,13 +132,8 @@ func malformedJSONProblem(err error) *apiProblem {
 				},
 			}
 		}
-		var maxBytesError *http.MaxBytesError
-		if stderrors.As(err, &maxBytesError) {
-			return &apiProblem{
-				status: http.StatusRequestEntityTooLarge, code: oapimodels.ErrorCodePAYLOADTOOLARGE,
-				message: "Payload too large",
-			}
-		}
+		// readBody already maps an oversized body to the documented 400
+		// INVALID_JSON for board routes, so no 413 branch is reachable here.
 	}
 	return invalidJSONProblem("Malformed JSON")
 }

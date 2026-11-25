@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/nrf24l01/actfb/internal/access"
 	"github.com/nrf24l01/actfb/internal/authorization"
 	"github.com/nrf24l01/actfb/internal/config"
 	"github.com/nrf24l01/actfb/internal/platform/ratelimit"
@@ -37,6 +38,7 @@ func TestP1LateSubmissionAuthoritativeRecheck(t *testing.T) {
 	start := time.Now().UTC().Add(-time.Hour)
 	end := time.Now().UTC().Add(time.Hour)
 	baseService := NewService(NewPostgresStore(db), authz, SystemClock{}, ratelimit.NewMemoryLimiter(128),
+		WithAccessPolicy(access.NewService(db, authz)),
 		WithArgon2Config(argon), WithIdempotencySecret("late-submission-secret"))
 
 	setup := func(t *testing.T, slug string) (*Board, *Module, *Task) {
@@ -83,6 +85,7 @@ func TestP1LateSubmissionAuthoritativeRecheck(t *testing.T) {
 			}
 		}
 		service := NewService(store, authz, SystemClock{}, ratelimit.NewMemoryLimiter(128),
+			WithAccessPolicy(access.NewService(db, authz)),
 			WithArgon2Config(argon), WithIdempotencySecret("late-submission-secret"))
 		_, err := service.SubmitTask(ctx, player,
 			TaskPath{BoardID: board.ID, ModuleID: module.ID, TaskID: task.ID},
@@ -139,6 +142,7 @@ func TestP1LateIdempotentReplayAfterDeadline(t *testing.T) {
 	admin := authorization.Principal{UserID: adminID, GlobalRoles: []string{"admin"}}
 	player := authorization.Principal{UserID: playerID, GlobalRoles: []string{"user"}}
 	service := NewService(NewPostgresStore(db), authz, SystemClock{}, ratelimit.NewMemoryLimiter(128),
+		WithAccessPolicy(access.NewService(db, authz)),
 		WithArgon2Config(argon), WithIdempotencySecret("late-replay-secret"))
 
 	start := time.Now().UTC().Add(-time.Hour)
@@ -211,6 +215,7 @@ func TestP1MultiModuleStaffListAndQuery(t *testing.T) {
 	staffID := createBoardUser(t, ctx, db, "multi_staff", []string{"user"})
 	admin := authorization.Principal{UserID: adminID, GlobalRoles: []string{"admin"}}
 	service := NewService(NewPostgresStore(db), authz, SystemClock{}, ratelimit.NewMemoryLimiter(128),
+		WithAccessPolicy(access.NewService(db, authz)),
 		WithArgon2Config(argon), WithIdempotencySecret("multi-module-secret"))
 	store := NewPostgresStore(db)
 	start := time.Now().UTC().Add(-time.Hour)
@@ -305,6 +310,7 @@ func TestP1UpcomingModuleParticipantGetDenied(t *testing.T) {
 	player := authorization.Principal{UserID: playerID, GlobalRoles: []string{"user"}}
 	staff := authorization.Principal{UserID: staffID, GlobalRoles: []string{"user"}}
 	service := NewService(NewPostgresStore(db), authz, SystemClock{}, ratelimit.NewMemoryLimiter(128),
+		WithAccessPolicy(access.NewService(db, authz)),
 		WithArgon2Config(argon), WithIdempotencySecret("upcoming-secret"))
 
 	start := time.Now().UTC().Add(2 * time.Hour)

@@ -344,9 +344,11 @@ func TestAdminPreviewDoesNotCreateMembership(t *testing.T) {
 	}
 }
 
-// TestJoinCodeRevisionSurvivesAuthRevocationInTx proves the in-transaction
-// recheck: a demoted admin cannot rotate even if the HTTP preflight passed.
-func TestJoinCodeRevisionSurvivesAuthRevocationInTx(t *testing.T) {
+// TestJoinCodeRotationPreflightDeniesRevokedBinding covers the HTTP preflight
+// only: the binding is already revoked when the request starts, so
+// requirePermission denies before the store transaction is reached. The real
+// lock-wait race is covered by TestJoinCodeRotationDeniedAfterLockWaitIsReal.
+func TestJoinCodeRotationPreflightDeniesRevokedBinding(t *testing.T) {
 	f := newJoinCodeHTTPFixture(t, "PUBLIC", "OPEN", "", false)
 	// A board owner rotates successfully once.
 	owner, ownerToken := f.newUser(t, "tx_owner")
