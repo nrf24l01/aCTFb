@@ -196,12 +196,12 @@ Real PostgreSQL 18 (server `18.7`), real Echo routes, real JWT auth.
 | Catalog default profile (HTTP) | `go test ./internal/deployment/http -run TestTemplateCatalog` | PASS |
 | Catalog default profile (boot) | `go test ./cmd/backend -run TestDeploymentCatalogBootsWithDefaultProfileFlags` | PASS |
 | Full Go suite | `ACTFB_TEST_POSTGRES_DSN=… go test -p 1 ./...` | PASS |
-| CI gate | `.github/workflows/go.yml` integration job runs whole affected packages with the DSN plus the migration down/up step | PASS locally, job timeout raised to 120m |
+| CI gate | `.github/workflows/go.yml` integration job runs whole affected packages with the DSN plus the migration down/up step | PASS in CI (run `45615311019`); job timeout raised to 120m |
 | Vet / build | `go vet ./...`, `go build ./...` | PASS |
 | Frontend typecheck | `bun run typecheck` | PASS |
 | Frontend unit | `bun run test` | PASS (30 files, 146 tests) |
 | Frontend build | `bun run build` | PASS |
-| Default-profile browser | `E2E_PG_DSN=… ./e2e/run-default-profile-e2e.sh` | PASS (4 tests) |
+| Default-profile browser | `E2E_PG_DSN=… ./e2e/run-default-profile-e2e.sh` | PASS (4 tests) locally and in CI |
 
 The default-profile browser run is the reproduction of the reported profile:
 `deployment.enabled=false`, integrations/plugins/files/A+D off, no credential
@@ -215,10 +215,27 @@ lands in the editor. Nothing is intercepted.
 
 * Slices 1–2 need no migration; `019_instance_lifetime.sql` is untouched. The
   enrollment slice in this range adds `020_board_join_codes.sql`, which is
-  additive and unpublished.
+  additive, applied by the published backend on boot, and has a working `down`
+  (asserted in `TestMigrationsRemainingStages`).
 * Swagger/generated models changed only for the enrollment contract and the
   additive `preview`/`canParticipate` read projections.
 * No new permission, no `/api/v3`, no response field removed.
 * Plugin permissions remain explicit-grant-only, including for a global admin.
 * Participation, access-group and audience enforcement for ordinary users is
   unchanged and covered by the negative tests above.
+
+## Published state
+
+This range is merged and published from `main` at `925e45665f8622175e74d84eec2bd7dfcf43b978`
+(CI run `45615311019`: Backend quality, Frontend quality, Integration and Publish images all
+green). Ten `linux/amd64` images carry `latest` and the immutable
+`sha-925e45665f8622175e74d84eec2bd7dfcf43b978` tag; digests are in
+`docs/ghcr-verification.md`.
+
+Operator upgrade from a pre-`020` deployment needs **no `config.yaml` change**: the datasource and
+secret layout is unchanged and the backend applies migration `020` on boot. `docker compose pull &&
+docker compose up -d` on the existing files is enough. What changes for users is the enrollment rule:
+a `PUBLIC` board is still discoverable, but joining now requires a code, so an organizer must issue one
+from the board's admin page (**Join code** → generate or set) before participants can join. Existing
+participants, submissions and scores are untouched. Pinning `ACTFB_IMAGE_TAG` to an older immutable
+`sha-…` tag remains supported and needs no other change.

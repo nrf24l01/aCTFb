@@ -135,7 +135,7 @@ Real PostgreSQL 18 (`18.7`), real Echo routes, real JWT authentication.
 | Gate | Result |
 | --- | --- |
 | `go test ./internal/boards/http -run 'TestOpenBoardNoLonger|TestAdminJoinCode|TestJoinCode|TestCanonicalJoin|TestConcurrentJoin|TestStaffPreviewStillWorks'` | PASS |
-| `go test ./internal/platform/postgres -run TestMigrationsRemainingStages` (includes the `020` down/up subtest) | PASS |
+| `go test ./internal/platform/postgres -run TestMigrationsRemainingStages` (includes the `020` down/up subtest) | PASS locally and in CI |
 | `go test -p 1 ./...` with `ACTFB_TEST_POSTGRES_DSN` | PASS |
 | `go test -race ./internal/boards/ ./internal/boards/http/ ./internal/access/ ./internal/deployment/... ./internal/platform/postgres/ ./cmd/backend/` | PASS |
 | `go vet ./...`, `go build ./...` | PASS |
@@ -167,7 +167,8 @@ a wrong code is a friendly rejection that does not leak the board.
 ## Not changed
 
 * No `/api/v3`, no response field removed, no existing error code repurposed.
-* `migrations/001`–`019` are untouched; `020` is additive and has a working `down`.
+* `migrations/001`–`019` are untouched; `020` is additive and has a working `down`. It is applied by
+  the published backend on boot, so an existing deployment needs no manual step and no config change.
 * Access groups, audiences, board windows, `CLOSED`, disabled-user and session-revocation rules are unchanged.
 * The staff read/preview fix and the default-profile template catalog fix from
   `docs/admin-module-template-fixes.md` are independent of enrollment and still verified.

@@ -673,3 +673,34 @@ GOMAXPROCS=2 ACTFB_TEST_POSTGRES_DSN=… go test -p 2 ./internal/boards/... ./in
   mutation transaction (the same second-connection class I2 fixed for the join-code
   rotation). It is pre-existing and untouched here; no claim is made that every
   PostgreSQL transaction path is single-connection.
+
+## Final state: merged, gated and published
+
+The narrow I3 re-review approved the range, the follow-up gate defects found by the first
+real runs were fixed, and the result is merged and published.
+
+| Item | Value |
+| --- | --- |
+| Merged `main` | `925e45665f8622175e74d84eec2bd7dfcf43b978` |
+| Source range | `5edd6d5..925e456` (22 commits) |
+| CI run | https://github.com/nrf24l01/aCTFb/actions/runs/45615311019 — success |
+| Jobs | Backend quality, Frontend quality, Integration, Publish images — all green |
+| Images | ten `linux/amd64` images, `latest` + `sha-925e45665f8622175e74d84eec2bd7dfcf43b978` |
+| Registry check | anonymous manifest + config-blob reads, all ten at the same source revision |
+
+The gated integration job really executed (not skipped): `Apply migrations to a clean schema`, the
+migration backfill/down-up acceptance including the `020` subtest, the real-PostgreSQL auth/admin-CLI/
+retention/Redis suites, the whole real-PostgreSQL domain+HTTP+boot package list with the DSN, the
+isolated P0/P1/RustFS suites, both browser suites, and the production packaging/auth/runtime smokes.
+
+Two gate defects were found by these runs and fixed inside the range, both test/harness only:
+
+1. `cmd/backend`'s PostgreSQL tests assumed an ambient migrated `public` schema (CI never creates one) —
+   they now create and migrate their own isolated schema (`acaa26c`).
+2. the default-profile runner started Vite without `--strictPort` from a probed port and failed silently
+   when setup redirected its logs — it now uses `--strictPort`, a reserved retry port, phase markers,
+   an `ERR` trap that dumps the run's logs, and explicit failures for the redirected setup commands
+   (`4174a1c`, `925e456`).
+
+No product code changed after the approved review. The two follow-up commits touch only
+`cmd/backend/*_test.go`, `e2e/run-default-profile-e2e.sh`, `.github/workflows/go.yml` and docs.

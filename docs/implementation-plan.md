@@ -799,3 +799,17 @@ typecheck/unit/build, and the default-profile browser run (`e2e/run-default-prof
 boots the real backend with every optional feature disabled. The independent review report is
 `docs/admin-module-join-review.md`; each finding and its disposition is in
 `docs/admin-module-join-review-fixes.md`.
+
+**Published:** `main` at `925e45665f8622175e74d84eec2bd7dfcf43b978` (CI run
+https://github.com/nrf24l01/aCTFb/actions/runs/45615311019 — Backend quality, Frontend quality, Integration and
+Publish images all green). The gated integration job executed the whole real-PostgreSQL package list with the
+DSN, the migration backfill/down-up acceptance including the `020` subtest, the isolated P0/P1/RustFS suites,
+both browser suites (full-stack and default-profile) and the production packaging/auth/runtime smokes. Ten
+`linux/amd64` images carry `latest` plus the immutable `sha-925e456…` tag; digests and the exact verification
+split are in `docs/ghcr-verification.md`.
+
+Accepted limits, stated rather than implied: `ListModules` resolves each module's read scope separately (N+1,
+correct but not optimised); `internal/authorization/role_auth.go` still evaluates grants through the shared
+pool-backed checker inside the role-mutation transaction (pre-existing, same class as the fixed join-code path);
+and no local `docker pull`/`docker run` of the new tags was performed because this environment has no Docker
+daemon — that behaviour is covered by the CI Docker smokes and the anonymous registry verification.

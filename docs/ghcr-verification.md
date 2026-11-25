@@ -1,19 +1,30 @@
 # GHCR publication verification
 
-Status: **published and verified from `main` at commit `5edd6d5`** (task-instance lifetime policy). Ten
-separate images are publicly pullable without registry credentials, each with `latest` and an immutable
-`sha-<full-sha>` tag resolving to the same digest.
+Status: **published and verified from `main` at commit `925e456`** (admin module/task preview, default-profile
+template catalog, code-only enrollment). Ten separate images are publicly pullable without registry
+credentials, each with `latest` and an immutable `sha-<full-sha>` tag resolving to the same digest.
 
-Current publication: run https://github.com/nrf24l01/aCTFb/actions/runs/45432689770, image source commit
-`5edd6d53c44986761aca863c0160278b6aa4c3bc`, immutable tag `sha-5edd6d53c44986761aca863c0160278b6aa4c3bc`.
-This publication ships the per-task instance lifetime policy (initial/max lifetime overrides, student
-extension with one-credit semantics, module instance settings, the frozen lifecycle snapshot, worker deadline
-re-checks and the config.yaml provider allowlist) and is verified with an anonymous manifest/pull check plus a
-cleanroom run of the published backend + instance-worker pair that starts, extends, resets and expires a real
-Docker workload.
+Current publication: run https://github.com/nrf24l01/aCTFb/actions/runs/45615311019, image source commit
+`925e45665f8622175e74d84eec2bd7dfcf43b978`, immutable tag
+`sha-925e45665f8622175e74d84eec2bd7dfcf43b978`. That run's four jobs are green (Backend quality, Frontend
+quality, Integration, Publish images) and the integration job actually executed the whole real-PostgreSQL
+package list with the DSN, the migration backfill/down-up acceptance (which includes the `020` subtest), the
+isolated P0/P1/RustFS integration suites, both browser suites, and the production packaging/auth/runtime
+smokes — not a skipped selection.
+
+What this publication ships:
+
+* a live global admin or scoped staff member can read their authorized module and tasks as an organizer
+  preview without joining, while every participant-own action (submit, own history, score, instance) still
+  requires live participation;
+* the admin deployment-template catalog is served with runtime instances disabled, so the default profile no
+  longer answers `404` for `GET /admin/deployment-templates`;
+* self-enrollment is code-only on every registration mode: a bare board UUID or link never enrolls, public
+  boards stay browsable, and the admin join-code panel reveals a code exactly once;
+* migration `020_board_join_codes` (hash-only storage, optimistic `revision` CAS).
 
 **Image source commit vs current `main`.** The images are built from source commit
-`5edd6d53c44986761aca863c0160278b6aa4c3bc`. Any later commit that touches only `docs/` or `README.md` does not
+`925e45665f8622175e74d84eec2bd7dfcf43b978`. Any later commit that touches only `docs/` or `README.md` does not
 change the images: the CI workflow's `paths` filter excludes documentation, so no rebuild or republish happens
 and the tags above remain the current images. Check `git log --oneline <image-source>..main -- ':!docs' ':!*.md'`
 before assuming a newer image exists.
@@ -26,46 +37,71 @@ one-process-per-container), `2191282` (docs/tests/labels only).
 
 | Field | Value |
 | --- | --- |
-| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/45432689770 |
-| Commit | `5edd6d53c44986761aca863c0160278b6aa4c3bc` |
+| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/45615311019 |
+| Commit | `925e45665f8622175e74d84eec2bd7dfcf43b978` |
 | Conclusion | success (Backend quality, Frontend quality, Integration, Publish images) |
 | Platform | `linux/amd64` only |
 | Provenance attestations | none; single OCI image manifests |
 | Registry visibility | public, verified by anonymous manifest and config-blob reads for all ten images |
+| `latest` vs `sha-*` | same digest for the backend (and each image's tags resolve to one manifest) |
 
 | Image | Digest | Compressed |
 | --- | --- | --- |
-| `ghcr.io/nrf24l01/actfb-backend` | `sha256:8676a8c9017377ef12cf80d275a88ab08b28d843dee1636c79a761b72a462888` | 20,413,286 B |
-| `ghcr.io/nrf24l01/actfb-frontend` | `sha256:06be05253b0fcf74b48212279006a6538fac08e0a9d2e7fbec2f6d9b35bb73f2` | 23,687,600 B |
-| `ghcr.io/nrf24l01/actfb-notification` | `sha256:9b0644bf890409c0bb1622fd5018ada1175ffce9ab8da8b19e586aa5b941ccb2` | 12,342,732 B |
-| `ghcr.io/nrf24l01/actfb-retention` | `sha256:09a99971ceb94967cd0148f346ec376c5547d0942cfeb68cded0f90b31a09135` | 10,940,563 B |
-| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `sha256:a6800af942eba7dbb3a32d3f2e3695f8726e801ae59f7ac613f38f7f52755b93` | 12,001,250 B |
-| `ghcr.io/nrf24l01/actfb-file-scanner` | `sha256:88bbb1264d3b5781983bfea821e122f20f2966b71af35d699947356ddc0f174b` | 13,359,311 B |
-| `ghcr.io/nrf24l01/actfb-storage-init` | `sha256:73249f22b491f899afe12b42dd5402b70a706748a96f2871f46ffff0757e61d4` | 10,956,257 B |
-| `ghcr.io/nrf24l01/actfb-plugin-runner` | `sha256:1366acd8976f0ac87ad3d9fa7ab91b6ce5eeb54611dd22ab047a95d17a2a1a69` | 10,292,879 B |
-| `ghcr.io/nrf24l01/actfb-ad-worker` | `sha256:b06ac7549a836bc79bbebefcc644410c37f3eedf429ebbe7a421229669e81670` | 27,022,943 B |
-| `ghcr.io/nrf24l01/actfb-instance-worker` | `sha256:c49850d65263f0931d392856d307465ca7f47c489331daf704d51f4892514abc` | 13,831,515 B |
+| `ghcr.io/nrf24l01/actfb-backend` | `sha256:958542235d19ae510aa108d389f8e8a3a3441366b98b7295f928c9755187a3ae` | 20,448,089 B |
+| `ghcr.io/nrf24l01/actfb-frontend` | `sha256:bfe92464d2b210331423685bfda96e6853d9564999fbbbf5e7dd0d1333db04da` | 23,689,786 B |
+| `ghcr.io/nrf24l01/actfb-notification` | `sha256:3ffa88f05321fc864823e26026e7c7044290cf2b59f4f92dea7ad6c7bdffcd7a` | 12,342,732 B |
+| `ghcr.io/nrf24l01/actfb-retention` | `sha256:8d30f6c6b6116821c66584b07b91afec523e326271284a9e9d876edcff83c988` | 10,940,563 B |
+| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `sha256:26aae3c161c6ec47faa9bd717e1becb9db7e5aa42ff135ab40374d90f6fe8267` | 12,001,243 B |
+| `ghcr.io/nrf24l01/actfb-file-scanner` | `sha256:1874553ed9ea1f7fa43e0cb8245655f388a61d894416d9d04d2ef4ccd0542d13` | 13,359,289 B |
+| `ghcr.io/nrf24l01/actfb-storage-init` | `sha256:d99a67b5dba9aae57b6b75e944c19207b643210c77547f28b19b77c04e2585b9` | 10,956,257 B |
+| `ghcr.io/nrf24l01/actfb-plugin-runner` | `sha256:4d284c9a847c1415e893ce2e51d322594f3d26d2eec2793fcd5fc08a1639a9b6` | 10,292,879 B |
+| `ghcr.io/nrf24l01/actfb-ad-worker` | `sha256:f74491577592f3b3abd4818c18ccae56fff5c97d620458c17383678e1425f5ad` | 27,022,953 B |
+| `ghcr.io/nrf24l01/actfb-instance-worker` | `sha256:75c9e2e8d504ef4920912a5b608a382f3f4865dc8c55a49aee96837588d8d086` | 13,932,157 B |
 
-Uncompressed image sizes measured with `docker image inspect .Size` after an anonymous pull:
+## What was verified for this publication, and how
 
-| Image | Size |
-| --- | --- |
-| `actfb-backend` | 53.9 MiB (56,531,146 B) |
-| `actfb-frontend` | 52.7 MiB (55,222,601 B) |
-| `actfb-instance-worker` | 32.1 MiB (33,632,528 B) |
+Verification is split by what each environment can actually prove. No claim below is
+inferred from a different commit.
 
-The published-image lifetime smoke (cleanroom from the downloaded `deploy/` files) verified: migrations through
-`019`, `/ready` + `/healthz`, `admin create --password-stdin` from the published binary, module instance
-settings persisted over the public API, a task override, an approved pinned Docker integration with a
-dedicated worker node, an immutable template version plus a board/module allowlist, a real Docker start that
-reached `RUNNING` and served the injected marker on its isolated network, `EXTEND` adding exactly 900 s and one
-credit with an idempotent replay, the cap rejection (`INSTANCE_EXTENSION_LIMIT_REACHED`), `RESET` keeping expiry
-and credits, a policy edit leaving the frozen snapshot at 1800 s, and a controlled expiry that reached
-`EXPIRED` with 0 live endpoints, 0 live leases and 0 provider containers.
+**1. Registry-side, anonymous, no Docker daemon required (performed for `925e456`).**
+Each of the ten packages was resolved over HTTPS against `ghcr.io` with an anonymous
+pull token: the tag manifest digest, the config blob's `os`/`architecture`, the OCI
+source labels, and the layer count/size. All ten resolved as `linux/amd64` single
+manifests whose `org.opencontainers.image.revision` equals
+`925e45665f8622175e74d84eec2bd7dfcf43b978`, and the backend's `latest` and
+`sha-925e456…` tags resolve to one digest (`sha256:958542235d19…`). The backend config
+blob also shows the expected runtime shape: `Cmd ["/app/backend"]`, user
+`10001:10001`, workdir `/app`.
 
-## Public pull verification
+**2. CI, with a real Docker daemon (performed for `925e456` in run `45615311019`).**
+The Integration job built all production images and ran the packaging contract,
+production image runtime, and production auth/proxy smokes against them. It also ran
+both browser suites, the whole real-PostgreSQL package list with the DSN, the
+migration backfill/down-up acceptance including the `020` subtest, and the isolated
+P0/P1/RustFS integration suites. The Publish job then pushed the images.
 
-All ten packages were checked with an empty temporary `DOCKER_CONFIG`:
+**3. Not performed for this publication: a local `docker pull` / `docker run` of the
+published tags.** This review environment has no Docker daemon, so no local pull or
+local container execution is claimed here. The previous publication (`5edd6d5`) had
+that evidence, including uncompressed `docker image inspect .Size` figures and the
+cleanroom lifetime smoke (migrations through `019`, `admin create --password-stdin`
+from the published binary, instance start/extend/reset/expiry with 0 live endpoints,
+leases and provider containers). Those results apply to `5edd6d5`, not to `925e456`.
+For `925e456`, the published-image behaviour is covered by the CI Docker smokes in
+point 2 and by the registry verification in point 1.
+
+Known limit worth stating plainly: the participant-own instance authorization change
+in this range is proven end to end by a real-PostgreSQL test with a trusted recording
+fake provider (worker reached `Destroy` with the exact provider id, ports and leases
+released, all operations terminal) plus the HTTP route chain. That is the code path
+the change touches. It is not a claim that a physical container was destroyed by the
+published binary in this environment.
+
+## Public pull verification (previous publication, `5edd6d5`)
+
+The commands below were executed for the `5edd6d5` publication with an empty temporary
+`DOCKER_CONFIG`. They were **not** re-executed for `925e456` because this environment
+has no Docker daemon; see the split above.
 
 ```bash
 docker pull ghcr.io/nrf24l01/actfb-backend:latest
