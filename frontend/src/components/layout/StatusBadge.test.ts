@@ -98,4 +98,15 @@ describe('StatusBadge', () => {
     expect(style).not.toContain('var(--status-chartreuse')
     expect(wrapper.find('svg').exists()).toBe(true)
   })
+
+  it('treats inherited object keys as unknown tones, not palette names', () => {
+    for (const inherited of ['toString', 'constructor', 'hasOwnProperty']) {
+      const wrapper = mount(StatusBadge, { props: { label: 'Odd', tone: inherited as never } })
+      const style = badge(wrapper).attributes('style') ?? ''
+
+      expect(style, inherited).toContain('var(--status-neutral-ink)')
+      expect(style, inherited).not.toContain(`var(--status-${inherited}`)
+      expect(wrapper.find('svg').exists(), inherited).toBe(true)
+    }
+  })
 })

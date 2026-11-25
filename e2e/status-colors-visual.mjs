@@ -167,6 +167,16 @@ try {
 
   check(raw.length >= 60, `expected at least 60 badges, got ${raw.length}`)
 
+  // Every fixture key must actually be rendered and measured. A dropped or
+  // renamed badge would otherwise shrink the sample and still pass a count floor.
+  const measuredKeys = new Set(raw.map((item) => item.key))
+  for (const key of Object.keys(EXPECTED_TONE)) {
+    check(measuredKeys.has(key), `expected status/tone "${key}" was not measured`)
+  }
+  for (const key of Object.keys(EXPECTED_LABEL)) {
+    check(measuredKeys.has(key), `expected label case "${key}" was not measured`)
+  }
+
   for (const item of raw) {
     const expectedTone = EXPECTED_TONE[item.key]
     check(Boolean(expectedTone), `fixture badge ${item.key} has no expected tone`)

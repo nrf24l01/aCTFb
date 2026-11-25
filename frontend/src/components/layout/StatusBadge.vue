@@ -14,8 +14,8 @@ import { Badge } from '@/components/ui/badge'
 import { statusLabel, statusTone } from '@/shared/lib/status'
 import type { StatusTone } from '@/shared/lib/status'
 
-// Older callers still pass these names; map them to the semantic tones instead
-// of keeping a second visual language.
+// Retained for backwards compatibility: older call sites still pass the old
+// vocabulary, so each name is aliased to the semantic tone it used to mean.
 type LegacyTone = 'ok' | 'look' | 'blocked' | 'broken' | 'unknown' | 'off' | 'running' | 'gone'
 type Tone = StatusTone | LegacyTone
 
@@ -48,10 +48,11 @@ const props = defineProps<{
 
 const resolvedTone = computed<StatusTone>(() => {
   if (props.tone) {
-    const legacy = LEGACY_TONES[props.tone]
-    if (legacy) return legacy
+    // Object.hasOwn, not a bare lookup or `in`: inherited keys like `toString`
+    // and `constructor` are not tones and must not resolve to palette names.
+    if (Object.hasOwn(LEGACY_TONES, props.tone)) return LEGACY_TONES[props.tone]
     // An unexpected runtime value must not produce an empty icon or `var(undefined)`.
-    return props.tone in TONE_ICONS ? (props.tone as StatusTone) : 'neutral'
+    return Object.hasOwn(TONE_ICONS, props.tone) ? (props.tone as StatusTone) : 'neutral'
   }
   return props.status ? statusTone(props.status) : 'neutral'
 })
