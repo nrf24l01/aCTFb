@@ -38,12 +38,17 @@ PY
 BACKEND_PID=""
 FRONTEND_PID=""
 cleanup() {
-  for pid in "$FRONTEND_PID" "$BACKEND_PID"; do
-    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null || true
-      wait "$pid" 2>/dev/null || true
-    fi
-  done
+  # The Vite dev server is started with setsid, so its PID is also its process
+  # group: kill the group to stop the bun/node children too. The backend is a
+  # single process.
+  if [[ -n "$FRONTEND_PID" ]] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
+    kill -- -"$FRONTEND_PID" 2>/dev/null || kill "$FRONTEND_PID" 2>/dev/null || true
+    wait "$FRONTEND_PID" 2>/dev/null || true
+  fi
+  if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" 2>/dev/null; then
+    kill "$BACKEND_PID" 2>/dev/null || true
+    wait "$BACKEND_PID" 2>/dev/null || true
+  fi
   psql "$PG_DSN" -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${DB_NAME}\"" >/dev/null 2>&1 || true
   if [[ "${E2E_KEEP:-0}" != "1" ]]; then
     rm -rf "$WORKDIR"
@@ -181,9 +186,11 @@ if [[ ! -d "$ROOT/frontend/node_modules" ]]; then
   (cd "$ROOT/frontend" && bun install --frozen-lockfile) >"$WORKDIR/frontend-install.log" 2>&1
 fi
 
-(cd "$ROOT/frontend" && VITE_DEV_PROXY_TARGET="http://127.0.0.1:${APP_PORT}" \
-  bun run dev -- --host 127.0.0.1 --port "${FRONTEND_PORT}" \
-  >"$WORKDIR/frontend.log" 2>&1) &
+(
+  cd "$ROOT/frontend"
+  exec setsid env VITE_DEV_PROXY_TARGET="http://127.0.0.1:${APP_PORT}" \
+    bun run dev -- --host 127.0.0.1 --port "${FRONTEND_PORT}"
+) >"$WORKDIR/frontend.log" 2>&1 &
 FRONTEND_PID=$!
 wait_http "http://127.0.0.1:${FRONTEND_PORT}/"
 
