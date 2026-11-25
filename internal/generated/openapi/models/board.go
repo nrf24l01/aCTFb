@@ -22,6 +22,10 @@ type Board struct {
 	// Additive canonical mode. When provided it normalizes visibility/registration/accessGroupUuids; conflicting legacy fields are rejected.
 	AccessMode AccessMode `json:"accessMode,omitempty"`
 
+	// True when the caller is participant-eligible for this scope from live state (joined, current access group, current module audience). Read-only projection; it never grants anything by itself.
+	// Required: true
+	CanParticipate *bool `json:"canParticipate"`
+
 	// description
 	// Required: true
 	// Max Length: 50000
@@ -54,6 +58,10 @@ type Board struct {
 	// participation mode
 	// Required: true
 	ParticipationMode *ParticipationMode `json:"participationMode"`
+
+	// True when this read is a staff management preview because the caller is not participant-eligible here (never joined, or the access group/audience was revoked). A preview never unlocks participant-own history, submission, score or instance actions.
+	// Required: true
+	Preview *bool `json:"preview"`
 
 	// rating
 	// Required: true
@@ -93,6 +101,10 @@ func (m *Board) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateCanParticipate(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateDescription(formats); err != nil {
 		res = append(res, err)
 	}
@@ -118,6 +130,10 @@ func (m *Board) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateParticipationMode(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validatePreview(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -170,6 +186,15 @@ func (m *Board) validateAccessMode(formats strfmt.Registry) error {
 			return ce.ValidateName("accessMode")
 		}
 
+		return err
+	}
+
+	return nil
+}
+
+func (m *Board) validateCanParticipate(formats strfmt.Registry) error {
+
+	if err := validate.Required("canParticipate", "body", m.CanParticipate); err != nil {
 		return err
 	}
 
@@ -289,6 +314,15 @@ func (m *Board) validateParticipationMode(formats strfmt.Registry) error {
 
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *Board) validatePreview(formats strfmt.Registry) error {
+
+	if err := validate.Required("preview", "body", m.Preview); err != nil {
+		return err
 	}
 
 	return nil

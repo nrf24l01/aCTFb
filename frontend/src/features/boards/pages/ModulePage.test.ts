@@ -34,6 +34,8 @@ const board: Board = {
   joined: false,
   description: 'Private board',
   visibility: 'PRIVATE',
+  preview: true,
+  canParticipate: false,
 }
 
 const moduleItem: Module = {
@@ -46,6 +48,8 @@ const moduleItem: Module = {
   audienceUuids: [],
   order: 0,
   description: 'Flag tasks',
+  preview: true,
+  canParticipate: false,
 }
 
 const task: TaskListItem = {
@@ -58,6 +62,8 @@ const task: TaskListItem = {
   status: 'AVAILABLE',
   solved: false,
   instanceRequired: false,
+  preview: true,
+  canParticipate: false,
 }
 
 function forbidden(): ApiError {
@@ -97,7 +103,21 @@ describe('ModulePage staff preview', () => {
     wrapper.unmount()
   })
 
-  it('shows a participation state, not an error, when an unjoined reader is denied the task list', async () => {
+  it('shows a preview state, not a fatal error, when a joined staff reader is denied the list', async () => {
+    // The participant row survived a revoked access group: board.joined is true
+    // but the module read is a management preview.
+    getBoard.mockResolvedValue({ ...board, joined: true })
+    listTasks.mockRejectedValue(forbidden())
+    const wrapper = await mountPage()
+
+    expect(wrapper.text()).toContain('Preview only')
+    expect(wrapper.text()).not.toContain('Could not load module')
+    wrapper.unmount()
+  })
+
+  it('shows a participation state, not an error, for an unjoined non-staff reader', async () => {
+    getBoard.mockResolvedValue({ ...board, joined: false, preview: false, canParticipate: false })
+    getModule.mockResolvedValue({ ...moduleItem, preview: false, canParticipate: false })
     listTasks.mockRejectedValue(forbidden())
     const wrapper = await mountPage()
 
@@ -106,8 +126,9 @@ describe('ModulePage staff preview', () => {
     wrapper.unmount()
   })
 
-  it('keeps a real error for a joined participant whose list failed', async () => {
-    getBoard.mockResolvedValue({ ...board, joined: true })
+  it('keeps a real error for an eligible participant whose list failed', async () => {
+    getBoard.mockResolvedValue({ ...board, joined: true, preview: false, canParticipate: true })
+    getModule.mockResolvedValue({ ...moduleItem, preview: false, canParticipate: true })
     listTasks.mockRejectedValue(forbidden())
     const wrapper = await mountPage()
 

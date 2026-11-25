@@ -22,7 +22,7 @@ type BoardJoinByCodeRequest struct {
 	// Format: uuid
 	BoardUUID UUID `json:"boardUuid,omitempty"`
 
-	// Board join code issued by the organizer. Trimmed and uppercased; I/L fold to 1 and O folds to 0.
+	// Board join code issued by the organizer. Trimmed and uppercased; interior characters are never rewritten.
 	// Required: true
 	// Max Length: 64
 	// Min Length: 8

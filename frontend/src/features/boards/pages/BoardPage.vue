@@ -25,7 +25,7 @@ import {
 import { isApiError } from '@/shared/api/errors'
 import { formatDateTime, plural } from '@/shared/lib/format'
 import { accessModeLabel, participationLabel } from '@/features/boards/accessMode'
-import type { Board, BoardMe, BoardPermissionsResponse, ModuleListItem } from '@/shared/types/api'
+import type { Board, BoardJoinResponse, BoardMe, BoardPermissionsResponse, ModuleListItem } from '@/shared/types/api'
 
 const route = useRoute()
 const { state } = useSession()
@@ -123,9 +123,9 @@ function openJoin() {
   joinOpen.value = true
 }
 
-async function onJoined() {
+async function onJoined(result: BoardJoinResponse) {
   joinOpen.value = false
-  joinNotice.value = 'Already participating'
+  joinNotice.value = result.alreadyParticipating ? 'Already participating' : 'Joined board'
   await load()
 }
 
@@ -153,7 +153,7 @@ void load()
     <EmptyState
       v-else-if="accessDenied"
       title="This board requires access"
-      description="Sign in and join to continue. If the organizer gave you an invite code, enter it below."
+      description="Sign in and enter the board code from the organizer to continue."
     >
       <div class="space-y-3">
         <template v-if="isAuthenticated">
@@ -271,8 +271,6 @@ void load()
         </aside>
       </div>
 
-      <JoinBoardDialog v-model:open="joinOpen" :board-uuid="boardUuid" @joined="onJoined" />
-
       <ConfirmDialog
         v-model:open="leaveOpen"
         title="Leave board"
@@ -283,5 +281,7 @@ void load()
         @confirm="leave"
       />
     </template>
+
+    <JoinBoardDialog v-model:open="joinOpen" :board-uuid="boardUuid" @joined="onJoined" />
   </PageContainer>
 </template>

@@ -25,6 +25,7 @@ import type {
   BoardMe,
   BoardJoinByCodeRequest,
   BoardJoinCodeResponse,
+  BoardJoinCodeSetRequest,
   BoardJoinCodeStatus,
   BoardJoinResponse,
   BoardPermissionsResponse,
@@ -98,12 +99,20 @@ export const boardsApi = {
     return apiRequest<BoardJoinCodeStatus>(`/admin/boards/${boardUuid}/join-code`)
   },
 
-  /** Generates a random code when no custom code is supplied; revealed once. */
-  setBoardJoinCode(boardUuid: string, code?: string): Promise<BoardJoinCodeResponse> {
-    return apiPost<BoardJoinCodeResponse>(
-      `/admin/boards/${boardUuid}/join-code`,
-      code && code.trim() ? { code: code.trim() } : {},
-    )
+  /**
+   * Generates a random code when no custom code is supplied; revealed once.
+   * `expectedRevision` is required to replace a live code and is omitted for the
+   * first create.
+   */
+  setBoardJoinCode(
+    boardUuid: string,
+    code?: string,
+    expectedRevision?: number,
+  ): Promise<BoardJoinCodeResponse> {
+    const body: BoardJoinCodeSetRequest = {}
+    if (code && code.trim()) body.code = code.trim()
+    if (expectedRevision !== undefined) body.expectedRevision = expectedRevision
+    return apiPost<BoardJoinCodeResponse>(`/admin/boards/${boardUuid}/join-code`, body)
   },
 
   leaveBoard(boardUuid: string): Promise<void> {

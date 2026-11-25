@@ -24,6 +24,10 @@ type Task struct {
 	// Required: true
 	Attachments []*FileRef `json:"attachments"`
 
+	// True when the caller is participant-eligible for this scope from live state (joined, current access group, current module audience). Read-only projection; it never grants anything by itself.
+	// Required: true
+	CanParticipate *bool `json:"canParticipate"`
+
 	// category
 	// Required: true
 	// Max Length: 64
@@ -58,6 +62,10 @@ type Task struct {
 	// Maximum: 1e+09
 	// Minimum: 0
 	Points *int64 `json:"points"`
+
+	// True when this read is a staff management preview because the caller is not participant-eligible here (never joined, or the access group/audience was revoked). A preview never unlocks participant-own history, submission, score or instance actions.
+	// Required: true
+	Preview *bool `json:"preview"`
 
 	// solved
 	// Required: true
@@ -100,6 +108,10 @@ func (m *Task) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateCanParticipate(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateCategory(formats); err != nil {
 		res = append(res, err)
 	}
@@ -125,6 +137,10 @@ func (m *Task) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validatePoints(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validatePreview(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -188,6 +204,15 @@ func (m *Task) validateAttachments(formats strfmt.Registry) error {
 			}
 		}
 
+	}
+
+	return nil
+}
+
+func (m *Task) validateCanParticipate(formats strfmt.Registry) error {
+
+	if err := validate.Required("canParticipate", "body", m.CanParticipate); err != nil {
+		return err
 	}
 
 	return nil
@@ -307,6 +332,15 @@ func (m *Task) validatePoints(formats strfmt.Registry) error {
 	}
 
 	if err := validate.MaximumInt("points", "body", *m.Points, 1e+09, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Task) validatePreview(formats strfmt.Registry) error {
+
+	if err := validate.Required("preview", "body", m.Preview); err != nil {
 		return err
 	}
 

@@ -155,6 +155,10 @@ export interface BoardListItem {
   endsAt?: string | null
   joined: boolean
   accessMode?: BoardAccessMode
+  /** True when this read is a staff management preview (no participant-own actions). */
+  preview?: boolean
+  /** Live participant eligibility, computed server-side. */
+  canParticipate?: boolean
 }
 
 export interface Board extends BoardListItem {
@@ -174,6 +178,10 @@ export interface BoardMe {
   score?: number | null
   place?: number | null
   audiences: AudienceSummary[]
+  /** The participant row outlived a revoked group: no own progress is reported. */
+  preview?: boolean
+  /** Live participant eligibility, computed server-side. */
+  canParticipate?: boolean
 }
 
 export interface ModuleListItem {
@@ -188,6 +196,10 @@ export interface ModuleListItem {
   extensionKey?: string | null
   startsAt?: string | null
   endsAt?: string | null
+  /** True when this module read is a staff management preview. */
+  preview?: boolean
+  /** Live participant eligibility for this exact module. */
+  canParticipate?: boolean
 }
 
 export interface Module extends ModuleListItem {
@@ -205,6 +217,10 @@ export interface TaskListItem {
   solved: boolean
   solvesCount?: number
   instanceRequired: boolean
+  /** True when this task read is a staff management preview. */
+  preview?: boolean
+  /** Live participant eligibility for the task's module. */
+  canParticipate?: boolean
 }
 
 export interface FileRef {
@@ -658,16 +674,22 @@ export interface BoardJoinResponse {
 
 export interface BoardJoinCodeStatus {
   configured: boolean
+  /** Optimistic concurrency token; 0 when no code is configured. */
+  revision: number
   updatedAt?: string | null
 }
 
 export interface BoardJoinCodeSetRequest {
   code?: string
+  /** Required to replace a live code; omit or send 0 for the first create. */
+  expectedRevision?: number
 }
 
 export interface BoardJoinCodeResponse {
   configured: boolean
   code: string
+  /** Committed revision after this write. */
+  revision: number
   updatedAt?: string | null
 }
 

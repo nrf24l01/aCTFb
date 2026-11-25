@@ -4,9 +4,14 @@
 -- catalog and join path need no credential sealer and no runtime feature flag.
 -- The plaintext code is shown once to the organizer when it is generated or
 -- replaced and is never persisted, logged or returned by a read route.
+--
+-- `revision` is an optimistic concurrency token: a replace must name the
+-- revision it read, so two organizers cannot silently overwrite each other and
+-- an earlier response can never be mistaken for the active code.
 CREATE TABLE board_join_codes (
     board_id UUID PRIMARY KEY REFERENCES boards(id) ON DELETE CASCADE,
     code_hash TEXT NOT NULL UNIQUE CHECK (char_length(code_hash) = 64),
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision >= 1),
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_by UUID REFERENCES users(id) ON DELETE SET NULL,

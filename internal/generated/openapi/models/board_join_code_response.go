@@ -25,6 +25,11 @@ type BoardJoinCodeResponse struct {
 	// Required: true
 	Configured *bool `json:"configured"`
 
+	// Committed revision after this write. Use it as expectedRevision for the next replace.
+	// Required: true
+	// Minimum: 1
+	Revision *int64 `json:"revision"`
+
 	// updated at
 	// Format: date-time
 	UpdatedAt *strfmt.DateTime `json:"updatedAt,omitempty"`
@@ -39,6 +44,10 @@ func (m *BoardJoinCodeResponse) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateConfigured(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateRevision(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -64,6 +73,19 @@ func (m *BoardJoinCodeResponse) validateCode(formats strfmt.Registry) error {
 func (m *BoardJoinCodeResponse) validateConfigured(formats strfmt.Registry) error {
 
 	if err := validate.Required("configured", "body", m.Configured); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *BoardJoinCodeResponse) validateRevision(formats strfmt.Registry) error {
+
+	if err := validate.Required("revision", "body", m.Revision); err != nil {
+		return err
+	}
+
+	if err := validate.MinimumInt("revision", "body", *m.Revision, 1, false); err != nil {
 		return err
 	}
 

@@ -28,7 +28,9 @@ const loading = ref(true)
 const error = ref<unknown>(null)
 const tasksUnavailable = ref(false)
 const isPentest = computed(() => module.value?.type === 'PENTEST')
-const isPreview = computed(() => board.value !== null && board.value.joined === false)
+// The backend marks a staff management preview explicitly; it is not inferred
+// from board.joined, because a participant row can outlive a revoked group.
+const isPreview = computed(() => module.value?.preview === true)
 
 async function load() {
   loading.value = true
@@ -48,10 +50,10 @@ async function load() {
     try {
       tasks.value = (await boardsApi.listTasks(boardUuid.value, moduleUuid.value, { limit: 100 })).items
     } catch (caught) {
-      // Task lists require participation (or a live staff role, which the
-      // backend grants as an organizer preview). An unjoined reader gets a
-      // participation state, never a "could not load" error.
-      if (!loadedBoard.joined && isApiError(caught)) {
+      // A denied task list is a participation state, not a page failure: either
+      // the reader is staff and the module is a preview, or the reader has not
+      // joined. Anything else stays a real error.
+      if (isApiError(caught) && (loadedModule.preview === true || loadedBoard.joined === false)) {
         tasks.value = []
         tasksUnavailable.value = true
         return
@@ -123,8 +125,12 @@ void load()
         </h2>
         <EmptyState
           v-if="tasksUnavailable"
-          title="Join the board to view tasks"
-          description="Task lists are available to participants. Open the board and join to take part."
+          :title="isPreview ? 'Preview only' : 'Join the board to view tasks'"
+          :description="
+            isPreview
+              ? 'You are viewing this module as staff. The task list needs live participant access, so it is not shown here.'
+              : 'Task lists are available to participants. Open the board and join to take part.'
+          "
         />
         <EmptyState
           v-else-if="tasks.length === 0"

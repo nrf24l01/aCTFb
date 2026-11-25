@@ -510,7 +510,8 @@ test.describe('organizer UX acceptance', () => {
       INSERT INTO board_access_groups (board_id, group_id) VALUES ('${privateInviteWithGroup}','${group.uuid as string}');
     `)
 
-    // An ordinary OPEN board must NOT ask for a code.
+    // An ordinary OPEN board still needs a code to join (discovery is free,
+    // enrollment is not), so it uses the same single prompt.
     const openBoard = await api(page, token, 'POST', '/api/v2/admin/boards', {
       slug: `open-${suffix}`, name: `Open Board ${suffix}`, participationMode: 'INDIVIDUAL',
       registrationMode: 'OPEN', visibility: 'PUBLIC', accessMode: 'PUBLIC', rating: { visibility: 'PUBLIC' },

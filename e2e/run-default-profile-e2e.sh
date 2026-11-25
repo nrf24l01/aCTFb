@@ -14,6 +14,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Owned process-group lifecycle: records each leader's start time so a reused
+# PID is never signalled, and never uses broad pkill/killall.
+set -m
+# shellcheck source=e2e/lib/service-lifecycle.sh
+source "$ROOT/e2e/lib/service-lifecycle.sh"
 RUN_ID="$(openssl rand -hex 4)"
 WORKDIR="${E2E_WORKDIR:-/tmp/opencode/actfb-default-${RUN_ID}}"
 mkdir -p "$WORKDIR"
@@ -35,26 +40,14 @@ print(" ".join(ports))
 PY
 )"
 
-BACKEND_PID=""
-FRONTEND_PID=""
 cleanup() {
-  # The Vite dev server is started with setsid, so its PID is also its process
-  # group: kill the group to stop the bun/node children too. The backend is a
-  # single process.
-  if [[ -n "$FRONTEND_PID" ]] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
-    kill -- -"$FRONTEND_PID" 2>/dev/null || kill "$FRONTEND_PID" 2>/dev/null || true
-    wait "$FRONTEND_PID" 2>/dev/null || true
-  fi
-  if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" 2>/dev/null; then
-    kill "$BACKEND_PID" 2>/dev/null || true
-    wait "$BACKEND_PID" 2>/dev/null || true
-  fi
+  services_stop_all
   psql "$PG_DSN" -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${DB_NAME}\"" >/dev/null 2>&1 || true
   if [[ "${E2E_KEEP:-0}" != "1" ]]; then
     rm -rf "$WORKDIR"
   fi
 }
-trap cleanup EXIT
+lifecycle_traps cleanup
 
 psql "$PG_DSN" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${DB_NAME}\"" >"$WORKDIR/createdb.log" 2>&1
 
@@ -148,8 +141,7 @@ wait_http() {
 
 # The backend applies migrations on boot; the operator CLI then bootstraps the
 # first admin. Both use the same CONFIG_FILE and PostgreSQL environment.
-"$WORKDIR/backend" >"$WORKDIR/backend.log" 2>&1 &
-BACKEND_PID=$!
+service_start backend "$WORKDIR/backend.log" "$WORKDIR/backend" >/dev/null
 wait_http "http://127.0.0.1:${APP_PORT}/health"
 wait_http "http://127.0.0.1:${APP_PORT}/ready"
 
@@ -186,13 +178,44 @@ if [[ ! -d "$ROOT/frontend/node_modules" ]]; then
   (cd "$ROOT/frontend" && bun install --frozen-lockfile) >"$WORKDIR/frontend-install.log" 2>&1
 fi
 
-(
-  cd "$ROOT/frontend"
-  exec setsid env VITE_DEV_PROXY_TARGET="http://127.0.0.1:${APP_PORT}" \
-    bun run dev -- --host 127.0.0.1 --port "${FRONTEND_PORT}"
-) >"$WORKDIR/frontend.log" 2>&1 &
-FRONTEND_PID=$!
+service_start frontend "$WORKDIR/frontend.log" \
+  env VITE_DEV_PROXY_TARGET="http://127.0.0.1:${APP_PORT}" \
+  bash -c 'cd "$1" && exec bun run dev -- --host 127.0.0.1 --port "$2"' _ "$ROOT/frontend" "$FRONTEND_PORT" >/dev/null
 wait_http "http://127.0.0.1:${FRONTEND_PORT}/"
+
+# Participants are created once, before Playwright, because registration is
+# limited to 5 per 15 minutes per IP in the backend. Tests then only sign in.
+PARTICIPANT_ONE="e2e_participant_${RUN_ID}"
+PARTICIPANT_TWO="e2e_participant2_${RUN_ID}"
+PARTICIPANT_PASSWORD="E2E-$(openssl rand -hex 10)!"
+register_participant() {
+  local username="$1"
+  curl -fsS -X POST "http://127.0.0.1:${APP_PORT}/api/v2/auth/register" \
+    -H 'Content-Type: application/json' \
+    -d "{\"username\":\"${username}\",\"email\":\"${username}@actfb.test\",\"password\":\"${PARTICIPANT_PASSWORD}\"}" \
+    >/dev/null
+}
+register_participant "$PARTICIPANT_ONE"
+register_participant "$PARTICIPANT_TWO"
+export E2E_PARTICIPANT_USERNAME="$PARTICIPANT_ONE"
+export E2E_PARTICIPANT_PASSWORD="$PARTICIPANT_PASSWORD"
+export E2E_PARTICIPANT2_USERNAME="$PARTICIPANT_TWO"
+export E2E_PARTICIPANT2_PASSWORD="$PARTICIPANT_PASSWORD"
+
+# A pre-existing legacy INVITE_ONLY board. In this profile there is no
+# credential key, so such a board could only have been created by an older
+# deployment; seed the exact legacy hash (sha256 of the code) the join path
+# compares, with no ciphertext and no sealer.
+LEGACY_CODE="Legacy-Code-Example-0001"
+LEGACY_HASH="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' "$LEGACY_CODE")"
+LEGACY_BOARD="$(psql "$DB_DSN" -v ON_ERROR_STOP=1 -tA -c "
+  INSERT INTO boards (slug, name, participation_mode, registration_mode, visibility, status, starts_at, ends_at, invite_code_hash, created_by)
+  SELECT 'e2e-legacy-${RUN_ID}', 'E2E legacy ${RUN_ID}', 'INDIVIDUAL', 'INVITE_ONLY', 'PRIVATE', 'ACTIVE',
+         now() - interval '1 hour', now() + interval '1 day', '${LEGACY_HASH}',
+         (SELECT id FROM users WHERE username = '${ADMIN}')
+  RETURNING id" | grep -E '^[0-9a-f-]{36}$' | head -1)"
+export E2E_LEGACY_BOARD_UUID="$LEGACY_BOARD"
+export E2E_LEGACY_CODE="$LEGACY_CODE"
 
 export E2E_BASE_URL="http://127.0.0.1:${FRONTEND_PORT}"
 export E2E_DEFAULT_PROFILE=1
@@ -204,4 +227,5 @@ if [[ -z "${E2E_CHROMIUM_PATH:-}" && -x /usr/bin/chromium ]]; then
 fi
 
 cd "$ROOT/e2e"
-bunx playwright test tests/default-profile.spec.ts
+# E2E_GREP narrows a local run to one test; CI runs the whole file.
+bunx playwright test tests/default-profile.spec.ts ${E2E_GREP:+--grep "$E2E_GREP"}

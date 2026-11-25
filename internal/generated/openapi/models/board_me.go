@@ -23,6 +23,10 @@ type BoardMe struct {
 	// Required: true
 	Audiences []*AudienceSummary `json:"audiences"`
 
+	// True when the caller is currently participant-eligible (joined, current access group). Read-only projection.
+	// Required: true
+	CanParticipate *bool `json:"canParticipate"`
+
 	// joined
 	// Required: true
 	Joined *bool `json:"joined"`
@@ -39,6 +43,10 @@ type BoardMe struct {
 	// Minimum: 1
 	Place *int64 `json:"place,omitempty"`
 
+	// True when the caller's participant row outlived a revoked access group, so the row is visible but no own progress is reported and no participant-own action is available.
+	// Required: true
+	Preview *bool `json:"preview"`
+
 	// score
 	Score *int64 `json:"score,omitempty"`
 
@@ -51,6 +59,10 @@ func (m *BoardMe) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateAudiences(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateCanParticipate(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -67,6 +79,10 @@ func (m *BoardMe) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validatePlace(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validatePreview(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -106,6 +122,15 @@ func (m *BoardMe) validateAudiences(formats strfmt.Registry) error {
 			}
 		}
 
+	}
+
+	return nil
+}
+
+func (m *BoardMe) validateCanParticipate(formats strfmt.Registry) error {
+
+	if err := validate.Required("canParticipate", "body", m.CanParticipate); err != nil {
+		return err
 	}
 
 	return nil
@@ -162,6 +187,15 @@ func (m *BoardMe) validatePlace(formats strfmt.Registry) error {
 	}
 
 	if err := validate.MinimumInt("place", "body", *m.Place, 1, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *BoardMe) validatePreview(formats strfmt.Registry) error {
+
+	if err := validate.Required("preview", "body", m.Preview); err != nil {
 		return err
 	}
 

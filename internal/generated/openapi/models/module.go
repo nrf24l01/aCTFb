@@ -35,6 +35,10 @@ type Module struct {
 	// Format: uuid
 	BoardUUID *UUID `json:"boardUuid"`
 
+	// True when the caller is participant-eligible for this scope from live state (joined, current access group, current module audience). Read-only projection; it never grants anything by itself.
+	// Required: true
+	CanParticipate *bool `json:"canParticipate"`
+
 	// description
 	// Required: true
 	// Max Length: 50000
@@ -60,6 +64,10 @@ type Module struct {
 	// Maximum: 1e+06
 	// Minimum: 0
 	Order *int64 `json:"order"`
+
+	// True when this read is a staff management preview because the caller is not participant-eligible here (never joined, or the access group/audience was revoked). A preview never unlocks participant-own history, submission, score or instance actions.
+	// Required: true
+	Preview *bool `json:"preview"`
 
 	// starts at
 	// Format: date-time
@@ -95,6 +103,10 @@ func (m *Module) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateCanParticipate(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateDescription(formats); err != nil {
 		res = append(res, err)
 	}
@@ -112,6 +124,10 @@ func (m *Module) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateOrder(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validatePreview(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -227,6 +243,15 @@ func (m *Module) validateBoardUUID(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Module) validateCanParticipate(formats strfmt.Registry) error {
+
+	if err := validate.Required("canParticipate", "body", m.CanParticipate); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (m *Module) validateDescription(formats strfmt.Registry) error {
 
 	if err := validate.Required("description", "body", m.Description); err != nil {
@@ -296,6 +321,15 @@ func (m *Module) validateOrder(formats strfmt.Registry) error {
 	}
 
 	if err := validate.MaximumInt("order", "body", *m.Order, 1e+06, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Module) validatePreview(formats strfmt.Registry) error {
+
+	if err := validate.Required("preview", "body", m.Preview); err != nil {
 		return err
 	}
 

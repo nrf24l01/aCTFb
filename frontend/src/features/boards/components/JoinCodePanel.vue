@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import EmptyState from '@/components/layout/EmptyState.vue'
@@ -16,64 +16,91 @@ import { formatDateTime } from '@/shared/lib/format'
  */
 const props = defineProps<{ boardUuid: string }>()
 
+type Status = 'unknown' | 'loading' | 'ready' | 'failed'
+/** The action the organizer actually asked for, frozen when they clicked. */
+type PendingAction = { kind: 'random' } | { kind: 'custom'; value: string }
+
+const status = ref<Status>('unknown')
 const configured = ref(false)
+const revision = ref(0)
 const updatedAt = ref<string | null>(null)
 const revealed = ref<string | null>(null)
 const custom = ref('')
-const statusLoading = ref(false)
 const pending = ref(false)
 const error = ref<unknown>(null)
-const replaceOpen = ref(false)
-const statusLoaded = ref(false)
+const pendingAction = ref<PendingAction | null>(null)
+
+const statusReady = computed(() => status.value === 'ready')
+const mutating = computed(() => !statusReady.value || pending.value)
+const replaceConfirmationOpen = computed(() => pendingAction.value !== null && configured.value)
 
 async function loadStatus() {
-  statusLoading.value = true
+  status.value = 'loading'
   error.value = null
   try {
-    const status = await boardsApi.getBoardJoinCodeStatus(props.boardUuid)
-    configured.value = status.configured
-    updatedAt.value = status.updatedAt ?? null
-    statusLoaded.value = true
+    const response = await boardsApi.getBoardJoinCodeStatus(props.boardUuid)
+    configured.value = response.configured
+    revision.value = response.revision
+    updatedAt.value = response.updatedAt ?? null
+    status.value = 'ready'
   } catch (caught) {
+    status.value = 'failed'
     error.value = caught
-  } finally {
-    statusLoading.value = false
   }
 }
 
-async function generate() {
-  if (configured.value && !replaceOpen.value) {
-    replaceOpen.value = true
-    return
-  }
-  await setCode(undefined)
+/** First click on a mutating control freezes the intention. */
+function requestGenerate() {
+  if (mutating.value) return
+  error.value = null
+  pendingAction.value = { kind: 'random' }
+  if (!configured.value) void commitPending()
 }
 
-async function setCustom() {
+function requestCustom() {
+  if (mutating.value) return
   const value = custom.value.trim()
   if (!value) return
-  if (configured.value && !replaceOpen.value) {
-    replaceOpen.value = true
-    return
-  }
-  await setCode(value)
+  error.value = null
+  pendingAction.value = { kind: 'custom', value }
+  if (!configured.value) void commitPending()
 }
 
-async function setCode(value: string | undefined) {
+/** The confirmation (or the direct first-create path) commits the frozen action. */
+async function commitPending() {
+  const action = pendingAction.value
+  if (!action || pending.value) return
   pending.value = true
   error.value = null
   try {
-    const response = await boardsApi.setBoardJoinCode(props.boardUuid, value)
+    const response =
+      action.kind === 'random'
+        ? await boardsApi.setBoardJoinCode(props.boardUuid, undefined, configured.value ? revision.value : undefined)
+        : await boardsApi.setBoardJoinCode(props.boardUuid, action.value, configured.value ? revision.value : undefined)
     revealed.value = response.code
     configured.value = response.configured
+    revision.value = response.revision
     updatedAt.value = response.updatedAt ?? null
+    // The revealed code is retained until the organizer hides it; the custom
+    // field is cleared because it has been consumed.
     custom.value = ''
-    replaceOpen.value = false
+    pendingAction.value = null
+    status.value = 'ready'
   } catch (caught) {
+    // Keep the typed value on a network/conflict failure so it can be retried.
     error.value = caught
+    // A conflict means our revision is stale: refresh the status so the next
+    // attempt uses the committed revision.
+    pendingAction.value = null
+    status.value = 'failed'
+    void loadStatus()
   } finally {
     pending.value = false
   }
+}
+
+function cancelPending() {
+  pendingAction.value = null
 }
 
 async function copy() {
@@ -85,8 +112,11 @@ async function copy() {
   }
 }
 
+/** Clears every secret and draft value this component holds. */
 function hide() {
   revealed.value = null
+  custom.value = ''
+  pendingAction.value = null
 }
 
 onUnmounted(hide)
@@ -118,7 +148,15 @@ void loadStatus()
       </template>
 
       <template v-else>
-        <p v-if="statusLoading" class="text-sm text-muted-foreground">Loading join code status…</p>
+        <p v-if="status === 'loading' || status === 'unknown'" class="text-sm text-muted-foreground">
+          Loading join code status…
+        </p>
+        <template v-else-if="status === 'failed'">
+          <p class="text-sm text-muted-foreground">
+            The join code status could not be read, so generating or replacing is disabled until it succeeds.
+          </p>
+          <Button variant="outline" @click="loadStatus">Retry status</Button>
+        </template>
         <template v-else>
           <p class="text-sm">
             Status:
@@ -129,11 +167,11 @@ void loadStatus()
               updated {{ formatDateTime(updatedAt) }}
             </span>
           </p>
-          <p v-if="!configured && statusLoaded" class="text-xs text-muted-foreground">
+          <p v-if="!configured" class="text-xs text-muted-foreground">
             No code is configured, so nobody can self-enroll yet. Generate one and share it with participants.
           </p>
           <div class="flex flex-wrap gap-2">
-            <Button :disabled="pending" @click="generate">
+            <Button :disabled="mutating" @click="requestGenerate">
               {{ pending ? 'Working…' : configured ? 'Replace with random code' : 'Generate join code' }}
             </Button>
           </div>
@@ -148,23 +186,28 @@ void loadStatus()
                 v-model="custom"
                 autocomplete="off"
                 spellcheck="false"
-                :disabled="pending"
+                :disabled="mutating"
               />
             </FormField>
-            <Button class="mt-2" variant="outline" :disabled="pending || !custom.trim()" @click="setCustom">
+            <Button
+              class="mt-2"
+              variant="outline"
+              :disabled="mutating || !custom.trim()"
+              @click="requestCustom"
+            >
               {{ configured ? 'Replace with custom code' : 'Set custom code' }}
             </Button>
           </div>
           <EmptyState
-            v-if="replaceOpen"
+            v-if="replaceConfirmationOpen"
             title="Replace the current join code?"
             description="The current code stops working immediately. Everyone who has not joined yet must receive the new code."
           >
             <div class="flex flex-wrap gap-2">
-              <Button variant="destructive" :disabled="pending" @click="setCode(custom.trim() || undefined)">
+              <Button variant="destructive" :disabled="pending" @click="commitPending">
                 {{ pending ? 'Replacing…' : 'Replace code' }}
               </Button>
-              <Button variant="ghost" :disabled="pending" @click="replaceOpen = false">Cancel</Button>
+              <Button variant="ghost" :disabled="pending" @click="cancelPending">Cancel</Button>
             </div>
           </EmptyState>
         </template>

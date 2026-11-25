@@ -21,6 +21,10 @@ type BoardJoinCodeSetRequest struct {
 	// Max Length: 64
 	// Min Length: 8
 	Code string `json:"code,omitempty"`
+
+	// Revision from the status read. Required to replace a live code; omit or send 0 for the first create. A stale value is rejected so two organizers cannot silently overwrite each other.
+	// Minimum: 0
+	ExpectedRevision *int64 `json:"expectedRevision,omitempty"`
 }
 
 // Validate validates this board join code set request
@@ -28,6 +32,10 @@ func (m *BoardJoinCodeSetRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateCode(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateExpectedRevision(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -47,6 +55,18 @@ func (m *BoardJoinCodeSetRequest) validateCode(formats strfmt.Registry) error {
 	}
 
 	if err := validate.MaxLength("code", "body", m.Code, 64); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *BoardJoinCodeSetRequest) validateExpectedRevision(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.ExpectedRevision) { // not required
+		return nil
+	}
+
+	if err := validate.MinimumInt("expectedRevision", "body", *m.ExpectedRevision, 0, false); err != nil {
 		return err
 	}
 

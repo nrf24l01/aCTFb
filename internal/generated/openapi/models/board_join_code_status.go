@@ -21,6 +21,11 @@ type BoardJoinCodeStatus struct {
 	// Required: true
 	Configured *bool `json:"configured"`
 
+	// Optimistic concurrency token. 0 when no code is configured. Echo it back as expectedRevision to replace a live code.
+	// Required: true
+	// Minimum: 0
+	Revision *int64 `json:"revision"`
+
 	// updated at
 	// Format: date-time
 	UpdatedAt *strfmt.DateTime `json:"updatedAt,omitempty"`
@@ -31,6 +36,10 @@ func (m *BoardJoinCodeStatus) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateConfigured(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateRevision(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -47,6 +56,19 @@ func (m *BoardJoinCodeStatus) Validate(formats strfmt.Registry) error {
 func (m *BoardJoinCodeStatus) validateConfigured(formats strfmt.Registry) error {
 
 	if err := validate.Required("configured", "body", m.Configured); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *BoardJoinCodeStatus) validateRevision(formats strfmt.Registry) error {
+
+	if err := validate.Required("revision", "body", m.Revision); err != nil {
+		return err
+	}
+
+	if err := validate.MinimumInt("revision", "body", *m.Revision, 0, false); err != nil {
 		return err
 	}
 

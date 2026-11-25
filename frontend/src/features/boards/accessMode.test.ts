@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isInviteBoard, requiresInviteCode } from './accessMode'
+import { accessModeLabel, requiresInviteCode } from './accessMode'
 
 describe('invite affordances', () => {
   it('keys the legacy invite panel on the registration field, not the derived mode', () => {
@@ -15,10 +15,7 @@ describe('invite affordances', () => {
     expect(requiresInviteCode({ registrationMode: 'CLOSED' })).toBe(false)
   })
 
-  it('keeps isInviteBoard as the canonical-mode helper only', () => {
-    expect(isInviteBoard('INVITE')).toBe(true)
-    expect(isInviteBoard('LEGACY')).toBe(false)
-    expect(isInviteBoard('PUBLIC')).toBe(false)
-    expect(isInviteBoard(undefined)).toBe(false)
+  it('labels PUBLIC as discovery, not free enrollment', () => {
+    expect(accessModeLabel('PUBLIC')).toBe('Public discovery')
   })
 })

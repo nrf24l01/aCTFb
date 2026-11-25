@@ -38,11 +38,12 @@ const error = ref<unknown>(null)
 const historyError = ref<unknown>(null)
 
 const isAuthenticated = computed(() => state.status === 'authenticated')
-// Staff read an authorized module/task as an organizer preview without joining.
-// Own-submission history and every participation-gated action stay denied for
-// them, so the page must not call those endpoints or show fake attempts.
-const isParticipant = computed(() => board.value?.joined === true)
-const isPreview = computed(() => board.value !== null && board.value.joined === false)
+// The backend's read scope is authoritative. `preview` means this read is a
+// staff management preview: own-submission history and every participation-gated
+// action are unavailable, even when the caller still has a participant row whose
+// access group was revoked. `canParticipate` is live eligibility.
+const isPreview = computed(() => task.value?.preview === true)
+const isParticipant = computed(() => task.value?.canParticipate === true && !isPreview.value)
 const canEdit = computed(
   () =>
     (state.user?.roles.includes('admin') ?? false) ||
@@ -84,9 +85,11 @@ async function load() {
     } catch {
       permissions.value = null
     }
-    if (loadedBoard.joined) {
+    if (loadedTask.canParticipate === true && loadedTask.preview !== true) {
       await loadHistory()
     } else {
+      // A preview (or an ineligible reader) must not call own-history at all:
+      // that endpoint is participation-gated and would surface a false error.
       submissions.value = []
       historyLoading.value = false
     }
@@ -188,10 +191,10 @@ void load()
       </header>
 
       <Alert v-if="isPreview" class="mb-4 rounded-none border-gold/60 bg-black">
-        <AlertTitle>Organizer preview</AlertTitle>
+        <AlertTitle>Organizer preview — participant access is unavailable</AlertTitle>
         <AlertDescription>
-          You are viewing this task as staff without joining the board. Submission and instance actions require
-          participation.
+          You are reading this task as staff. Submission, instance actions and your own history need live board
+          participation, so they are not offered here.
         </AlertDescription>
       </Alert>
       <Alert v-else-if="!isAuthenticated" class="mb-4 rounded-none border-gold/60 bg-black">

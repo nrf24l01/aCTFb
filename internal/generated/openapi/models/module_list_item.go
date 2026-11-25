@@ -35,6 +35,10 @@ type ModuleListItem struct {
 	// Format: uuid
 	BoardUUID *UUID `json:"boardUuid"`
 
+	// True when the caller is participant-eligible for this scope from live state (joined, current access group, current module audience). Read-only projection; it never grants anything by itself.
+	// Required: true
+	CanParticipate *bool `json:"canParticipate"`
+
 	// ends at
 	// Format: date-time
 	EndsAt *strfmt.DateTime `json:"endsAt,omitempty"`
@@ -55,6 +59,10 @@ type ModuleListItem struct {
 	// Maximum: 1e+06
 	// Minimum: 0
 	Order *int64 `json:"order"`
+
+	// True when this read is a staff management preview because the caller is not participant-eligible here (never joined, or the access group/audience was revoked). A preview never unlocks participant-own history, submission, score or instance actions.
+	// Required: true
+	Preview *bool `json:"preview"`
 
 	// starts at
 	// Format: date-time
@@ -90,6 +98,10 @@ func (m *ModuleListItem) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateCanParticipate(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateEndsAt(formats); err != nil {
 		res = append(res, err)
 	}
@@ -103,6 +115,10 @@ func (m *ModuleListItem) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateOrder(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validatePreview(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -218,6 +234,15 @@ func (m *ModuleListItem) validateBoardUUID(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *ModuleListItem) validateCanParticipate(formats strfmt.Registry) error {
+
+	if err := validate.Required("canParticipate", "body", m.CanParticipate); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (m *ModuleListItem) validateEndsAt(formats strfmt.Registry) error {
 	if typeutils.IsZero(m.EndsAt) { // not required
 		return nil
@@ -274,6 +299,15 @@ func (m *ModuleListItem) validateOrder(formats strfmt.Registry) error {
 	}
 
 	if err := validate.MaximumInt("order", "body", *m.Order, 1e+06, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *ModuleListItem) validatePreview(formats strfmt.Registry) error {
+
+	if err := validate.Required("preview", "body", m.Preview); err != nil {
 		return err
 	}
 

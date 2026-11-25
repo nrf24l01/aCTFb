@@ -41,6 +41,8 @@ const board: Board = {
   joined: false,
   description: 'Private board',
   visibility: 'PRIVATE',
+  preview: true,
+  canParticipate: false,
 }
 
 const moduleItem: Module = {
@@ -53,6 +55,8 @@ const moduleItem: Module = {
   audienceUuids: [],
   order: 0,
   description: 'Flag tasks',
+  preview: true,
+  canParticipate: false,
 }
 
 const task: Task = {
@@ -69,6 +73,8 @@ const task: Task = {
   attachments: [],
   submission: { mode: 'TEXT', checker: 'AUTOMATIC' },
   instance: { required: false, status: 'NOT_CREATED', canStart: false },
+  preview: true,
+  canParticipate: false,
 }
 
 const permissions: BoardPermissionsResponse = {
@@ -120,8 +126,24 @@ describe('TaskPage staff preview', () => {
     wrapper.unmount()
   })
 
-  it('keeps the participant submission form and history for a joined participant', async () => {
+  it('treats a joined-but-preview task as preview: no history, no submit, no instance', async () => {
+    // The participant row survived a revoked access group: joined is true, but
+    // the backend marks the read as a preview.
     getBoard.mockResolvedValue({ ...board, joined: true })
+    const wrapper = await mountPage()
+
+    expect(wrapper.text()).toContain('Organizer preview — participant access is unavailable')
+    expect(listMySubmissions).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-test="flag-form"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="instance-panel"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Could not load submission history')
+    wrapper.unmount()
+  })
+
+  it('keeps the participant submission form and history for an eligible participant', async () => {
+    getBoard.mockResolvedValue({ ...board, joined: true, preview: false, canParticipate: true })
+    getModule.mockResolvedValue({ ...moduleItem, preview: false, canParticipate: true })
+    getTask.mockResolvedValue({ ...task, preview: false, canParticipate: true })
     const wrapper = await mountPage()
 
     expect(listMySubmissions).toHaveBeenCalledTimes(1)

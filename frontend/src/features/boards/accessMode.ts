@@ -20,10 +20,6 @@ export function participationLabel(mode: ParticipationMode): string {
   return participationLabels[mode] ?? mode
 }
 
-export function isInviteBoard(mode: BoardAccessMode | undefined): boolean {
-  return mode === 'INVITE'
-}
-
 /**
  * Whether a board still carries a legacy sealed invite code.
  *
