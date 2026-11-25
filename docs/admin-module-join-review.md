@@ -618,3 +618,127 @@ The admin instance lane regression (C1) is a real functional break with a resour
 and must be fixed and worker-tested before publication. I1 and I2 are narrow but were explicit
 acceptance criteria for the rotation fix. The minors can ship after the C1 fix if main chooses to
 defer them, but items 1–3 are cheap documentation/test corrections.
+
+---
+
+## 9. Final scoped re-review (round 2) — C1, I1, I2 only
+
+Status: **NOT APPROVED — 0 Critical, 1 Important (I3, test evidence), 5 minor.**
+
+Scope: only C1, I1, I2 and direct regressions of these fixes, on `c5cd7de..5455a18` (four commits,
+32 files, +1497/−95). Read the fix diff, the round-2 section of
+`docs/admin-module-join-review-fixes.md`, and the actual source, tests and workflow. Read-only: no
+build, test, server, Docker or Podman run; the reported real PostgreSQL 18.7 worker chain, the
+`MaxConns=1` 2 s→0.17 s result, the 8-package `-race`, 146 frontend tests and 4-test browser run are
+accepted as reported. `gofmt -l cmd internal e2e` and `git diff 5edd6d5..HEAD --check` are clean.
+
+### C1 — closed
+
+`internal/instances/service.go:214-243` adds the internal `operationLane` type with exactly two
+constants; `permission()` is the only mapping and `applyAction`
+(`internal/instances/service.go:452-457`) rejects anything else with a 500 **before** any state
+write. `AdminAction` passes `laneAdmin` (`:257-262`), `ActionTask`/`PentestAction` pass
+`laneParticipantOwn` (`:174-177`, `service_pentest.go:126-129`), and the admin pentest route goes
+through `AdminAction` (`internal/instances/http/handler.go:398`), so it inherits the admin lane.
+
+The worker (`internal/instances/orchestrator.go:519-570`) validates the stored permission against the
+two lanes (fails closed otherwise), authorizes it once against live state, and runs the ABAC, team
+and audience checks **only** for the participant lane. There is no escalation path, so a demoted
+admin's queued admin operation is denied and a participant lane is never upgraded. The
+`EffectiveUntil` guard at `:573-575` still applies to RESET/EXTEND and is skipped for DESTROY, which
+is the required "admin reset after the window still denies, cleanup destroy still works" behaviour.
+
+Terminal handling is safe: a forbidden operation is marked `CANCELED`
+(`orchestrator.go:187-196`), `pendingJobs` only selects `QUEUED`/`RUNNING`
+(`store_lifecycle.go:733-737`), and the destroy re-queue
+(`store_lifecycle.go:393-405`) is `ON CONFLICT … WHERE status='CANCELED'` so a `SUCCEEDED` row is
+never resurrected; the code then reads the real row back and skips anything not `QUEUED`/`RUNNING`
+(`:406-418`), keeping the original id and idempotency key. `expireDue` selects `ERROR`
+(`:677-681`), so the denied instance is still reaped by the system lane.
+
+Evidence is adequate for the product claim: `internal/instances/admin_lane_pg_test.go` runs the real
+`AdminAction` → captured job → `Orchestrator.HandleJob` chain with a recording driver and asserts,
+for a global admin **and** a non-participant board owner, the stored permission, exactly one
+`Destroy` with the exact provider id, `EXPIRED` + `removed_at`, zero live endpoints/leases and all
+operations terminal; `TestAdminRoleRevokedBeforeWorkerDeniesAndSystemCleans` proves zero provider
+calls after demotion and that the system lane still destroys the resource;
+`internal/instances/http/participant_abac_pg_test.go` proves the same lane end to end through the
+HTTP route. The provider is a trusted fake, as stated — no Docker claim is made.
+
+### I2 — closed
+
+`GrantStore.HasGrantWithQuerier` (`internal/authorization/grants.go:95-116`) runs the identical SQL
+(including `clock_timestamp()` expiry and the scope/revocation predicates) on a caller-supplied
+querier; `HasGrant` delegates to it with the pool, so the non-transactional path is byte-identical.
+`CheckPermissionTx` builds a **per-call** `txGrantChecker` (`tx_check.go:76-99`) and passes it to
+`decideWithGrants`; the shared `AuthorizerService.grants` is never mutated, so no data race. A
+non-transactional custom checker returns an explicit `ErrGrantCheckerNotTransactional` rather than
+falling back to the pool or silently denying. `NewAuthorizer` always defaults to `GrantStore`
+(`authorizer.go:98-100`), and the only production caller is the join-code rotation
+(`internal/boards/postgres_join_codes.go:59`), so no unrelated path changes behaviour. The
+`MaxConns=1` test exercises both the role and the scoped-grant paths and asserts a fast 200 plus a
+deterministic stale-revision 409.
+
+### I3 (Important, test evidence) — the lock-wait observation is not scoped to the rotation's own backend
+
+`internal/boards/http/join_code_tx_http_test.go:161-166` decides that the rotation is waiting with:
+
+```sql
+SELECT count(*) FROM pg_stat_activity
+WHERE datname = current_database() AND wait_event_type = 'Lock' AND state = 'active'
+```
+
+There is no filter on the rotation's backend, the holder's backend, the schema, or the query. The
+fixture creates its schema inside the shared test database, and `pg_stat_activity` is database-wide,
+so any other backend in that database with a `Lock` wait satisfies the poll.
+
+That is reachable in CI: the gating step (`.github/workflows/go.yml:212-227`) runs
+`go test ./internal/boards/... ./internal/authorization/... ./internal/instances/...
+./internal/platform/postgres/... …` **without `-p 1`**, so packages run in parallel against the same
+database. `internal/authorization/concurrency_pg_test.go` deliberately blocks on advisory locks and
+row locks, `internal/instances` lifetime tests take `FOR UPDATE`, and the migration tests take DDL
+locks — all of which report `wait_event_type='Lock', state='active'`.
+
+Consequence: the test can proceed to revoke while the rotation's HTTP preflight is still reading the
+binding. If the preflight then sees the revoked binding it returns the same 403, the revision and
+audit assertions still hold, and the test passes **without the in-transaction recheck ever running**.
+That is a false GREEN for exactly the I1 evidence, and it also breaks the "revoked AFTER preflight"
+ordering the round-2 note claims (`docs/admin-module-join-review-fixes.md`, I1 GREEN). There is no
+product defect: the recheck is present and the reported local RED/GREEN (200 → 403) proves the test
+can discriminate when the wait is genuine. This is a scoped test-integrity fix, not a redesign.
+
+Required fix: bind the observation to the holder, e.g. take `SELECT pg_backend_pid()` on the holder
+connection and require `$1 = ANY(pg_blocking_pids(pid))` (with `state='active'`), or restrict the
+query text to the board row lock (`query LIKE '%FROM boards%FOR UPDATE%'`). Either form cannot be
+satisfied by another process.
+
+Retest: rerun `TestJoinCodeRotationDeniedAfterLockWaitIsReal` inside a parallel-package invocation
+(the CI command shape above), then re-run the RED check with the in-transaction recheck removed and
+confirm it still fails with a 200 rotation.
+
+### Minors (non-blocking)
+
+1. `internal/boards/p1r_integration_test.go:40-42` passes `WithAccessPolicy` twice (a new
+   `access.NewService` plus the existing `accessSvc`). Harmless, but confusing.
+2. `AdminTask.instance.canStart` now always reports `false`: `taskModel`
+   (`internal/boards/http/mappers.go:303-308`) requires `canParticipate && !preview`, and the admin
+   task services never set those flags (`internal/boards/service_admin_tasks.go:26-31`), while
+   `adminTaskModel` copies `base.Instance` (`mappers.go:376`). No consumer reads it
+   (`InstancePanel` takes the participant `Task`), and "an admin cannot start a participant instance
+   from the admin projection" is defensible, but it is a silent value change in an admin response.
+3. `docs/admin-module-template-fixes.md:203` still records the default-profile browser run as
+   `PASS (1 test)`; it is four tests now.
+4. `AdminBoardAction` (`internal/boards/service_admin_boards.go:349-374`) resolves the read capability
+   for the response flags but ignores `allowed=false`; the flags stay `false/false` and the action
+   still returns. No impact.
+5. Observation, out of scope: the role grant/revoke transaction path
+   (`internal/authorization/role_auth.go:106-108`) still evaluates grants through the shared
+   pool-backed checker while holding a transaction — the same second-connection class I2 fixed for
+   the rotation. Untouched here; recorded so it is not mistaken for a completed sweep.
+
+### Verdict
+
+C1 and I2 are closed with adequate evidence. I1's control is implemented and locally proven, but its
+new lock-wait gate can be satisfied by another process, so the CI evidence for it is not yet sound.
+Fix I3 (and optionally the minors) inside this fix and re-run the two named checks; nothing else in
+the reviewed scope needs to change.

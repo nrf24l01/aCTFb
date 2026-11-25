@@ -217,6 +217,116 @@ contains no window check.
 the window closed returns the original submission; after the group is revoked the
 same replay and own history are `403`.
 
+## Round-3 scoped re-review — I3 (test evidence only)
+
+The round-3 review (`docs/admin-module-join-review.md` §9) closed C1 and I2 and
+found exactly one Important issue, I3, plus five minors. **No product defect was
+found**, so no implementation changed in this round: only the test gate, one
+duplicate test option and docs.
+
+### I3 (Important) — the lock-wait observation was not scoped to our own backend
+
+**Root cause (test only).** The I1 gate decided "the rotation is waiting" with a
+database-wide predicate:
+
+```sql
+SELECT count(*) FROM pg_stat_activity
+WHERE datname = current_database() AND wait_event_type = 'Lock' AND state = 'active'
+```
+
+The fixture's schema lives inside the shared test database, so any other backend
+with a `Lock` wait satisfied it. The gating CI step runs several PostgreSQL
+packages in parallel against that one database, and other suites deliberately take
+row/advisory/DDL locks. The rotation test could therefore proceed to revoke while
+the HTTP preflight was still reading the binding; the preflight would then return
+the same 403 and the revision/audit assertions would still hold, so the test could
+pass **without the in-transaction recheck ever running**.
+
+**Fix.** `internal/boards/http/join_code_tx_http_test.go` now binds the gate to the
+holder's own backend:
+
+* `backendPID` reads `SELECT pg_backend_pid()` on the holder connection;
+* `lockWaitersBlockedBy(holderPID)` selects active backends in this database with
+  `wait_event_type='Lock'` **and** `$1 = ANY(pg_blocking_pids(pid))`;
+* `waitForLockWaitBlockedBy` polls only that predicate and returns the waiting
+  backend PID;
+* the rotation test asserts the returned PID is not the holder, and that the
+  rotation is **still in flight** (`done` channel empty) when the wait is
+  observed — i.e. the observation happens after the preflight passed and before
+  the revoke/commit/release.
+
+No application name, query text or board parameter is needed: `pg_blocking_pids`
+cannot be satisfied by another process.
+
+**Negative control (the discriminator).** `TestLockWaitGateIgnoresUnrelatedWaiters`
+creates a real decoy lock wait owned by a different holder while our board row is
+held and nothing waits on it, then asserts:
+
+* the old database-wide predicate **is** satisfied (the decoy exists);
+* `lockWaitersBlockedBy(ourBoardHolderPID)` returns **no** waiters;
+* `lockWaitersBlockedBy(decoyHolderPID)` returns the decoy waiter.
+
+RED proof for the control (old unbound predicate restored in the helper only):
+
+```text
+--- FAIL: TestLockWaitGateIgnoresUnrelatedWaiters (0.17s)
+    holder-bound gate reported our board holder 458973 as blocked by [458975]
+    while only a decoy wait exists
+```
+
+**RED proof for the rotation test with an unrelated waiter present.** With the
+in-transaction recheck temporarily disabled (`postgres_join_codes.go`, restored
+byte-for-byte afterwards) and a decoy `FOR UPDATE` pair held by two `psql`
+sessions in the same database, the test still fails on the real outcome instead of
+passing on a false gate:
+
+```text
+--- decoy lock waits present: 1
+--- FAIL: TestJoinCodeRotationDeniedAfterLockWaitIsReal (0.17s)
+    rotation after lock-wait revocation = 200, want 403:
+    {"code":"WAIT-REVOKED-0001","configured":true,"revision":2,...}
+```
+
+That is the required 200-not-403 failure, so the gate is not masking a missing
+control.
+
+**GREEN.** With the recheck restored, the three rotation tests pass, including in
+the CI-shaped parallel invocation:
+
+```text
+GOMAXPROCS=2 ACTFB_TEST_POSTGRES_DSN=… \
+  go test -p 2 ./internal/boards/... ./internal/authorization/... \
+          ./internal/instances/... ./internal/platform/postgres/... -count=1
+
+ok  internal/boards            5.317s
+ok  internal/boards/http       7.936s
+ok  internal/authorization     8.798s
+ok  internal/instances         7.117s
+ok  internal/instances/http    0.426s
+ok  internal/platform/postgres 1.811s
+```
+
+and in the full gated package list of the workflow (same `-p 2`,
+`GOMAXPROCS=2`, native PostgreSQL 18.7): all 23 packages pass, including
+`./cmd/backend`. The assertions are unchanged: 403, revision unchanged, exactly
+one `board.join_code.set` audit row (the create), no code in the response.
+
+### Round-3 minor dispositions
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | `p1r_integration_test.go` passed `WithAccessPolicy` twice | removed the redundant inline `access.NewService(db, authz)`; the existing identical `accessSvc` policy remains |
+| 2 | `AdminTask.instance.canStart` is now always `false` | **accepted, no change**: the admin projection is not a participant projection and no consumer reads it (`InstancePanel` takes the participant `Task`). "An admin cannot start a participant instance from the admin projection" is the intended semantic. |
+| 3 | `docs/admin-module-template-fixes.md` said the browser run was 1 test | corrected to 4 tests |
+| 4 | `AdminBoardAction` ignores `allowed=false` for the response flags | **accepted, no change**: the flags stay `false/false`, the action result is unchanged, and there is no user impact. Recorded as neutral. |
+| 5 | `role_auth.go:106` still evaluates grants on the pool inside a transaction | **out of scope, recorded**: this is the same second-connection class I2 fixed for the rotation, but it is a pre-existing path in the role grant/revoke transaction, not a regression of this range. It is not claimed as swept. |
+
+### Not re-run in this round
+
+No frontend or browser code changed, so the previously reported 146 frontend unit
+tests and the 4-test default-profile browser run stand as reported; they were not
+re-executed here to avoid presenting a stale re-run as new evidence.
+
 ## Round-2 re-review — C1, I1, I2
 
 The round-2 review (`docs/admin-module-join-review.md` §8) found one Critical
@@ -427,6 +537,14 @@ ACTFB_TEST_POSTGRES_DSN=… go test ./internal/instances/ -run 'TestAdminDestroy
 ACTFB_TEST_POSTGRES_DSN=… go test ./internal/instances/http/ -run TestParticipantOwnABACWithRoutesRegistered -v
 ACTFB_TEST_POSTGRES_DSN=… go test ./internal/boards/http/ -run 'TestJoinCodeRotationDeniedAfterLockWaitIsReal|TestJoinCodeRotationUnderSingleConnectionPool' -v
 ACTFB_TEST_POSTGRES_DSN=… go test -race ./internal/authorization ./internal/boards ./internal/boards/http ./internal/instances ./internal/instances/http ./internal/access ./cmd/backend ./cmd/instance-worker
+
+# Round-3 (I3) gates
+ACTFB_TEST_POSTGRES_DSN=… go test ./internal/boards/http \
+  -run 'TestLockWaitGateIgnoresUnrelatedWaiters|TestJoinCodeRotationDeniedAfterLockWaitIsReal|TestJoinCodeRotationUnderSingleConnectionPool' -v
+GOMAXPROCS=2 ACTFB_TEST_POSTGRES_DSN=… go test -p 2 ./internal/boards/... ./internal/access/... \
+  ./internal/authorization/... ./internal/deployment/... ./internal/instances/... \
+  ./internal/integrations/... ./internal/plugins/... ./internal/attackdefense/... \
+  ./internal/files/... ./internal/platform/postgres/... ./cmd/backend/... -count=1 -timeout 40m
 /tmp/opencode/gobin/swagger generate model -f docs/swagger.yaml -t ./internal/generated/openapi  # v0.36.7
 ```
 
@@ -446,3 +564,8 @@ ACTFB_TEST_POSTGRES_DSN=… go test -race ./internal/authorization ./internal/bo
 * `020` is unpublished: it is amended in place (added `revision`), which is safe
   because it has never been applied outside this local work. `001`–`019` are
   untouched.
+* Explicit out-of-scope ledger: `internal/authorization/role_auth.go` still
+  evaluates grants through the shared pool-backed checker while holding a role
+  mutation transaction (the same second-connection class I2 fixed for the join-code
+  rotation). It is pre-existing and untouched here; no claim is made that every
+  PostgreSQL transaction path is single-connection.

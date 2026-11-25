@@ -201,7 +201,7 @@ Real PostgreSQL 18 (server `18.7`), real Echo routes, real JWT auth.
 | Frontend typecheck | `bun run typecheck` | PASS |
 | Frontend unit | `bun run test` | PASS (30 files, 146 tests) |
 | Frontend build | `bun run build` | PASS |
-| Default-profile browser | `E2E_PG_DSN=… ./e2e/run-default-profile-e2e.sh` | PASS (1 test) |
+| Default-profile browser | `E2E_PG_DSN=… ./e2e/run-default-profile-e2e.sh` | PASS (4 tests) |
 
 The default-profile browser run is the reproduction of the reported profile:
 `deployment.enabled=false`, integrations/plugins/files/A+D off, no credential
