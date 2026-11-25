@@ -779,19 +779,23 @@ independent main review gate is still pending.
    resolver now distinguishes participant reads from staff preview reads, keeps the participant projection
    (no hashes/answers/secret parameters), keeps draft tasks behind `module.tasks.manage`, and keeps
    participant-own submit/history gated by access-group and audience rules without the admin shortcut.
-   Status: **implemented and verified** (`c51fe87`).
+   Status: **implemented; local evidence; CI gate now added** (`c51fe87`, review fixes in this range).
 2. **Deployment template catalog with runtime disabled** — same document (BUG 2). The catalog routes were
    only registered when `deployment.enabled` was true, so the default profile got a 404 that the UI reported
    as a load failure. The static driver registry and the catalog are now always built; instances, the NATS
    stream, the credential sealer requirement, bindings and provisioning stay gated. The templates page now
    separates loading, empty `200`, real `403`/`404`/`500` and an explicit `FEATURE_DISABLED` state.
-   Status: **implemented and verified** (`f8a5fd7`).
+   Status: **implemented; local evidence; CI gate now added** (`f8a5fd7`).
 3. **Code-only board enrollment** — `docs/board-code-enrollment.md`. Every self-join now requires a board
    code, including `PUBLIC + OPEN`; public boards remain browsable. Hash-only storage (migration `020`), so
    enrollment needs neither the runtime flag nor a credential key. Admin generate/custom/rotate under live
    `board.update`, one-time reveal, generic invalid-code error, per-user rate limiting, legacy sealed invite
-   codes still accepted, `CLOSED` still staff-add only. Status: **implemented and verified locally**.
+   codes still accepted end to end (canonical route with an exact board hint), optimistic revision CAS,
+   `CLOSED` still staff-add only. Status: **implemented; local evidence; CI gate now added; independent review
+   fixes applied (B1–B11)**.
 
 Evidence: full `go test -p 1 ./...` with `ACTFB_TEST_POSTGRES_DSN`, `-race` on the changed packages, frontend
-typecheck/unit/build, and the default-profile browser run (`e2e/run-default-profile-e2e.sh`) which boots the
-real backend with every optional feature disabled.
+typecheck/unit/build, and the default-profile browser run (`e2e/run-default-profile-e2e.sh`, four tests) which
+boots the real backend with every optional feature disabled. The independent review report is
+`docs/admin-module-join-review.md`; each finding and its disposition is in
+`docs/admin-module-join-review-fixes.md`.

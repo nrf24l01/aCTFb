@@ -1,0 +1,281 @@
+# Independent review — disposition of B1–B11 and the minor findings
+
+Scope: fixes applied on top of `ce8bbaa` for the review in
+`docs/admin-module-join-review.md`. The reviewer's report is preserved unmodified
+in this repository as the artifact of record.
+
+Status: **implemented locally, not pushed** (main re-review gate). Every item below
+lists the root cause, the change and the test that now proves it.
+
+Base: `ce8bbaa`. Task base: `5edd6d5`.
+
+---
+
+## B1 — the new regression tests were not gated in CI
+
+**Root cause.** The new tests skip without `ACTFB_TEST_POSTGRES_DSN`, and the
+integration job selected only `-run TestP1R` / `-run TestP1RHTTPRoutes`, which
+matches none of the new names; `./cmd/backend` and
+`TestMigrationsRemainingStages` were never run with a DSN.
+
+**Fix** (`.github/workflows/go.yml`, same four jobs, no new job or matrix):
+
+* new step `Run migration backfill and down/up acceptance` →
+  `go test ./internal/platform/postgres -run TestMigrationsRemainingStages -count=1 -v -timeout 15m`
+  (this includes the `020` down/up subtest);
+* the brittle `-run TestP1R` steps are replaced by one whole-package step with
+  the DSN: `./internal/boards/... ./internal/access/... ./internal/authorization/...
+  ./internal/deployment/... ./internal/instances/... ./internal/integrations/...
+  ./internal/plugins/... ./internal/attackdefense/... ./internal/files/...
+  ./internal/platform/postgres/... ./cmd/backend/...` — the P1R acceptance tests
+  live in `./internal/boards` and `./internal/boards/http`, so coverage is not
+  reduced;
+* the integration job timeout is raised from 75 to 120 minutes, which the serial
+  Docker full-stack run plus the isolated integration tests plus these packages
+  legitimately need.
+
+**Proof.** Locally the same command list passes with real PostgreSQL 18.7; the
+default-profile browser step (added earlier) now runs four tests.
+
+## B2 — legacy `INVITE_ONLY` boards were not joinable from the UI
+
+**Root cause.** The dialog only called the canonical route, which resolved boards
+exclusively through `board_join_codes`; `boardUuid` was passed by the UI but
+ignored by the backend, and the old participant inputs were removed.
+
+**Fix** (canonical route with the optional hint, the option main preferred):
+
+* `JoinBoardByCode` keeps the raw trimmed value. A new-hash miss falls back to
+  `verifyLegacyJoinCode` **only** when the request names the exact board;
+* `verifyLegacyJoinCode` refuses when a canonical code is configured (rotation
+  invalidates the legacy code), requires `INVITE_ONLY`, compares the original
+  case-sensitive `sha256(trimmed raw)` and honours the legacy expiry;
+* a hint that does not match the resolved board is a generic `JOIN_CODE_INVALID`
+  (never a wrong-board enrollment, never a board-identity leak);
+* no global legacy directory exists, so a code-only request can only match a
+  canonical code.
+
+**Proof.** `TestCanonicalJoinWithHintResolvesLegacyInviteCode` (no hint denied,
+exact hint accepted with padded whitespace, wrong hint generic and non-leaking,
+rotation kills the legacy code), `TestLegacyInviteCodeIsCaseSensitive`, and the
+browser test `a pre-existing legacy INVITE_ONLY code still enrolls through the UI`
+(seeded legacy hash, real UI dialog). A `BoardPage` bug found by that browser test
+is fixed too: the join dialog was mounted only inside the `board` template, so the
+access-denied branch's button could not open it.
+
+## B3 — the mixed-role UI still took the participant path
+
+**Root cause.** The UI inferred preview from `board.joined`, so a joined admin
+whose group was revoked was treated as a participant and called own history.
+
+**Fix.**
+
+* The backend now returns authoritative `preview` and `canParticipate` on
+  `Board`, `BoardMe`, `Module`/`ModuleListItem` and `Task`/`TaskListItem`
+  (Swagger source + regenerated models, always present).
+* `TaskPage` uses `task.preview` / `task.canParticipate`: a preview never calls
+  `/submissions/me`, never renders the submit form or the instance panel, and
+  shows `Organizer preview — participant access is unavailable`.
+* `ModulePage` uses `module.preview` for the banner and treats a denied task list
+  as a preview state for staff, a participation state for unjoined readers, and a
+  real error otherwise.
+* `GetBoardMe` no longer fabricates score/place/audiences for a joined but
+  ineligible participant, and `GetMyScoreboardEntry` requires live participant
+  eligibility (`403` otherwise).
+
+**Proof.** `TestParticipantAdminKeepsPreviewButNotOwnActions` (board/module/tasks
+200 preview, submit/history/scoreboard-me 403, `solved` not fabricated),
+`TestAdminPreviewDoesNotCreateMembership`, TaskPage/ModulePage unit tests
+including `joined: true` + `preview: true`, and the browser test
+`a joined admin with a revoked group sees a safe preview, not a history error`.
+
+## B4 — documented matrix wrong; module/list paths did not use the resolver
+
+**Root cause.** Only `ListTasks`/`GetTask` used `resolveReadScope`;
+`GetModule`, `ListModules` and `requireBoardRead` let the staff branch win
+independently, and the document claimed cells the code did not produce.
+
+**Fix.** One resolver family in `internal/boards/service_read_scope.go`:
+`resolveBoardRead` (board shell) and `resolveReadScope` (module), both
+participant-first with a staff preview fallback; `requireBoardRead`, `GetBoard`,
+`ListModules`, `GetModule`, `ListTasks` and `GetTask` all use them. `ListModules`
+still SQL-filters module-scoped staff to their exact module IDs, so a single
+binding never leaks a sibling module name.
+
+**Proof.** The corrected matrix in `docs/admin-module-template-fixes.md` is
+asserted cell by cell in `staff_read_http_test.go` and
+`read_scope_extra_http_test.go` (demoted admin and revoked editor now documented
+as `403`, not `200`; joined-revoked staff documented as preview `200`, not `403`).
+
+## B5 — contract drift and undocumented statuses
+
+**Root cause.** The committed generated model carried a stale "I/L fold" comment;
+`/boards/join` did not document `409`; `bind.go` had introduced a global `413` for
+board routes.
+
+**Fix.**
+
+* models regenerated with the pinned `v0.36.7` from the current spec, so the
+  `BoardJoinByCodeRequest` description matches `NormalizeJoinCode`;
+* the misleading test comment was replaced by the real normalization test;
+* `/boards/join` documents `409` (`BOARD_REGISTRATION_CLOSED`, `BOARD_FINISHED`)
+  and `JOIN_CODE_REQUIRED`;
+* the oversized-body mapping is reverted to the previous `400 INVALID_JSON` for
+  board routes, so no board operation gained an undocumented status.
+
+**Proof.** `go build ./...`, `internal/contracttests`, and
+`TestClosedBoardRefusesValidCode`.
+
+## B6 — `bindOptionalJSON` ignored a body without `Content-Type`
+
+**Root cause.** The helper returned `(nil, nil)` before reading the body when the
+header was absent, so `{"code":"X"}` without a content type generated a random
+code.
+
+**Fix.** The body is always read and bounded first. Empty body + no content type
+is a legitimate generate; non-empty body + no content type is `415`; a wrong media
+type is `415`; malformed JSON is `400`; unknown fields stay `422`. Nothing mutates
+on a rejected request.
+
+**Proof.** `TestJoinCodeSetWithoutContentTypeDoesNotRotate` (415, revision
+unchanged, empty-body generate still works, malformed JSON 400) and
+`TestJoinCodeRejectsUnknownFields`.
+
+## B7 — the join-code panel could replace a live code without the intended confirmation
+
+**Root cause.** The confirmation always committed `custom.trim() || undefined`, so
+"replace with random" after typing a custom value committed the typed value; a
+failed status read left `configured=false` and offered an unguarded generate.
+
+**Fix.** The panel freezes the intended action (`{kind:'random'}` or
+`{kind:'custom', value}`) on click and commits exactly that. Status is an explicit
+state machine (`unknown`/`loading`/`ready`/`failed`); every mutating control is
+disabled until `ready`, a failed read offers `Retry status`, and the custom draft
+plus revealed plaintext are cleared on hide and unmount (the revealed value stays
+until hidden after a successful write).
+
+**Proof.** Eight component tests covering random, custom, custom-then-random,
+cancel, failed status + retry, value retention on failure, and the revision
+hand-off; plus the browser test
+`the join-code panel reveals once and never commits a stale custom value`.
+
+## B8 — the E2E "wrong code leaks no identity" assertion was meaningless
+
+**Root cause.** It asserted the response did not contain an unrelated board's
+UUID, which it never could.
+
+**Fix.** The assertion now checks the **target** board UUID, slug and name are
+absent and the error code is exactly `JOIN_CODE_INVALID`. The stale group comment
+was removed.
+
+**Proof.** `default-profile.spec.ts` wrong-code block.
+
+## B9 / B11 — instance-start claim vs. the code
+
+**Root cause.** `authorizeParticipant` fell back to `module.instances.admin` and
+the `requireParticipant` argument was unused, so a revoked-group admin (or any
+board owner) could start/manage a participant-own instance; the worker only
+re-checked permission and audience, not the live access group.
+
+**Fix.**
+
+* `authorizeParticipant` now requires live participant eligibility
+  (`access.Policy.CanAccessModuleAsParticipant`) **and** the participation-only
+  permission; the `module.instances.admin` fallback is removed from every
+  participant-own path;
+* the admin lane (`AdminList`/`AdminGet`/`AdminAction`, `/admin/instances/...`)
+  still uses `module.instances.admin` explicitly, so staff cleanup of another
+  subject's instance and the system expiry path are unchanged;
+* the worker revalidates a queued participant-own operation against the live
+  access group/audience before any provider call, and never upgrades a stored
+  participant permission to the admin permission;
+* `NewService`/`NewOrchestrator` default to the live access policy so no
+  construction path silently skips the check; `cmd/backend` and
+  `cmd/instance-worker` wire it explicitly.
+
+**Proof.** `internal/instances/http/participant_abac_pg_test.go` with the
+instance routes really registered and a counting publisher: non-participant admin
+403 + zero jobs, joined-then-revoked-group admin 403 + zero jobs and 403 on own
+read, revoked module audience 403 + zero jobs, and a global admin destroying
+another subject's instance through the admin route 2xx. Service-level
+`TestInstanceJobRejectsForeignActor` now removes the participant row and asserts
+the worker refuses. The docs no longer claim a participant-equivalent 403 for
+staff.
+
+## B10 — idempotent replay ordering comment was false
+
+**Root cause.** `requireParticipantOwnModuleAccess` runs before
+`FindIdempotentSubmission`, but the comment claimed replay precedes eligibility.
+
+**Fix.** The comment now states the real contract: the membership/group/audience
+gate runs first, so a revoked group blocks the replay, while the deadline/state
+checks stay after the replay lookup so a stable replay after a deadline or disable
+still returns the original verdict. `CanAccessModuleAsParticipant` intentionally
+contains no window check.
+
+**Proof.** `TestSubmissionReplayHonoursLiveRevocation`: an eligible replay after
+the window closed returns the original submission; after the group is revoked the
+same replay and own history are `403`.
+
+## Minor findings
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | `gofmt` failure in `cmd/backend/routes_integration.go` | fixed; `gofmt -l cmd internal` is clean |
+| 2 | `BoardPage.onJoined` always said "Already participating" | fixed: uses `alreadyParticipating` |
+| 3 | stale "invite code" copy on the board page | fixed: code-only wording |
+| 4 | raw-length validation before trim | fixed: trim before generated validation on all three join bodies; `TestJoinCodeShapeRejectsInvalid` proves a padded 64-char code is accepted |
+| 5 | join-code plaintext lifetime | fixed: revealed + custom cleared on hide/unmount, custom cleared after success |
+| 6 | concurrent rotation revealed an inactive code | fixed with `revision` + `expectedRevision` CAS; `TestJoinCodeOptimisticConcurrency`, `TestJoinCodeConcurrentReplaceOneWinner` |
+| 7 | authorization TOCTOU on rotation | fixed: live `board.update` re-checked inside the transaction after the board row lock; `TestJoinCodeRevisionSurvivesAuthRevocationInTx` |
+| 8 | `isInviteBoard` dead code | removed, with its test replaced by an `accessModeLabel` assertion |
+| 9 | CI job time | integration timeout raised to 120m; no fifth job, no matrix growth |
+| 10 | `setsid` cleanup could leave Vite running | replaced with the existing `e2e/lib/service-lifecycle.sh` owned-PID/start-time/process-group helper (no broad pkill) |
+
+## Test gaps closed (review §4)
+
+| Gap | Where |
+| --- | --- |
+| mixed-role UI | `TaskPage.test.ts`, `ModulePage.test.ts`, default-profile browser test |
+| module/list consistency cells | `staff_read_http_test.go` (all matrix cells) |
+| draft visibility without `module.tasks.manage` | `TestDraftVisibilityRequiresTasksManage` |
+| sibling task detail | `TestModuleScopedStaffReadsOnlyAssignedModule`, `TestSiblingTaskDetailDoesNotLeakCrossModule` |
+| CLOSED join with a valid code | `TestClosedBoardRefusesValidCode` |
+| board-owner code management + IDOR + 404 | `TestBoardOwnerManagesJoinCodeWithIDOR` |
+| legacy join end to end | `TestCanonicalJoinWithHintResolvesLegacyInviteCode`, `TestLegacyInviteCodeIsCaseSensitive`, browser legacy test |
+| `bindOptionalJSON` without content type | `TestJoinCodeSetWithoutContentTypeDoesNotRotate` |
+| custom-vs-random replace | `JoinCodePanel.test.ts` (8 cases) |
+| admin preview creates no membership | `TestAdminPreviewDoesNotCreateMembership` |
+| wrong-code response identity | `default-profile.spec.ts` |
+| 020 down/up in a CI-gated step | workflow migration step + `TestMigrationsRemainingStages` |
+| instance start with a revoked group | `participant_abac_pg_test.go` |
+
+## Commands actually run (all PASS)
+
+```text
+go build ./...
+go vet ./...
+ACTFB_TEST_POSTGRES_DSN=… go test -p 1 ./... -count=1
+ACTFB_TEST_POSTGRES_DSN=… go test -race ./internal/boards/ ./internal/boards/http/ \
+  ./internal/access/ ./internal/authorization/ ./internal/instances/ \
+  ./internal/instances/http/ ./internal/deployment/... ./internal/platform/postgres/ \
+  ./cmd/backend/ ./cmd/instance-worker/ -count=1
+ACTFB_TEST_POSTGRES_DSN=… go test ./internal/platform/postgres -run TestMigrationsRemainingStages -v
+(cd frontend && bun run typecheck && bun run test && bun run build)
+E2E_PG_DSN=… ./e2e/run-default-profile-e2e.sh      # 4 tests
+/tmp/opencode/gobin/swagger generate model -f docs/swagger.yaml -t ./internal/generated/openapi  # v0.36.7
+```
+
+## Known limits (unchanged by this pass)
+
+* Legacy sealed codes require the credential sealer to be *created*. On a
+  deployment with no credential key (the default profile) a pre-existing legacy
+  row still validates by hash — which the browser test proves — but a new legacy
+  code cannot be issued; organizers use a join code instead.
+* No Docker daemon is available in this environment, so the Docker-backed
+  instance suite is not re-run locally; the negative authorization tests use a
+  static registry with a counting driver/publisher, which is recorded here rather
+  than claimed as a real provider deployment.
+* `020` is unpublished: it is amended in place (added `revision`), which is safe
+  because it has never been applied outside this local work. `001`–`019` are
+  untouched.

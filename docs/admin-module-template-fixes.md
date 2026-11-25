@@ -50,9 +50,13 @@ capability for one board/module:
 * `resolveReadScope` checks live participation first, then the live
   admin/scoped-staff context (`staffContext`, which reads `users.roles` and
   `board_role_bindings` from PostgreSQL on every call).
-* A participant (including a participant that is a global admin) keeps the
-  participant path, so a revoked access group or audience still denies them
-  (access-authorization.md §3 unchanged).
+* Participant eligibility is evaluated first from live state (joined + access
+  group + audience). When it holds, the read is a participant read with own data.
+  When it does not hold but the caller has a live staff scope, the read is a
+  management preview: 200, read-only, and explicitly flagged
+  (`preview: true`, `canParticipate: false`). A participant row that outlived a
+  revoked group therefore keeps the preview but loses every participant-own
+  action.
 * A non-participant global admin, or a non-participant scoped staff member whose
   live binding covers this exact module, gets a **preview** read.
 * Scoped staff never read a sibling module (`ErrForbidden`), preserving the
@@ -76,25 +80,40 @@ history.
 Plugin permissions are untouched: they remain explicit-grant-only for everyone,
 including a global admin.
 
-### Behaviour matrix (real HTTP + real PostgreSQL 18)
+### Behaviour matrix (real HTTP + real PostgreSQL 18, every cell asserted)
 
-`internal/boards/http/staff_read_http_test.go`:
+Policy (main decision, review B3/B4): a live global admin or a live scoped
+binding may READ its management module/task as a **preview** even when the
+caller also has a participant row whose access group was revoked. A preview never
+grants a participant-own action (submit, own history, score, instance). A caller
+with no staff scope and no live participant eligibility is denied.
 
-| Caller | board | module detail | task list | task detail | submit / own history |
+| Caller | board shell | module detail | task list | task detail | submit / own history / scoreboard-me |
 | --- | --- | --- | --- | --- | --- |
-| global admin, never joined, not in access group | 200 | 200 | **200** (visible + draft) | **200** | 403 |
-| module-scoped editor, module A | 200 | 200 (A) | 200 (A) | 200 (A) | — |
-| same editor, sibling module B | 200 | **403** | **403** | — | — |
-| same editor after binding revoked, same JWT | 200 | 403 | **403** | — | — |
-| joined participant, group revoked, has scoped role | 200 | 403 | **403** | **403** | — |
-| demoted admin, same JWT | 200 | — | **403** | — | — |
-| joined admin, group revoked | 200 | 200 | **200** (preview) | 200 | **403** |
-| outsider, unrelated private board | 403 | **403** | **403** | **403** | — |
+| global admin, never joined, not in the access group | 200 preview | 200 preview | **200** preview (visible + draft) | **200** preview | 403 |
+| module-scoped editor, module A | 200 preview | 200 preview (A) | 200 preview (A) | 200 preview (A) | — |
+| same editor, sibling module B | 200 preview | **403** | **403** | **403** | — |
+| same editor after the binding is revoked, same JWT | **403** | **403** | **403** | — | — |
+| joined participant with a revoked group and a scoped role | 200 preview | **200** preview | **200** preview | 200 preview | **403** |
+| joined admin with a revoked group | 200 preview | 200 preview | 200 preview | 200 preview | **403** |
+| demoted admin (private board, never joined), same JWT | **403** | **403** | **403** | — | — |
+| ordinary joined participant with a revoked group, no staff role | **403** | **403** | **403** | **403** | 403 |
+| outsider, unrelated private board | **403** | **403** | **403** | **403** | — |
+| reviewer (no `module.tasks.manage`) | 200 preview | 200 preview | visible task only, no draft | draft detail 403 | — |
+| module editor (`module.tasks.manage`) | 200 preview | 200 preview | visible + draft | draft detail 200 | — |
 
-The preview responses are asserted to contain no `acceptedAnswers`,
-`answerHash`, `hashes`, `secretParameters`, `credentials`, and no flag value.
-Instance start for a non-participant staff member is 403 when the runtime routes
-exist and 404 when they do not — never a success.
+Every cell above is asserted in `internal/boards/http/staff_read_http_test.go` and
+`internal/boards/http/read_scope_extra_http_test.go`. Preview responses are
+asserted to contain no `acceptedAnswers`, `answerHash`, `hashes`,
+`secretParameters` or `credentials`, no flag value, and `solved: false` with
+`preview: true` / `canParticipate: false`.
+
+Instance start is **not** a preview capability. The participant-own routes now
+require live participation plus the access group and module audience
+(`access.Policy.CanAccessModuleAsParticipant`) and no longer fall back to
+`module.instances.admin`; the separate admin lane
+(`/admin/instances/...`) still manages any subject's instance. See
+`docs/admin-module-join-review-fixes.md` (B11) for the registered-route test.
 
 ### UI
 
@@ -168,10 +187,11 @@ Real PostgreSQL 18 (server `18.7`), real Echo routes, real JWT auth.
 
 | Gate | Command | Result |
 | --- | --- | --- |
-| Staff-read HTTP | `go test ./internal/boards/http -run 'TestGlobalAdminReadsModuleAndTasksWithoutJoining\|TestModuleScopedStaffReadsOnlyAssignedModule\|TestParticipantReadStillRequiresLiveGroupAndAudience\|TestDemotedAdminLosesPreviewWithoutNewToken\|TestParticipantAdminKeepsPreviewButNotOwnActions'` | PASS |
+| Staff-read HTTP | `go test ./internal/boards/http` (whole package, real DSN) | PASS |
 | Catalog default profile (HTTP) | `go test ./internal/deployment/http -run TestTemplateCatalog` | PASS |
 | Catalog default profile (boot) | `go test ./cmd/backend -run TestDeploymentCatalogBootsWithDefaultProfileFlags` | PASS |
 | Full Go suite | `ACTFB_TEST_POSTGRES_DSN=… go test -p 1 ./...` | PASS |
+| CI gate | `.github/workflows/go.yml` integration job runs whole affected packages with the DSN plus the migration down/up step | PASS locally, job timeout raised to 120m |
 | Vet / build | `go vet ./...`, `go build ./...` | PASS |
 | Frontend typecheck | `bun run typecheck` | PASS |
 | Frontend unit | `bun run test` | PASS (28 files, 130 tests) |
@@ -188,8 +208,11 @@ lands in the editor. Nothing is intercepted.
 
 ## Not changed
 
-* No migration; `019_instance_lifetime.sql` is untouched.
-* No Swagger/generated change: no contract changed.
+* Slices 1–2 need no migration; `019_instance_lifetime.sql` is untouched. The
+  enrollment slice in this range adds `020_board_join_codes.sql`, which is
+  additive and unpublished.
+* Swagger/generated models changed only for the enrollment contract and the
+  additive `preview`/`canParticipate` read projections.
 * No new permission, no `/api/v3`, no response field removed.
 * Plugin permissions remain explicit-grant-only, including for a global admin.
 * Participation, access-group and audience enforcement for ordinary users is

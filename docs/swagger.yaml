@@ -1385,6 +1385,10 @@ paths:
         '403':
         - BOARD_ACCESS_DENIED
         - JOIN_CODE_INVALID
+        - JOIN_CODE_REQUIRED
+        '409':
+        - BOARD_REGISTRATION_CLOSED
+        - BOARD_FINISHED
         '415':
         - UNSUPPORTED_MEDIA_TYPE
         '422':
@@ -1421,9 +1425,14 @@ paths:
           schema:
             $ref: '#/definitions/Http401_Unauthorized_Error'
         '403':
-          description: '403 Forbidden. Code: JOIN_CODE_INVALID, BOARD_ACCESS_DENIED.'
+          description: '403 Forbidden. Code: JOIN_CODE_INVALID, JOIN_CODE_REQUIRED, BOARD_ACCESS_DENIED.'
           schema:
             $ref: '#/definitions/Http403_Forbidden_Error'
+        '409':
+          description: '409 The code was valid but the board state refuses enrollment. Code: BOARD_REGISTRATION_CLOSED,
+            BOARD_FINISHED.'
+          schema:
+            $ref: '#/definitions/Http409_BoardStateConflict_Error'
         '415':
           description: '415 Unsupported media type. Code: UNSUPPORTED_MEDIA_TYPE.'
           schema:
@@ -23722,7 +23731,8 @@ paths:
           schema:
             $ref: '#/definitions/Http404_BoardNotFound_Error'
         '409':
-          description: '409 The custom code is already in use. Code: BOARD_STATE_CONFLICT.'
+          description: '409 The custom code is already in use, or expectedRevision is missing/stale. Code:
+            BOARD_STATE_CONFLICT.'
           schema:
             $ref: '#/definitions/Http409_BoardStateConflict_Error'
         '415':
@@ -26755,6 +26765,15 @@ definitions:
         $ref: '#/definitions/AccessMode'
         description: Additive canonical mode. When provided it normalizes visibility/registration/accessGroupUuids;
           conflicting legacy fields are rejected.
+      preview:
+        type: boolean
+        description: True when this read is a staff management preview because the caller is not
+          participant-eligible here (never joined, or the access group/audience was revoked). A preview never
+          unlocks participant-own history, submission, score or instance actions.
+      canParticipate:
+        type: boolean
+        description: True when the caller is participant-eligible for this scope from live state (joined, current
+          access group, current module audience). Read-only projection; it never grants anything by itself.
     required:
     - uuid
     - slug
@@ -26768,6 +26787,8 @@ definitions:
     - joined
     - description
     - visibility
+    - preview
+    - canParticipate
     additionalProperties: false
   BoardJoinByCodeRequest:
     type: object
@@ -26814,10 +26835,16 @@ definitions:
     type: object
     required:
     - configured
+    - revision
     additionalProperties: false
     properties:
       configured:
         type: boolean
+      revision:
+        type: integer
+        minimum: 0
+        description: Optimistic concurrency token. 0 when no code is configured. Echo it back as expectedRevision to
+          replace a live code.
       updatedAt:
         type: string
         format: date-time
@@ -26832,11 +26859,17 @@ definitions:
         maxLength: 64
         description: Custom join code. Omit or send an empty string to generate a random code. Trimmed and uppercased;
           only A-Z, 0-9 and hyphen are accepted.
+      expectedRevision:
+        type: integer
+        minimum: 0
+        description: Revision from the status read. Required to replace a live code; omit or send 0 for the first
+          create. A stale value is rejected so two organizers cannot silently overwrite each other.
   BoardJoinCodeResponse:
     type: object
     required:
     - configured
     - code
+    - revision
     additionalProperties: false
     properties:
       configured:
@@ -26844,6 +26877,10 @@ definitions:
       code:
         type: string
         description: Plaintext join code. Returned only by this response and never persisted or logged.
+      revision:
+        type: integer
+        minimum: 1
+        description: Committed revision after this write. Use it as expectedRevision for the next replace.
       updatedAt:
         type: string
         format: date-time
@@ -26945,6 +26982,8 @@ definitions:
     - joined
     - participationMode
     - audiences
+    - preview
+    - canParticipate
     additionalProperties: false
     properties:
       joined:
@@ -26971,6 +27010,14 @@ definitions:
         type: array
         items:
           $ref: '#/definitions/AudienceSummary'
+      preview:
+        type: boolean
+        description: True when the caller's participant row outlived a revoked access group, so the row is visible
+          but no own progress is reported and no participant-own action is available.
+      canParticipate:
+        type: boolean
+        description: True when the caller is currently participant-eligible (joined, current access group). Read-only
+          projection.
   ScoreSubject:
     type: object
     required:
@@ -27421,6 +27468,8 @@ definitions:
     - status
     - solved
     - instanceRequired
+    - preview
+    - canParticipate
     additionalProperties: false
     properties:
       uuid:
@@ -27461,6 +27510,15 @@ definitions:
         minimum: 0
       instanceRequired:
         type: boolean
+      preview:
+        type: boolean
+        description: True when this read is a staff management preview because the caller is not
+          participant-eligible here (never joined, or the access group/audience was revoked). A preview never
+          unlocks participant-own history, submission, score or instance actions.
+      canParticipate:
+        type: boolean
+        description: True when the caller is participant-eligible for this scope from live state (joined, current
+          access group, current module audience). Read-only projection; it never grants anything by itself.
   TaskInstanceSummary:
     type: object
     required:
@@ -27547,6 +27605,15 @@ definitions:
         x-nullable: true
         description: Required when type=EXTENSION; names the installed module/task extension provider. No feature is
           available without a matching installed provider.
+      preview:
+        type: boolean
+        description: True when this read is a staff management preview because the caller is not
+          participant-eligible here (never joined, or the access group/audience was revoked). A preview never
+          unlocks participant-own history, submission, score or instance actions.
+      canParticipate:
+        type: boolean
+        description: True when the caller is participant-eligible for this scope from live state (joined, current
+          access group, current module audience). Read-only projection; it never grants anything by itself.
     required:
     - uuid
     - moduleUuid
@@ -27561,6 +27628,8 @@ definitions:
     - attachments
     - submission
     - instance
+    - preview
+    - canParticipate
     additionalProperties: false
   GitRepositoryInfo:
     type: object
@@ -29987,6 +30056,8 @@ definitions:
     - status
     - audienceUuids
     - order
+    - preview
+    - canParticipate
     additionalProperties: false
     properties:
       uuid:
@@ -30033,6 +30104,15 @@ definitions:
         type: string
         format: date-time
         x-nullable: true
+      preview:
+        type: boolean
+        description: True when this read is a staff management preview because the caller is not
+          participant-eligible here (never joined, or the access group/audience was revoked). A preview never
+          unlocks participant-own history, submission, score or instance actions.
+      canParticipate:
+        type: boolean
+        description: True when the caller is participant-eligible for this scope from live state (joined, current
+          access group, current module audience). Read-only projection; it never grants anything by itself.
   Module:
     type: object
     properties:
@@ -30083,6 +30163,15 @@ definitions:
         x-nullable: true
         description: Required when type=EXTENSION; names the installed module/task extension provider. No feature is
           available without a matching installed provider.
+      preview:
+        type: boolean
+        description: True when this read is a staff management preview because the caller is not
+          participant-eligible here (never joined, or the access group/audience was revoked). A preview never
+          unlocks participant-own history, submission, score or instance actions.
+      canParticipate:
+        type: boolean
+        description: True when the caller is participant-eligible for this scope from live state (joined, current
+          access group, current module audience). Read-only projection; it never grants anything by itself.
     required:
     - uuid
     - boardUuid
@@ -30093,6 +30182,8 @@ definitions:
     - audienceUuids
     - order
     - description
+    - preview
+    - canParticipate
     additionalProperties: false
   AdminModule:
     type: object

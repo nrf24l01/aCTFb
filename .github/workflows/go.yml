@@ -133,7 +133,11 @@ jobs:
     name: Integration
     needs: [backend, frontend]
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    # Raised from 75 after the default-profile browser suite was added: the
+    # serial Docker full-stack run (~40m), the isolated integration tests and the
+    # real-PostgreSQL packages legitimately exceed the old budget. The job count
+    # stays at four.
+    timeout-minutes: 120
 
     services:
       postgres:
@@ -182,6 +186,11 @@ jobs:
       - name: Apply migrations to a clean schema
         run: go test ./internal/platform/postgres -run TestMigrationsCleanSchema -count=1 -v
 
+      # Includes the 020 board_join_codes down/up subtest. Migration regressions
+      # are the kind of thing a `-run TestP1R` selection silently skips.
+      - name: Run migration backfill and down/up acceptance
+        run: go test ./internal/platform/postgres -run 'TestMigrationsRemainingStages' -count=1 -v -timeout 15m
+
       - name: Run real PostgreSQL auth integration tests
         run: go test ./internal/users/... -run 'TestPostgres' -count=1 -v
 
@@ -194,24 +203,27 @@ jobs:
       - name: Run real Redis limiter and client tests
         run: go test ./internal/platform/ratelimit ./internal/platform/redis -count=1 -v
 
-      - name: Run feature registry real PostgreSQL tests
+      # Whole affected packages with the DSN, not a brittle `-run` selection.
+      # This is what gates the staff-preview, code-only enrollment, instance
+      # participant-ABAC and default-profile catalog regressions: those tests skip
+      # without ACTFB_TEST_POSTGRES_DSN, so the DSN-less backend job cannot see
+      # them. The P1R acceptance tests live in ./internal/boards and
+      # ./internal/boards/http, so they still run (coverage is not reduced).
+      - name: Run real PostgreSQL domain, HTTP and boot acceptance
         run: >-
           go test
+          ./internal/boards/...
           ./internal/access/...
           ./internal/authorization/...
+          ./internal/deployment/...
+          ./internal/instances/...
           ./internal/integrations/...
           ./internal/plugins/...
           ./internal/attackdefense/...
-          ./internal/deployment/...
           ./internal/files/...
-          ./internal/instances/...
-          -count=1 -timeout 20m
-
-      - name: Run P1R real PostgreSQL acceptance
-        run: go test ./internal/boards -run 'TestP1R' -count=1 -v -timeout 20m
-
-      - name: Run P1R real HTTP handler acceptance
-        run: go test ./internal/boards/http -run 'TestP1RHTTPRoutes' -count=1 -v -timeout 20m
+          ./internal/platform/postgres/...
+          ./cmd/backend/...
+          -count=1 -timeout 40m
 
       - name: Run isolated P0 integration smoke
         run: go test ./internal/integration -run TestP0AuthEmailIntegration -count=1 -v -timeout 10m
