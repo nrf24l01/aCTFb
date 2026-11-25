@@ -175,6 +175,12 @@ if [[ "$LIST_STATUS" != "200" ]]; then
   exit 1
 fi
 
+# The Vite dev server needs frontend dependencies; a fresh CI checkout does not
+# have them, and an existing local install is reused as-is.
+if [[ ! -d "$ROOT/frontend/node_modules" ]]; then
+  (cd "$ROOT/frontend" && bun install --frozen-lockfile) >"$WORKDIR/frontend-install.log" 2>&1
+fi
+
 (cd "$ROOT/frontend" && VITE_DEV_PROXY_TARGET="http://127.0.0.1:${APP_PORT}" \
   bun run dev -- --host 127.0.0.1 --port "${FRONTEND_PORT}" \
   >"$WORKDIR/frontend.log" 2>&1) &

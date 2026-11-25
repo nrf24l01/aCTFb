@@ -240,6 +240,17 @@ jobs:
         timeout-minutes: 40
         run: ./e2e/run-e2e.sh
 
+      # The full-stack suite forces every optional feature on, which is exactly
+      # how the default-profile regressions escaped. This run boots the real
+      # backend with deployment/integrations/plugins/files/A+D disabled and no
+      # credential key, then drives Chromium through staff preview, the empty
+      # template catalog and code-only enrollment.
+      - name: Run default-profile browser acceptance
+        timeout-minutes: 20
+        env:
+          E2E_PG_DSN: ${{ env.ACTFB_TEST_POSTGRES_DSN }}
+        run: ./e2e/run-default-profile-e2e.sh
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
