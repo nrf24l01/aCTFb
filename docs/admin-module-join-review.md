@@ -742,3 +742,84 @@ C1 and I2 are closed with adequate evidence. I1's control is implemented and loc
 new lock-wait gate can be satisfied by another process, so the CI evidence for it is not yet sound.
 Fix I3 (and optionally the minors) inside this fix and re-run the two named checks; nothing else in
 the reviewed scope needs to change.
+
+---
+
+## 10. I3 re-review (narrow) — APPROVED
+
+Status: **APPROVED — 0 Critical, 0 Important open in the reviewed scope.** I3 is closed; the minors
+are closed, accepted with rationale, or recorded out of scope. C1, I1, I2 and B1–B11 were not
+reopened.
+
+Scope: only I3, on `5455a18..a4f3010` (two commits, five files). The diff contains **no product
+source**: `internal/boards/http/join_code_tx_http_test.go` (+209/−23),
+`internal/boards/p1r_integration_test.go` (−2, the duplicated `WithAccessPolicy`), and docs
+(`docs/admin-module-join-review-fixes.md` round 3, this file, and the corrected browser test count in
+`docs/admin-module-template-fixes.md`). Read-only review: no build, test, server, Docker or Podman
+run; the reported native PostgreSQL 18.7 results are accepted as reported, not rerun.
+`gofmt -l cmd internal` and `git diff 5edd6d5..HEAD --check` are clean.
+
+### The gate is now bound to our own holder backend
+
+`lockWaitersBlockedBy` (`internal/boards/http/join_code_tx_http_test.go:168-186`) selects
+
+```sql
+SELECT pid FROM pg_stat_activity
+WHERE datname = current_database() AND state = 'active'
+  AND wait_event_type = 'Lock' AND $1 = ANY(pg_blocking_pids(pid))
+```
+
+with `$1` = `backendPID(t, holder)` read from the connection that actually holds the lock
+(`:151-158`, `:258`). Verified against the failure mode I raised:
+
+* **Cannot be satisfied by an unrelated waiter.** `pg_blocking_pids(pid)` is the waiter's own blocker
+  set, so another package's row/advisory/DDL wait (different holder PID) cannot match. The decoy in
+  `TestLockWaitGateIgnoresUnrelatedWaiters` (`:432-530`) is exactly that shape and the holder-bound
+  predicate stays empty for our holder (`:506-512`) while the old database-wide predicate
+  (`anyLockWait`, `:194-201`, the earlier query verbatim) is satisfied (`:499-503`). A soft-blocker
+  match is also impossible: our holder never waits, so it can never appear ahead of someone else in
+  a queue.
+* **Attributed to the right wait.** The returned PID must differ from the holder (`:282-284`), and
+  the rotation must still be in flight — the `done` channel is checked non-blocking **before** the
+  revoke (`:285-290`). So the observation happens after the preflight passed and before
+  revoke/commit/release.
+* **It is the store transaction that blocks, not an earlier stage.** The holder locks only the board
+  row. In the join-code request the only locking read of `boards` is
+  `internal/boards/postgres_join_codes.go:50` (`SELECT … FOR UPDATE`) inside
+  `SetBoardJoinCode`'s transaction; `boardExists`
+  (`internal/authorization/authorizer.go:171`) and `GetBoard`
+  (`internal/boards/postgres_store.go:264`) are plain `SELECT`s, and `requireUser`/`pathUUID` touch no
+  board row. A backend blocked by this holder is therefore necessarily past the `board.update`
+  preflight and inside the transaction the recheck lives in — the `role valid before preflight`
+  requirement holds.
+* **Negative control uses the same predicate as the rotation test.** Both call the shared
+  `lockWaitersBlockedBy`; `anyLockWait` exists only to show the old predicate would have matched.
+  The reported RED/GREEN pair is coherent with the code: with the recheck removed and a decoy
+  present the test fails with `200, want 403`, so the gate is not masking a missing control; with the
+  recheck present it passes at 0.17 s.
+* **Connection/cleanup hygiene.** The holder PID is read on the same acquired connection that holds
+  the lock, so it cannot drift; `pgxpool.Conn.Release` is idempotent in the pinned pgx v5.11.0
+  (`pgxpool/conn.go:19-22`), so the explicit-then-deferred releases are safe; every `Acquire` has a
+  `defer Release`; the result channel is buffered (`:266`) so a failure cannot leak the rotation
+  goroutine; waits are bounded (10 s gate, 20 s result) under the 3-minute fixture context; and a
+  connection released mid-transaction is destroyed by the pool rather than returned dirty, so no
+  server-side backend leaks. The observer pool (4) covers the 3 held connections plus one query in
+  the negative control.
+
+### Minors
+
+Closed: the duplicated `WithAccessPolicy` is removed, the browser test count is corrected to 4, and
+the gate's own stale comment is replaced. Accepted with rationale: `AdminTask.instance.canStart` is
+always `false` in the admin projection (no consumer; "an admin cannot start a participant instance
+from the admin projection" is the intended semantic) and `AdminBoardAction` ignores `allowed=false`
+for its response flags (no user impact). Recorded out of scope: `role_auth.go:106-108` still
+evaluates grants on the pool inside the role-mutation transaction — a pre-existing instance of the
+I2 class, not a regression of this range and not claimed as swept. `ListModules` N+1 remains an
+explicit performance defer.
+
+### Verdict
+
+I3 is closed and the I1 evidence is now sound: the gate is attributable to our own rotation, the
+negative control proves the discriminator against the exact query previously used, and the blocking
+point is the in-transaction recheck. No open Critical or Important remains in the reviewed scope;
+publication is not blocked by this review.
