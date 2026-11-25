@@ -17,6 +17,11 @@ or dark-theme changes. Local and unpushed pending review.
 - Call sites with inline `status === '…' ? 'ok' : …` ternaries (admin instances/plugins/integrations,
   AD, pentest, instance panel, file uploader) now pass `:status` and use the shared mapping. This is the
   concrete fix for `EXPIRED`/`CANCELED` previously rendering as running.
+- Duplicate/incorrect non-badge markers found during review: `TaskCard.vue` dropped its second pine
+  "Solved" (the green pill already says it) and `TeamPanel.vue`'s category badge moved from the health
+  colour `ok` to `neutral`. `RoleBindingsPanel.vue`'s pine binding badges are a recorded follow-up.
+- `frontend/fixtures/status-colors/` — test-only visual fixture (not a Vite build input, typechecked via
+  `tsconfig.app.json`) used by the committed browser harness below.
 
 ## Mapping
 
@@ -60,11 +65,74 @@ loading `Skeleton.vue`).
   humanised labels, and explicit assertions that `EXPIRED`/`CANCELED` are not `active`.
 - `frontend/src/components/layout/StatusBadge.test.ts` — visible label, `aria-hidden` icon, all legacy
   tone aliases, neutral default, status-derived label/tone, tokenised ink/surface/border with no raw
-  hex, and no pulse/animation for running.
+  hex, no pulse/animation for running, and (after review M6) `tone`-over-`status` and
+  `label`-over-`status` precedence plus a neutral fallback for an unexpected runtime tone.
 - `frontend/src/components/layout/StatusPill.test.ts` — friendly labels, semantic tones, expired/
   canceled/finished muted, unknown status neutral and readable.
 
 The three new files failed before `status.ts`/the new badge existed (10 failed, 1 passed) and pass after.
+
+## Real-browser visual verification (Chromium)
+
+Harness (committed, test-only): `e2e/run-status-colors-visual.sh` starts exactly one Vite dev server
+through `e2e/lib/service-lifecycle.sh` (process-group leader + recorded `/proc` start time) and runs
+`e2e/status-colors-visual.mjs` with Playwright's bundled Chromium driver against the system browser
+(`/usr/bin/chromium`). The page is `frontend/fixtures/status-colors/index.html`, which mounts the real
+`StatusBadge`/`StatusPill` with the real `src/style.css` — no router, no API, no backend, no database,
+no Docker. It is component visual verification, not API acceptance. `fixtures/**/*.ts` is added to
+`tsconfig.app.json` so the fixture is typechecked and cannot silently rot; it is not a Vite build input
+and `dist/` contains no fixture reference.
+
+```
+OUT=/tmp/opencode/status-colors ./e2e/run-status-colors-visual.sh
+  # vite owned pid: 619684 starttime: 7194835
+  # success n=10 min=7.75:1   active n=10 min=8.06:1   attention n=10 min=8.37:1
+  # error   n=10 min=5.13:1   restricted n=7 min=6.76:1  neutral n=8 min=5.81:1
+  # muted   n=10 min=5.16:1
+  # badges measured: 65 (desktop + 375px)
+  # PASS: all computed-style and contrast assertions held
+  # owned vite group 619684 stopped (no survivors)
+```
+
+Measured from **computed styles in the browser**, not from the CSS source: 65 badge instances across
+three surfaces (black page, `bg-secondary` card, table row), covering all seven tones, 19 API statuses,
+and all eight legacy `tone` props. Every instance asserted: `color`/`backgroundColor`/`borderColor`
+equal their `--status-*` token values, border is solid and ≥1 px (so the shadcn CVA
+`border-transparent`/`text-foreground` utilities do not win), text contrast ≥4.5:1, a non-empty visible
+label, exactly one icon with `aria-hidden="true"` and ≥8 px width, `animation-name: none` with zero
+animated descendants, and a badge height ≥18 px. Unknown `PROVIDER_TIMEOUT` rendered "Provider timeout"
+in the neutral palette; `EXPIRED`, `CANCELED` and `FINISHED` rendered muted, never active.
+
+Screenshots (`/tmp/opencode/status-colors/`): `desktop-1440.png` (1440×900, DPR 1),
+`desktop-1440-zoom200.png` (1440×1563 at 200 % CSS zoom), `mobile-375.png` (375×812 CSS, DPR 2 →
+750×2128), plus `measurements.json` with all 65 computed records.
+
+Independent pixel check of those PNGs (Pillow, counting exact token colours) confirms the tints are
+actually rasterised rather than merely computed: every tone surface has 9 073–57 601 matching pixels and
+every ink 251–4 564 across the three images.
+
+Responsive/zoom assertions: no horizontal overflow at 1440 px, at 375 px, or at 200 % zoom; zero clipped
+labels (`scrollWidth > clientWidth`) and zero off-screen badges at 375 px; label width > 0 at 200 % zoom.
+
+Process cleanup evidence: the owned group's PGID equals the recorded PID, `services_stop_all` TERM/KILLs
+only that group, and the script asserts the group is gone before exit. After the run
+`ps -eo pid,pgid,cmd | grep -E "vite|bun run dev|chromium"` returns nothing and the run's port is closed.
+One earlier harness version wrapped `service_start` in `$(...)`, which made the command-substitution
+subshell the group leader and left three dev servers behind; those exact groups (616633, 618351, 618945)
+were terminated after inspecting their members, the bug is fixed in the committed script, and the final
+run left no survivors.
+
+## Review follow-ups applied (M3, M6, M8)
+
+- **M3** — the `style.css` token comment now says the ratios are measured against each tone's own opaque
+  surface (Chromium-measured), instead of the inaccurate "#191724 tints" wording.
+- **M6** — precedence tests added (see above), and an unexpected runtime `tone` now falls back to
+  `neutral` instead of producing an empty icon and `var(--status-undefined-*)`.
+- **M8** — `TaskCard.vue` no longer prints a second pine "Solved" next to the green "Solved" pill
+  (`status === 'SOLVED'` iff `solved`, `internal/boards/service_tasks.go:179`), so the card states it
+  once. `TeamPanel.vue`'s category badge changed from `tone="ok"` (a health colour) to `tone="neutral"`.
+  `RoleBindingsPanel.vue`'s pine active/expired binding badges are left as recorded follow-up, out of
+  scope for this slice.
 
 ## Commands actually run (serial, low-memory)
 
@@ -73,15 +141,22 @@ cd frontend
 NODE_OPTIONS=--max-old-space-size=2048 bun run typecheck   # exit 0, no diagnostics
 NODE_OPTIONS=--max-old-space-size=2048 bun run test -- --maxWorkers=1
   # Test Files  33 passed (33)
-  # Tests       171 passed (171)
-NODE_OPTIONS=--max-old-space-size=2048 bun run build       # ✓ built in 919ms
+  # Tests       174 passed (174)
+NODE_OPTIONS=--max-old-space-size=2048 bun run build       # ✓ built in 820ms, no fixture in dist
 ```
 
-The full unit run prints two `ECONNREFUSED 127.0.0.1:3000` lines on stderr; no test failed, and they are
-not emitted by the new status tests.
+The first slice ran 171 tests; the three added precedence/fallback tests make 174. The full unit run
+prints `ECONNREFUSED 127.0.0.1:3000` lines on stderr; no test failed, and they are not emitted by the
+status tests.
 
 ## Limits
 
-- Verification is unit/typecheck/build level; no browser screenshot pass was run for this slice.
+- The browser pass is a component visual fixture, not an end-to-end app or API acceptance run: no
+  router, auth, or backend data is exercised, and no full-page app screenshot was taken.
+- Screenshots were captured and pixel-checked programmatically; this session cannot render images for
+  human inspection, so the visual judgement rests on computed styles, measured contrast, layout
+  assertions and the pixel counts above.
 - The tokens are fixed dark-theme values; there is no light theme to re-measure.
-- No commit was pushed. Backend and Docker were not touched or run.
+- Contrast is measured against the badge's own opaque surface. Against the page/card surfaces the same
+  inks measure higher, so no surface makes a badge fail.
+- No commit was pushed. Backend, database and Docker were not touched or run.

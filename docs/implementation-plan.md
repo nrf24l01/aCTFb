@@ -826,5 +826,11 @@ measures 5.13:1–8.37:1.
 Legacy `tone` values (`ok`, `look`, `blocked`, `broken`, `unknown`, `off`, `running`, `gone`) remain valid for
 existing callers. Inline status→tone ternaries in the admin, instance, pentest, AD and file-upload views were
 replaced with the shared `statusTone`/`statusLabel` path, which fixes `EXPIRED`/`CANCELED` being rendered as
-running and keeps unknown statuses neutral. Status: **implemented; local unit/typecheck/build evidence;
-unpushed pending review.** Evidence: `docs/status-colors-verification.md`.
+running and keeps unknown statuses neutral. A real-Chromium pass over the committed test-only fixture
+(`frontend/fixtures/status-colors/`, run by `e2e/run-status-colors-visual.sh`) verified all seven tones on
+black/card/table surfaces at 1440 px, 375 px and 200 % zoom: 65 badges measured from computed styles, contrast
+5.13:1–8.37:1, visible labels, `aria-hidden` icons, no animation, no clipping or horizontal overflow. The
+independent review (`docs/status-colors-review.md`) approved the range with minor notes; M3 (token-comment
+wording), M6 (precedence tests plus a neutral fallback for unexpected tones) and M8 (`TaskCard` duplicate
+"Solved", `TeamPanel` category tone) were applied. Status: **implemented; local unit/typecheck/build and
+real-browser evidence; unpushed pending review.** Evidence: `docs/status-colors-verification.md`.
