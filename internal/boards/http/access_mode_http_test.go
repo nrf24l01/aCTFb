@@ -145,6 +145,9 @@ func TestAccessModeProjectionOnListAndDetail(t *testing.T) {
 	doJSON(t, f.router, http.MethodPost, "/api/v2/admin/boards/"+boardID+"/actions", f.adminToken,
 		map[string]any{"action": "PUBLISH"}, nil, http.StatusOK)
 	doJSON(t, f.router, http.MethodPost, "/api/v2/boards/"+boardID+"/join", f.adminToken,
+		map[string]any{"code": issueJoinCode(t, f.router, boardID, f.adminToken)}, nil, http.StatusOK)
+	// Re-joining an existing participant stays idempotent even without a code.
+	doJSON(t, f.router, http.MethodPost, "/api/v2/boards/"+boardID+"/join", f.adminToken,
 		map[string]any{}, nil, http.StatusOK)
 
 	participantDetail := decode[oapimodels.Board](t, doJSON(t, f.router, http.MethodGet,

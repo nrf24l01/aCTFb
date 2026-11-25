@@ -139,7 +139,7 @@ func TestP1BoardHTTPIntegration(t *testing.T) {
 	doJSON(t, router, http.MethodPost, "/api/v2/admin/boards/"+boardID+"/actions", adminToken,
 		map[string]any{"action": "PUBLISH"}, nil, http.StatusOK)
 	doJSON(t, router, http.MethodPost, "/api/v2/boards/"+boardID+"/join", playerToken,
-		map[string]any{}, nil, http.StatusOK)
+		map[string]any{"code": issueJoinCode(t, router, boardID, adminToken)}, nil, http.StatusOK)
 
 	// Reject every unsupported first-slice policy explicitly rather than
 	// accepting and ignoring it.
@@ -291,7 +291,7 @@ func TestP1BoardHTTPIntegration(t *testing.T) {
 	doJSON(t, router, http.MethodPost, "/api/v2/admin/boards/"+upcomingID+"/actions", adminToken,
 		map[string]any{"action": "PUBLISH"}, nil, http.StatusOK)
 	doJSON(t, router, http.MethodPost, "/api/v2/boards/"+upcomingID+"/join", playerToken,
-		map[string]any{}, nil, http.StatusOK)
+		map[string]any{"code": issueJoinCode(t, router, upcomingID, adminToken)}, nil, http.StatusOK)
 	doJSON(t, router, http.MethodGet,
 		"/api/v2/boards/"+upcomingID+"/modules/"+upcomingModuleID, playerToken, nil, nil, http.StatusForbidden)
 	upcomingList := decode[oapimodels.ModuleListResponse](t, doJSON(t, router, http.MethodGet,

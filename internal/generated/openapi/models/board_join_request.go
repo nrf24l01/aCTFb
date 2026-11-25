@@ -17,7 +17,12 @@ import (
 // swagger:model BoardJoinRequest
 type BoardJoinRequest struct {
 
-	// invite code
+	// Board join code issued by the organizer. Enrollment is code-only for every registration mode, including PUBLIC boards. The code is never echoed back and is never accepted as a URL parameter.
+	// Max Length: 64
+	// Min Length: 8
+	Code string `json:"code,omitempty"`
+
+	// Deprecated alias for code. Accepted only for boards that still have a legacy sealed invite code; new boards issue a join code.
 	// Max Length: 128
 	// Min Length: 8
 	InviteCode string `json:"inviteCode,omitempty"`
@@ -27,6 +32,10 @@ type BoardJoinRequest struct {
 func (m *BoardJoinRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateCode(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateInviteCode(formats); err != nil {
 		res = append(res, err)
 	}
@@ -34,6 +43,22 @@ func (m *BoardJoinRequest) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *BoardJoinRequest) validateCode(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.Code) { // not required
+		return nil
+	}
+
+	if err := validate.MinLength("code", "body", m.Code, 8); err != nil {
+		return err
+	}
+
+	if err := validate.MaxLength("code", "body", m.Code, 64); err != nil {
+		return err
+	}
+
 	return nil
 }
 

@@ -88,7 +88,7 @@ func TestP1ListBoardsStoreRegression(t *testing.T) {
 		t.Fatalf("publish fifth: %v", err)
 	}
 
-	if _, err := service.JoinBoard(ctx, player, alpha.ID); err != nil {
+	if _, err := service.JoinBoard(ctx, player, alpha.ID, testJoinCode(t, db, alpha.ID, "P1-ALPHA-CODE-0001")); err != nil {
 		t.Fatalf("join alpha: %v", err)
 	}
 	grantBinding(t, ctx, db, gamma.ID, nil, staffID, adminID, "board_editor", nil)

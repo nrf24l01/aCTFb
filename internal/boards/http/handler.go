@@ -60,6 +60,7 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 
 	e.GET("/api/v2/boards", h.ListBoards, optionalUser)
 	e.GET("/api/v2/boards/:boardUuid", h.GetBoard, optionalUser)
+	e.POST("/api/v2/boards/join", h.JoinBoardByCode, requireUser)
 	e.POST("/api/v2/boards/:boardUuid/join", h.JoinBoard, requireUser)
 	e.POST("/api/v2/boards/:boardUuid/leave", h.LeaveBoard, requireUser)
 	e.GET("/api/v2/boards/:boardUuid/me", h.GetBoardMe, requireUser)
@@ -84,6 +85,8 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	e.DELETE("/api/v2/admin/boards/:boardUuid", h.AdminDeleteBoard, requireUser,
 		boardPermission(authorization.PermissionBoardDelete, true))
 	e.POST("/api/v2/admin/boards/:boardUuid/actions", h.AdminBoardAction, requireUser)
+	e.GET("/api/v2/admin/boards/:boardUuid/join-code", h.GetBoardJoinCodeStatus, requireUser)
+	e.POST("/api/v2/admin/boards/:boardUuid/join-code", h.SetBoardJoinCode, requireUser)
 	e.GET("/api/v2/admin/boards/:boardUuid/modules", h.AdminListModules, requireUser, boardRead(true))
 	e.POST("/api/v2/admin/boards/:boardUuid/modules", h.AdminCreateModule, requireUser,
 		boardPermission(authorization.PermissionModuleCreate, true))

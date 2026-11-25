@@ -113,7 +113,7 @@ func TestP1RTeamsManualAudienceGroupsAdjustments(t *testing.T) {
 		t.Fatal("public published board missing from unjoined list")
 	}
 	for _, player := range []authorization.Principal{pp1, pp2, pp3} {
-		if _, err := service.JoinBoard(ctx, player, teamBoard.ID); err != nil {
+		if _, err := service.JoinBoard(ctx, player, teamBoard.ID, testJoinCode(t, db, teamBoard.ID, "P1R-TEAM-CODE-0001")); err != nil {
 			t.Fatalf("join public team board: %v", err)
 		}
 	}
@@ -395,13 +395,14 @@ func TestP1RTeamsManualAudienceGroupsAdjustments(t *testing.T) {
 	if _, err := service.GetBoard(ctx, pp3, groupBoard.ID); !errors.Is(err, ErrBoardAccessDenied) {
 		t.Fatalf("non-member private read error = %v, want access denied", err)
 	}
-	if _, err := service.JoinBoard(ctx, pp3, groupBoard.ID); !errors.Is(err, ErrBoardAccessDenied) {
+	groupCode := testJoinCode(t, db, groupBoard.ID, "P1R-GROUP-CODE-001")
+	if _, err := service.JoinBoard(ctx, pp3, groupBoard.ID, groupCode); !errors.Is(err, ErrBoardAccessDenied) {
 		t.Fatalf("non-member join error = %v, want access denied", err)
 	}
 	if _, err := db.Pool.Exec(ctx, `INSERT INTO access_group_members (group_id,user_id) VALUES ($1,$2)`, group.ID, p3); err != nil {
 		t.Fatalf("add group member: %v", err)
 	}
-	if _, err := service.JoinBoard(ctx, pp3, groupBoard.ID); err != nil {
+	if _, err := service.JoinBoard(ctx, pp3, groupBoard.ID, groupCode); err != nil {
 		t.Fatalf("group member join: %v", err)
 	}
 	if _, err := db.Pool.Exec(ctx, `DELETE FROM access_group_members WHERE group_id=$1 AND user_id=$2`, group.ID, p3); err != nil {
@@ -557,7 +558,7 @@ func TestMyTeamMembersRevokedGroupAccessStopsRoster(t *testing.T) {
 		AuditEventParams{ActorUserID: adminID, Action: "test.activate", ResourceType: "board"}); err != nil {
 		t.Fatalf("activate: %v", err)
 	}
-	if _, err := service.JoinBoard(ctx, player, board.ID); err != nil {
+	if _, err := service.JoinBoard(ctx, player, board.ID, testJoinCode(t, db, board.ID, "P1R-ROSTER-CODE-01")); err != nil {
 		t.Fatalf("join: %v", err)
 	}
 	if _, err := service.CreateTeam(ctx, player, board.ID, "Roster Team One"); err != nil {

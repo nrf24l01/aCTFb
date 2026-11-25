@@ -10,6 +10,7 @@ import PageContainer from '@/components/layout/PageContainer.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import ConfirmDialog from '@/components/layout/ConfirmDialog.vue'
 import InviteCodePanel from '@/features/boards/components/InviteCodePanel.vue'
+import JoinCodePanel from '@/features/boards/components/JoinCodePanel.vue'
 import StatusPill from '@/components/layout/StatusPill.vue'
 import AdminModuleSection from '@/features/admin/components/AdminModuleSection.vue'
 import BoardSettingsDialog from '@/features/admin/components/BoardSettingsDialog.vue'
@@ -258,6 +259,12 @@ void load()
           </p>
         </div>
       </section>
+
+      <JoinCodePanel
+        v-if="canEditBoard"
+        :board-uuid="boardUuid"
+        class="mb-6"
+      />
 
       <InviteCodePanel
         v-if="requiresInviteCode(board)"

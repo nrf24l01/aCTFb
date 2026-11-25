@@ -129,9 +129,13 @@ func TestP1CoreIntegration(t *testing.T) {
 	}
 
 	// Reviewer/owner/student scope reads.
-	studentJoin := client.request(http.MethodPost, "/api/v2/boards/"+boardA+"/join", map[string]any{}, requestOptions{accessToken: student.AccessToken})
+	// Enrollment is code-only: the organizer issues a code, the participant
+	// presents it. A bare board UUID no longer enrolls.
+	studentJoin := client.request(http.MethodPost, "/api/v2/boards/"+boardA+"/join",
+		map[string]any{"code": stack.p1IssueJoinCode(t, client, admin.AccessToken, boardA)}, requestOptions{accessToken: student.AccessToken})
 	requireStatus(t, studentJoin, http.StatusOK)
-	studentJoinC := client.request(http.MethodPost, "/api/v2/boards/"+boardC+"/join", map[string]any{}, requestOptions{accessToken: student.AccessToken})
+	studentJoinC := client.request(http.MethodPost, "/api/v2/boards/"+boardC+"/join",
+		map[string]any{"code": stack.p1IssueJoinCode(t, client, admin.AccessToken, boardC)}, requestOptions{accessToken: student.AccessToken})
 	requireStatus(t, studentJoinC, http.StatusOK)
 
 	// P1-05: joined participant must not receive future module metadata/description.
@@ -605,6 +609,18 @@ func (s *rustfsStack) p1SubmitRaw(t *testing.T, token, boardID, moduleID, taskID
 	}
 	defer response.Body.Close()
 	return response.StatusCode
+}
+
+// p1IssueJoinCode generates a board join code through the real admin route.
+func (s *rustfsStack) p1IssueJoinCode(t *testing.T, client *apiClient, adminToken, boardID string) string {
+	t.Helper()
+	body := s.p1Map(t, client.request(http.MethodPost, "/api/v2/admin/boards/"+boardID+"/join-code", nil,
+		requestOptions{accessToken: adminToken}), http.StatusOK)
+	code, _ := body["code"].(string)
+	if code == "" {
+		t.Fatalf("join code for board %s is empty: %v", boardID, body)
+	}
+	return code
 }
 
 func (s *rustfsStack) p1Map(t *testing.T, response apiResponse, want int) map[string]any {

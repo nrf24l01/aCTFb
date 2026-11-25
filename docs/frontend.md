@@ -34,7 +34,7 @@ feature-oriented under `src/features/**`; `App.vue` only renders the router.
 | Request reset | `/reset-password` | Real `POST /auth/password-reset/request`; anti-enumeration wording. |
 | Confirm reset | `/reset-password/confirm` | Real `POST /auth/password-reset/confirm`. |
 | Profile | `/profile` | `GET/PATCH /me`, resend verification, `POST /me/password`; password change signs out locally and asks for sign-in again. |
-| Boards | `/boards` | `GET /boards` (joined + scoped staff only) and `POST /boards/{uuid}/join` from an unguessable UUID/link. |
+| Boards | `/boards` | `GET /boards` (joined + scoped staff only) and code-only enrollment through the `POST /boards/join` dialog. Public boards are browsable; a bare UUID/link never enrolls. |
 | Board | `/boards/{boardUuid}` | `GET /boards/{uuid}`, `/me`, `/modules`, scoped permissions; private-unjoined shows a join panel on `403 BOARD_ACCESS_DENIED`; leave uses `POST /leave` and surfaces `BOARD_LEAVE_NOT_ALLOWED`. |
 | Module | `/boards/{b}/modules/{m}` | Module detail plus visible tasks. |
 | Task | `/boards/{b}/modules/{m}/tasks/{t}` | Description, FLAG submit, verdict, own submission history. No flag/answer echo. |

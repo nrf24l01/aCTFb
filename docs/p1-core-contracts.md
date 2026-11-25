@@ -156,7 +156,7 @@ and `response` names are existing generated model names unless marked **(new)**.
 |---|---|---|---|---|
 | GET `/boards` | `listBoards` | query `limit` 1..100 default 50, `offset` ≥0, `query` 1..128, `moduleType`, `status`, `participationMode` | `BoardListResponse` (200) | authenticated; filter to joined boards and scoped-staff boards; private unjoined never listed |
 | GET `/boards/{boardUuid}` | `getBoard` | `boardUuid` UUID | `Board` (200) | `board.read`; private requires participant or scoped staff/admin |
-| POST `/boards/{boardUuid}/join` | `joinBoard` | `BoardJoinRequest` body (`inviteCode` nullable) | `BoardMe` (200) | authenticated; `OPEN`/`CLOSED` policy; `INVITE_ONLY` rejected |
+| POST `/boards/{boardUuid}/join` | `joinBoard` | `BoardJoinRequest` body (`code` required, `inviteCode` deprecated) | `BoardMe` (200) | authenticated; code-only enrollment; `CLOSED` rejected; audience gate still applies |
 | POST `/boards/{boardUuid}/leave` | `leaveBoard` | none | 204 | joined participant; individual leave allowed |
 | GET `/boards/{boardUuid}/me` | `getBoardMe` | `boardUuid` | `BoardMe` (200) | authenticated; participant/staff view |
 | GET `/boards/{boardUuid}/scoreboard` | `getScoreboard` | `boardUuid` | `ScoreboardResponse` (200) | `board.read`; `RATING_HIDDEN` returns 403 |

@@ -64,6 +64,13 @@ var (
 	ErrSubmissionReviewNotAllowed = errors.New("boards: submission review not allowed")
 	ErrUserNotFound               = errors.New("boards: user not found")
 	ErrRoleGrantNotAllowed        = errors.New("boards: role grant not allowed")
+	// Enrollment is code-only. ErrJoinCodeRequired is the "no code configured
+	// yet" state, ErrJoinCodeInvalid the generic mismatch, and
+	// ErrJoinCodeConflict a custom code that is already used by another board.
+	ErrJoinCodeRequired    = errors.New("boards: board join code required")
+	ErrJoinCodeInvalid     = errors.New("boards: invalid board join code")
+	ErrJoinCodeConflict    = errors.New("boards: board join code already in use")
+	ErrJoinCodeRateLimited = errors.New("boards: join code rate limited")
 )
 
 // RateLimitError carries the limiter's actual remaining window so HTTP can
@@ -79,6 +86,20 @@ func (e *RateLimitError) Error() string {
 
 func (e *RateLimitError) Unwrap() error {
 	return ErrSubmissionRateLimited
+}
+
+// JoinCodeRateLimitError carries the limiter's remaining window for enrollment
+// attempts. It never includes the submitted code.
+type JoinCodeRateLimitError struct {
+	RetryAfter time.Duration
+}
+
+func (e *JoinCodeRateLimitError) Error() string {
+	return "boards: join code rate limited"
+}
+
+func (e *JoinCodeRateLimitError) Unwrap() error {
+	return ErrJoinCodeRateLimited
 }
 
 // FieldError is a stable, non-secret field validation reason. Unsupported

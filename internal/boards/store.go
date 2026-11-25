@@ -79,6 +79,11 @@ type Store interface {
 	SetBoardInvite(ctx context.Context, boardID uuid.UUID, hash string, ciphertext []byte, expiresAt *time.Time, audit AuditEventParams) error
 	GetBoardInvite(ctx context.Context, boardID uuid.UUID) (hash string, ciphertext []byte, expiresAt *time.Time, err error)
 
+	// Enrollment codes are hash-only and independent of the credential sealer.
+	SetBoardJoinCode(ctx context.Context, boardID, actorID uuid.UUID, hash string, audit AuditEventParams) error
+	BoardJoinCodeStatus(ctx context.Context, boardID uuid.UUID) (configured bool, updatedAt *time.Time, err error)
+	BoardByJoinCodeHash(ctx context.Context, hash string) (*Board, error)
+
 	ResolveSubject(ctx context.Context, boardID, userID uuid.UUID) (ScoreSubject, error)
 	SubjectSolvedTask(ctx context.Context, subject ScoreSubject, taskID uuid.UUID) (bool, error)
 	ListSubjectTaskSubmissions(ctx context.Context, subject ScoreSubject, path TaskPath, limit, offset int) ([]Submission, int, error)

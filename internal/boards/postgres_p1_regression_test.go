@@ -67,7 +67,7 @@ func TestP1LateSubmissionAuthoritativeRecheck(t *testing.T) {
 		if _, err := baseService.AdminBoardAction(ctx, admin, board.ID, BoardActionPublish); err != nil {
 			t.Fatalf("publish: %v", err)
 		}
-		if _, err := baseService.JoinBoard(ctx, player, board.ID); err != nil {
+		if _, err := baseService.JoinBoard(ctx, player, board.ID, testJoinCode(t, db, board.ID, "P1-REGRESS-CODE-01")); err != nil {
 			t.Fatalf("join: %v", err)
 		}
 		return board, module, task
@@ -168,7 +168,7 @@ func TestP1LateIdempotentReplayAfterDeadline(t *testing.T) {
 	if _, err := service.AdminBoardAction(ctx, admin, board.ID, BoardActionPublish); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
-	if _, err := service.JoinBoard(ctx, player, board.ID); err != nil {
+	if _, err := service.JoinBoard(ctx, player, board.ID, testJoinCode(t, db, board.ID, "P1-REGRESS-CODE-01")); err != nil {
 		t.Fatalf("join: %v", err)
 	}
 	path := TaskPath{BoardID: board.ID, ModuleID: module.ID, TaskID: task.ID}
@@ -327,7 +327,7 @@ func TestP1UpcomingModuleParticipantGetDenied(t *testing.T) {
 	if _, err := service.AdminBoardAction(ctx, admin, board.ID, BoardActionPublish); err != nil {
 		t.Fatalf("publish scheduled board: %v", err)
 	}
-	if _, err := service.JoinBoard(ctx, player, board.ID); err != nil {
+	if _, err := service.JoinBoard(ctx, player, board.ID, testJoinCode(t, db, board.ID, "P1-REGRESS-CODE-01")); err != nil {
 		t.Fatalf("join scheduled board: %v", err)
 	}
 	if _, err := service.GetModule(ctx, player, board.ID, module.ID); !errors.Is(err, ErrModuleNotAvailable) {

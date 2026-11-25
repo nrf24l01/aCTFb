@@ -642,6 +642,35 @@ export interface BoardInviteResponse {
   expiresAt?: string | null
 }
 
+export interface BoardJoinByCodeRequest {
+  code: string
+  boardUuid?: string
+}
+
+export interface BoardJoinResponse {
+  boardUuid: string
+  slug: string
+  name: string
+  joined: boolean
+  alreadyParticipating: boolean
+  me: BoardMe
+}
+
+export interface BoardJoinCodeStatus {
+  configured: boolean
+  updatedAt?: string | null
+}
+
+export interface BoardJoinCodeSetRequest {
+  code?: string
+}
+
+export interface BoardJoinCodeResponse {
+  configured: boolean
+  code: string
+  updatedAt?: string | null
+}
+
 export interface SubmissionDraft {
   uuid: string
   resourceType: 'TASK' | 'PENTEST'

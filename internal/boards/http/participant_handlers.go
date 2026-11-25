@@ -93,10 +93,16 @@ func (h *Handler) JoinBoard(c *echo.Context) error {
 	if problem := validateGenerated(&request); problem != nil {
 		return problem.write(c)
 	}
-	inviteCode := ""
-	if isPresent(raw, "inviteCode") && !isNull(raw, "inviteCode") {
-		inviteCode = strings.TrimSpace(request.InviteCode)
+	// Enrollment is code-only. The canonical field is `code`; the deprecated
+	// `inviteCode` alias is still read for boards that keep a legacy sealed
+	// invite code, so previously issued codes keep working.
+	code := ""
+	if isPresent(raw, "code") && !isNull(raw, "code") {
+		code = request.Code
+	} else if isPresent(raw, "inviteCode") && !isNull(raw, "inviteCode") {
+		code = request.InviteCode
 	}
+	inviteCode := strings.TrimSpace(code)
 	me, err := h.service.JoinBoard(c.Request().Context(), principal, boardID, inviteCode)
 	if err != nil {
 		return writeError(c, err)

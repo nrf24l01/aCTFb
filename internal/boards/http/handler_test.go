@@ -21,9 +21,10 @@ func TestRegisterRoutesExactFirstSliceCount(t *testing.T) {
 			count++
 		}
 	}
-	// 78 existing first-slice routes plus the additive own-team member list
-	// endpoint introduced by the organizer UX pass.
-	if count != 79 {
-		t.Fatalf("registered board routes = %d, want 79", count)
+	// 79 routes before code-only enrollment plus the three additive enrollment
+	// routes: the canonical POST /boards/join and the admin join-code
+	// status/generate pair.
+	if count != 82 {
+		t.Fatalf("registered board routes = %d, want 82", count)
 	}
 }

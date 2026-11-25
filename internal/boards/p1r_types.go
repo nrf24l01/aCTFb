@@ -55,6 +55,26 @@ type BoardInvite struct {
 	ExpiresAt  *time.Time
 }
 
+// BoardJoinCode is the enrollment-code state for one board. Code is populated
+// only in the response to a generate/replace call: it is shown once and never
+// persisted in plaintext.
+type BoardJoinCode struct {
+	Configured bool
+	Code       string
+	UpdatedAt  *time.Time
+}
+
+// BoardJoinResult is the canonical enrollment response. It carries only the
+// public identity of the board the code resolved to.
+type BoardJoinResult struct {
+	BoardUUID            uuid.UUID
+	Slug                 string
+	Name                 string
+	Joined               bool
+	AlreadyParticipating bool
+	Me                   *BoardMe
+}
+
 // CreateTeamParams create a team and its captain participant membership.
 type CreateTeamParams struct {
 	BoardID       uuid.UUID

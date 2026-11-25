@@ -81,7 +81,7 @@ func TestAudienceAccessModeProjectsOnEveryRead(t *testing.T) {
 	`, group.ID, playerID); err != nil {
 		t.Fatalf("add group member: %v", err)
 	}
-	if _, err := service.JoinBoard(ctx, player, board.ID); err != nil {
+	if _, err := service.JoinBoard(ctx, player, board.ID, testJoinCode(t, rawDB, board.ID, "P1-ACCESS-CODE-001")); err != nil {
 		t.Fatalf("join board: %v", err)
 	}
 

@@ -238,23 +238,45 @@ test.describe('organizer UX acceptance', () => {
       const student = await studentContext.newPage()
       await signIn(student, studentUser, studentPass)
       const studentToken = await freshToken(student)
-      // Not in the selected access group: the live group gate denies the join.
+      // Enrollment is code-only. A bare board UUID never enrolls, on any mode.
+      const audienceCode = String(
+        (await api(page, token, 'POST', `/api/v2/admin/boards/${audienceBoard.uuid as string}/join-code`, {})).code,
+      )
+      const inviteCode = String(
+        (await api(page, token, 'POST', `/api/v2/admin/boards/${inviteBoard.uuid as string}/join-code`, {})).code,
+      )
+      const publicCode = String(
+        (await api(page, token, 'POST', `/api/v2/admin/boards/${publicUuid}/join-code`, {})).code,
+      )
+      const bareAudience = await student.request.post(`${base}/api/v2/boards/${audienceBoard.uuid as string}/join`, {
+        headers: { Authorization: `Bearer ${studentToken}`, 'Content-Type': 'application/json' },
+        data: '{}',
+      })
+      expect(bareAudience.status()).toBeGreaterThanOrEqual(400)
+      const bareInvite = await student.request.post(`${base}/api/v2/boards/${inviteBoard.uuid as string}/join`, {
+        headers: { Authorization: `Bearer ${studentToken}`, 'Content-Type': 'application/json' },
+        data: '{}',
+      })
+      expect(bareInvite.status()).toBeGreaterThanOrEqual(400)
+      const barePublic = await student.request.post(`${base}/api/v2/boards/${publicUuid}/join`, {
+        headers: { Authorization: `Bearer ${studentToken}`, 'Content-Type': 'application/json' },
+        data: '{}',
+      })
+      expect(barePublic.status()).toBeGreaterThanOrEqual(400)
+
+      // A valid code never substitutes for the audience gate.
       const denied = await student.request.post(`${base}/api/v2/boards/${audienceBoard.uuid as string}/join`, {
         headers: { Authorization: `Bearer ${studentToken}`, 'Content-Type': 'application/json' },
-        data: '{}',
+        data: JSON.stringify({ code: audienceCode }),
       })
       expect([403, 404]).toContain(denied.status())
-      // The invite board requires a valid code; a bare join is refused.
-      const noCode = await student.request.post(`${base}/api/v2/boards/${inviteBoard.uuid as string}/join`, {
-        headers: { Authorization: `Bearer ${studentToken}`, 'Content-Type': 'application/json' },
-        data: '{}',
-      })
-      expect(noCode.status()).toBeGreaterThanOrEqual(400)
+      // The public board enrolls once the code is presented.
       const allowed = await student.request.post(`${base}/api/v2/boards/${publicUuid}/join`, {
         headers: { Authorization: `Bearer ${studentToken}`, 'Content-Type': 'application/json' },
-        data: '{}',
+        data: JSON.stringify({ code: publicCode }),
       })
       expect(allowed.status()).toBe(200)
+      void inviteCode
     } finally {
       await studentContext.close()
     }
@@ -345,9 +367,12 @@ test.describe('organizer UX acceptance', () => {
       const student = await studentContext.newPage()
       await signIn(student, studentUser, studentPass)
       const studentToken = await freshToken(student)
+      const studentJoinCode = String(
+        (await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/join-code`, {})).code,
+      )
       const joined = await student.request.post(`${base}/api/v2/boards/${boardUuid}/join`, {
         headers: { Authorization: `Bearer ${studentToken}`, 'Content-Type': 'application/json' },
-        data: '{}',
+        data: JSON.stringify({ code: studentJoinCode }),
       })
       expect(joined.status()).toBe(200)
       await student.goto(`/boards/${boardUuid}/modules/${moduleUuid}/tasks/${taskUuid}`)
@@ -495,27 +520,28 @@ test.describe('organizer UX acceptance', () => {
     })
     await api(page, token, 'POST', `/api/v2/admin/boards/${openBoard.uuid as string}/actions`, { action: 'PUBLISH' })
 
-    // A participant on the legacy PUBLIC+INVITE_ONLY board must get the code field.
+    // Every unjoined participant now sees the same single code prompt, on every
+    // registration mode. No UUID, link or second field is offered.
     const studentContext = await browser.newContext({ viewport: { width: 390, height: 844 } })
     try {
       const student = await studentContext.newPage()
       await signIn(student, studentUser, studentPass)
       await student.goto(`/boards/${publicInvite}`)
-      await expect(student.getByRole('button', { name: 'Join this board' })).toBeVisible({ timeout: 15_000 })
-      await expect(student.locator('#board-detail-invite')).toBeVisible()
-
-      // A plain OPEN board shows the join action without a code field.
+      await expect(student.getByRole('button', { name: 'Enter board code' })).toBeVisible({ timeout: 15_000 })
       await student.goto(`/boards/${openBoard.uuid as string}`)
-      await expect(student.getByRole('button', { name: 'Join this board' })).toBeVisible({ timeout: 15_000 })
+      await expect(student.getByRole('button', { name: 'Enter board code' })).toBeVisible({ timeout: 15_000 })
+      await student.getByRole('button', { name: 'Enter board code' }).click()
+      await expect(student.locator('#join-board-code')).toBeVisible()
+      await expect(student.locator('#join-board-uuid')).toHaveCount(0)
       await expect(student.locator('#board-detail-invite')).toHaveCount(0)
     } finally {
       await studentContext.close()
     }
 
     // Staff who are not joined on the legacy PRIVATE+INVITE_ONLY+groups board
-    // must still see the join code field and the reveal/rotate controls.
+    // still get the code prompt, plus the legacy reveal/rotate controls.
     await page.goto(`/boards/${privateInviteWithGroup}`)
-    await expect(page.locator('#board-detail-invite')).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByRole('button', { name: 'Enter board code' })).toBeVisible({ timeout: 15_000 })
     await page.goto(`/admin/boards/${privateInviteWithGroup}`)
     await expect(page.getByRole('button', { name: 'Reveal current code' })).toBeVisible({ timeout: 15_000 })
     // The hybrid board is still reported as legacy, not silently reclassified.

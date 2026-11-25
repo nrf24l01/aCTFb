@@ -3,7 +3,6 @@ package boards
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -101,9 +100,10 @@ func (s *Service) requireBoardRead(ctx context.Context, principal authorization.
 	return ErrBoardAccessDenied
 }
 
-// JoinBoard implements OPEN self-join only while the effective status is
-// SCHEDULED or ACTIVE. CLOSED boards are staff-add only.
-func (s *Service) JoinBoard(ctx context.Context, principal authorization.Principal, boardID uuid.UUID, inviteCode ...string) (*BoardMe, error) {
+// JoinBoard is the per-board enrollment path. Enrollment is code-only: the
+// supplied code must verify for this exact board, so a bare UUID never adds a
+// membership. CLOSED boards remain staff-add only.
+func (s *Service) JoinBoard(ctx context.Context, principal authorization.Principal, boardID uuid.UUID, joinCode ...string) (*BoardMe, error) {
 	ctx, cancel := s.operationContext(ctx)
 	defer cancel()
 	if err := s.ready(); err != nil {
@@ -113,57 +113,31 @@ func (s *Service) JoinBoard(ctx context.Context, principal authorization.Princip
 	if err != nil {
 		return nil, err
 	}
-	effective := board.EffectiveStatus(s.clock.Now())
-	switch board.RegistrationMode {
-	case RegistrationOpen:
-		if len(inviteCode) > 0 && strings.TrimSpace(inviteCode[0]) != "" {
-			return nil, ErrInvalidInviteCode
-		}
-	case RegistrationInviteOnly:
-		if len(inviteCode) == 0 || strings.TrimSpace(inviteCode[0]) == "" {
-			return nil, ErrInvalidInviteCode
-		}
-		hash, _, expiresAt, err := s.store.GetBoardInvite(ctx, boardID)
-		if err != nil {
-			return nil, ErrInvalidInviteCode
-		}
-		if expiresAt != nil && !s.clock.Now().Before(*expiresAt) {
-			return nil, ErrInvalidInviteCode
-		}
-		if !constantTimeEqual([]byte(hash), []byte(hashInviteCode(strings.TrimSpace(inviteCode[0])))) {
-			return nil, ErrInvalidInviteCode
-		}
-	case RegistrationClosed:
-		return nil, ErrBoardRegistrationClosed
-	default:
+	if board.RegistrationMode == RegistrationClosed {
 		return nil, ErrBoardRegistrationClosed
 	}
-	switch effective {
-	case BoardStatusScheduled, BoardStatusActive:
-	case BoardStatusFinished, BoardStatusArchived:
-		return nil, ErrBoardFinished
-	default:
-		return nil, ErrBoardRegistrationClosed
-	}
+	// An existing participant stays idempotent even with a stale code, so a
+	// retry never duplicates a membership.
 	if _, err := s.store.GetParticipant(ctx, boardID, principal.UserID); err == nil {
-		return nil, ErrAlreadyJoined
+		return s.GetBoardMe(ctx, principal, boardID)
 	} else if !errors.Is(err, ErrBoardNotJoined) {
 		return nil, err
 	}
-	if s.accessPolicy != nil {
-		allowed, policyErr := s.accessPolicy.CanJoinBoard(ctx, principal, boardID)
-		if policyErr != nil {
-			return nil, mapAccessError(policyErr)
-		}
-		if !allowed {
-			return nil, ErrBoardAccessDenied
-		}
-	}
-	if _, err := s.store.JoinBoard(ctx, boardID, principal.UserID,
-		auditEvent(principal, &boardID, nil, "participant.join", "board_participant", &principal.UserID, map[string]any{})); err != nil {
+	if err := s.limitJoinAttempts(ctx, principal); err != nil {
 		return nil, err
 	}
-	return s.GetBoardMe(ctx, principal, boardID)
+	supplied := ""
+	if len(joinCode) > 0 {
+		supplied = joinCode[0]
+	}
+	if err := s.verifyBoardJoinCode(ctx, board, supplied); err != nil {
+		return nil, err
+	}
+	me, _, err := s.joinWithVerifiedCode(ctx, principal, board)
+	if err != nil {
+		return nil, err
+	}
+	return me, nil
 }
 
 // LeaveBoard preserves score/history: a participant with submissions cannot

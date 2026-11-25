@@ -225,6 +225,17 @@ func writeProblem(c *echo.Context, err error, admin bool) error {
 		status, code, message = http.StatusConflict, oapimodels.ErrorCodeSUBMISSIONREVIEWNOTALLOWED, "Submission review is not allowed"
 	case errors.Is(err, boards.ErrInvalidInviteCode):
 		status, code, message = http.StatusUnprocessableEntity, oapimodels.ErrorCodeINVALIDINVITECODE, "Invalid invite code"
+	case errors.Is(err, boards.ErrJoinCodeRequired):
+		// No code is configured for this board yet. This is an organizer state,
+		// not a wrong code, so the UI can ask for the code instead of retrying.
+		status, code, message = http.StatusForbidden, oapimodels.ErrorCodeJOINCODEREQUIRED, "This board requires a join code from the organizer"
+	case errors.Is(err, boards.ErrJoinCodeInvalid):
+		status, code, message = http.StatusForbidden, oapimodels.ErrorCodeJOINCODEINVALID, "Join code is invalid"
+	case errors.Is(err, boards.ErrJoinCodeConflict):
+		status, code, message = http.StatusConflict, oapimodels.ErrorCodeBOARDSTATECONFLICT, "That join code is already in use"
+	case errors.Is(err, boards.ErrJoinCodeRateLimited):
+		status, code, message = http.StatusTooManyRequests, oapimodels.ErrorCodeRATELIMITED, "Too many join attempts"
+		retry = joinCodeRetryAfterSeconds(err)
 	case errors.Is(err, boards.ErrWrongParticipationMode):
 		status, code, message = http.StatusForbidden, oapimodels.ErrorCodeWRONGPARTICIPATIONMODE, "Wrong participation mode"
 	case errors.Is(err, boards.ErrTeamNotFound):
@@ -290,6 +301,18 @@ func validationProblemWhen(err error) *apiProblem {
 
 func internalProblem() *apiProblem {
 	return &apiProblem{status: http.StatusInternalServerError, code: oapimodels.ErrorCodeINTERNALERROR, message: "Internal server error"}
+}
+
+func joinCodeRetryAfterSeconds(err error) int {
+	var limitErr *boards.JoinCodeRateLimitError
+	if errors.As(err, &limitErr) && limitErr.RetryAfter > 0 {
+		seconds := int(math.Ceil(limitErr.RetryAfter.Seconds()))
+		if seconds < 1 {
+			return 1
+		}
+		return seconds
+	}
+	return 60
 }
 
 func retryAfterSeconds(err error) int {

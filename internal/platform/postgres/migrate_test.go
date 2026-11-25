@@ -1999,6 +1999,34 @@ func TestMigrationsRemainingStages(t *testing.T) {
 		}
 		assertSeededRows(t)
 	})
+	t.Run("020 down removes board join codes and up restores them", func(t *testing.T) {
+		// A stored enrollment code is a credential reference only; dropping the
+		// table must not touch boards, participants or submissions.
+		if _, err := db.ExecContext(ctx, `
+			INSERT INTO board_join_codes (board_id, code_hash)
+			VALUES ($1::uuid, repeat('a', 64))
+			ON CONFLICT (board_id) DO UPDATE SET code_hash = EXCLUDED.code_hash
+		`, boardID); err != nil {
+			t.Fatalf("seed join code: %v", err)
+		}
+		if err := goose.DownToContext(ctx, db, migrationDir, 19); err != nil {
+			t.Fatalf("down to 19: %v", err)
+		}
+		if tableExists("board_join_codes") {
+			t.Fatal("board_join_codes still exists after 020 down")
+		}
+		assertSeededRows(t)
+		if err := goose.UpContext(ctx, db, migrationDir); err != nil {
+			t.Fatalf("re-up from 19: %v", err)
+		}
+		if !tableExists("board_join_codes") {
+			t.Fatal("board_join_codes missing after 020 re-up")
+		}
+		if v, err := goose.GetDBVersionContext(ctx, db); err != nil || v != latestVersion {
+			t.Fatalf("version after 020 re-up = %d (%v), want %d", v, err, latestVersion)
+		}
+		assertSeededRows(t)
+	})
 	t.Run("012 down preserves P0/P1 and up restores", func(t *testing.T) {
 		downUp(t, 11, []string{"deployment_template_allowlist", "instance_network_leases", "repository_bindings", "ad_run_results", "ad_awards"}, []string{"deployment_template_allowlist", "instance_network_leases", "repository_bindings", "ad_run_results", "ad_awards"})
 	})

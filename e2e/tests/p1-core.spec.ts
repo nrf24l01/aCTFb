@@ -114,12 +114,18 @@ test.describe('P1 board to flag to score', () => {
       await adminPage.getByRole('button', { name: 'Publish' }).first().click()
       await expect(adminPage.getByText('Active', { exact: true }).first()).toBeVisible()
 
+      // Enrollment is code-only: the organizer issues one code for the solvers.
+      const joinCode = String(
+        (await apiCall(adminPage, adminToken, 'POST', `/api/v2/admin/boards/${boardUuid}/join-code`, {})).code,
+      )
+
       let solverPage: Page | undefined
       const studentPage = await studentContext.newPage()
       await signIn(studentPage, studentUser, studentPass)
       await studentPage.goto('/boards')
-      await studentPage.locator('#join-board-uuid').fill(boardUuid)
-      await studentPage.getByRole('button', { name: 'Join board' }).click()
+      await studentPage.getByRole('button', { name: 'Join a board' }).click()
+      await studentPage.locator('#join-board-code').fill(joinCode)
+      await studentPage.getByRole('button', { name: 'Join', exact: true }).click()
       await expect(studentPage).toHaveURL(new RegExp(`/boards/${boardUuid}$`))
 
       await studentPage.getByRole('link', { name: new RegExp(moduleName) }).click()
@@ -143,8 +149,9 @@ test.describe('P1 board to flag to score', () => {
       solverPage = await scorerContext.newPage()
       await signIn(solverPage, scorerUser, scorerPass)
       await solverPage.goto('/boards')
-      await solverPage.locator('#join-board-uuid').fill(boardUuid)
-      await solverPage.getByRole('button', { name: 'Join board' }).click()
+      await solverPage.getByRole('button', { name: 'Join a board' }).click()
+      await solverPage.locator('#join-board-code').fill(joinCode)
+      await solverPage.getByRole('button', { name: 'Join', exact: true }).click()
       await expect(solverPage).toHaveURL(new RegExp(`/boards/${boardUuid}$`))
       await solverPage.getByRole('link', { name: new RegExp(moduleName) }).click()
       await solverPage.getByRole('link', { name: new RegExp(taskTitle) }).click()

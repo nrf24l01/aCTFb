@@ -1,5 +1,8 @@
 swagger:
-	go install github.com/go-swagger/go-swagger/cmd/swagger@latest
+	# Pinned: the committed models were generated with v0.36.7. A different
+	# generator version rewrites unrelated files (for example required array
+	# items), which would bury a real spec change in noise.
+	go install github.com/go-swagger/go-swagger/cmd/swagger@v0.36.7
 	mkdir -p ./internal/generated/openapi
 	rm -rf ./internal/generated/openapi/models/*
 	swagger generate model \

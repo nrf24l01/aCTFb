@@ -118,10 +118,10 @@ func TestP1CorePostgresIntegration(t *testing.T) {
 	if _, err := service.AdminBoardAction(ctx, admin, board.ID, BoardActionPublish); err != nil {
 		t.Fatalf("publish board: %v", err)
 	}
-	if _, err := service.JoinBoard(ctx, player, board.ID); err != nil {
+	if _, err := service.JoinBoard(ctx, player, board.ID, testJoinCode(t, db, board.ID, "P1-JOIN-CODE-0001")); err != nil {
 		t.Fatalf("player join: %v", err)
 	}
-	if _, err := service.JoinBoard(ctx, concurrent, board.ID); err != nil {
+	if _, err := service.JoinBoard(ctx, concurrent, board.ID, testJoinCode(t, db, board.ID, "P1-JOIN-CODE-0001")); err != nil {
 		t.Fatalf("concurrent join: %v", err)
 	}
 
@@ -363,7 +363,7 @@ func TestP1CorePostgresIntegration(t *testing.T) {
 	if _, err := service.AdminBoardAction(ctx, admin, hiddenBoard.ID, BoardActionPublish); err != nil {
 		t.Fatalf("publish hidden board: %v", err)
 	}
-	if _, err := service.JoinBoard(ctx, player, hiddenBoard.ID); err != nil {
+	if _, err := service.JoinBoard(ctx, player, hiddenBoard.ID, testJoinCode(t, db, hiddenBoard.ID, "P1-HIDDEN-CODE-01")); err != nil {
 		t.Fatalf("join hidden board: %v", err)
 	}
 	if _, err := service.SubmitTask(ctx, player, TaskPath{BoardID: hiddenBoard.ID, ModuleID: hiddenModule.ID, TaskID: hiddenTask.ID}, "hidden-key-000001", SubmitInput{Text: "flag{hidden}"}); err != nil {

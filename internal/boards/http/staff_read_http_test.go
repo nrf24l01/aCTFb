@@ -247,7 +247,7 @@ func TestParticipantReadStillRequiresLiveGroupAndAudience(t *testing.T) {
 		t.Fatalf("join group: %v", err)
 	}
 	doJSON(t, f.router, http.MethodPost, "/api/v2/boards/"+b.boardID+"/join", playerToken,
-		map[string]any{}, nil, http.StatusOK)
+		map[string]any{"code": issueJoinCode(t, f.router, b.boardID, b.adminToken)}, nil, http.StatusOK)
 	doJSON(t, f.router, http.MethodGet, b.modulePath(b.moduleID)+"/tasks", playerToken, nil, nil, http.StatusOK)
 
 	// Access-group revocation is immediate even with a scoped role.
@@ -302,7 +302,7 @@ func TestParticipantAdminKeepsPreviewButNotOwnActions(t *testing.T) {
 		t.Fatalf("join group: %v", err)
 	}
 	doJSON(t, f.router, http.MethodPost, "/api/v2/boards/"+b.boardID+"/join", mixedToken,
-		map[string]any{}, nil, http.StatusOK)
+		map[string]any{"code": issueJoinCode(t, f.router, b.boardID, b.adminToken)}, nil, http.StatusOK)
 	if _, err := f.db.Pool.Exec(f.ctx, `UPDATE users SET roles=ARRAY['user','admin'] WHERE id=$1`, mixed.ID); err != nil {
 		t.Fatalf("promote: %v", err)
 	}

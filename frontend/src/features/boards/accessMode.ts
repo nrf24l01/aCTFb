@@ -1,7 +1,7 @@
 import type { BoardAccessMode, ParticipationMode } from '@/shared/types/api'
 
 const accessModeLabels: Record<BoardAccessMode, string> = {
-  PUBLIC: 'Public',
+  PUBLIC: 'Public discovery',
   AUDIENCE: 'Selected audiences',
   INVITE: 'Invite code',
   LEGACY: 'Legacy access',
@@ -25,12 +25,13 @@ export function isInviteBoard(mode: BoardAccessMode | undefined): boolean {
 }
 
 /**
- * Whether a board requires an invite code to join. This is deliberately keyed on
- * the authoritative persisted `registrationMode`, not on the derived
- * `accessMode`: a legacy combination such as PUBLIC+INVITE_ONLY or
- * PRIVATE+INVITE_ONLY+groups projects LEGACY but still needs the code, so gating
- * on the derived mode would silently remove the join input and the staff
- * reveal/rotate controls.
+ * Whether a board still carries a legacy sealed invite code.
+ *
+ * Every self-join now needs a board join code, so this helper no longer decides
+ * whether the join form appears. It decides whether the deprecated legacy
+ * invite panel (which needs the credential sealer) is worth showing for a board
+ * that already had one. It is keyed on the authoritative persisted
+ * `registrationMode`, not on the derived `accessMode`.
  */
 export function requiresInviteCode(board: { registrationMode: string } | null | undefined): boolean {
   return board?.registrationMode === 'INVITE_ONLY'

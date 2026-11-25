@@ -767,3 +767,31 @@ Remaining limits:
   schema); the UI surfaces that as an operator error.
 - External GHCR publication/CI is **closed** for this range: the reviewed push, the 4-job CI run and
   the ten public images are verified, including the published-image admin CLI.
+
+## 2026-11-25 admin read, default-profile catalog, and code-only enrollment
+
+Three bounded slices, implemented locally against real PostgreSQL 18 and a real browser. Not pushed: the
+independent main review gate is still pending.
+
+1. **Admin/staff module and task read without joining** — `docs/admin-module-template-fixes.md` (BUG 1).
+   `GET /modules/{id}` returned 200 while `GET /modules/{id}/tasks` returned 403 `BOARD_ACCESS_DENIED` for a
+   non-participant global admin, because `ListTasks`/`GetTask` had no staff branch. One explicit read-scope
+   resolver now distinguishes participant reads from staff preview reads, keeps the participant projection
+   (no hashes/answers/secret parameters), keeps draft tasks behind `module.tasks.manage`, and keeps
+   participant-own submit/history gated by access-group and audience rules without the admin shortcut.
+   Status: **implemented and verified** (`c51fe87`).
+2. **Deployment template catalog with runtime disabled** — same document (BUG 2). The catalog routes were
+   only registered when `deployment.enabled` was true, so the default profile got a 404 that the UI reported
+   as a load failure. The static driver registry and the catalog are now always built; instances, the NATS
+   stream, the credential sealer requirement, bindings and provisioning stay gated. The templates page now
+   separates loading, empty `200`, real `403`/`404`/`500` and an explicit `FEATURE_DISABLED` state.
+   Status: **implemented and verified** (`f8a5fd7`).
+3. **Code-only board enrollment** — `docs/board-code-enrollment.md`. Every self-join now requires a board
+   code, including `PUBLIC + OPEN`; public boards remain browsable. Hash-only storage (migration `020`), so
+   enrollment needs neither the runtime flag nor a credential key. Admin generate/custom/rotate under live
+   `board.update`, one-time reveal, generic invalid-code error, per-user rate limiting, legacy sealed invite
+   codes still accepted, `CLOSED` still staff-add only. Status: **implemented and verified locally**.
+
+Evidence: full `go test -p 1 ./...` with `ACTFB_TEST_POSTGRES_DSN`, `-race` on the changed packages, frontend
+typecheck/unit/build, and the default-profile browser run (`e2e/run-default-profile-e2e.sh`) which boots the
+real backend with every optional feature disabled.

@@ -98,7 +98,7 @@ func TestP1AuditAtomicFaultInjection(t *testing.T) {
 	if _, err := service.AdminBoardAction(ctx, admin, board.ID, BoardActionPublish); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
-	if _, err := service.JoinBoard(ctx, player, board.ID); err != nil {
+	if _, err := service.JoinBoard(ctx, player, board.ID, testJoinCode(t, db, board.ID, "P1-AUDIT-CODE-0001")); err != nil {
 		t.Fatalf("join: %v", err)
 	}
 
@@ -228,7 +228,7 @@ func TestP1SiblingSubmissionReadUniformNotFound(t *testing.T) {
 	if _, err := service.AdminBoardAction(ctx, admin, board.ID, BoardActionPublish); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
-	if _, err := service.JoinBoard(ctx, player, board.ID); err != nil {
+	if _, err := service.JoinBoard(ctx, player, board.ID, testJoinCode(t, db, board.ID, "P1-AUDIT-CODE-0001")); err != nil {
 		t.Fatalf("join: %v", err)
 	}
 	submission, err := service.SubmitTask(ctx, player,

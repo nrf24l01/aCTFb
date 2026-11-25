@@ -60,7 +60,7 @@ func TestTeamMyScoreboardMatchesCanonicalPlaceRealPostgres(t *testing.T) {
 	if _, err := service.AdminBoardAction(ctx, admin, board.ID, BoardActionPublish); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.JoinBoard(ctx, player, board.ID); err != nil {
+	if _, err := service.JoinBoard(ctx, player, board.ID, testJoinCode(t, db, board.ID, "P1-POLICY-CODE-001")); err != nil {
 		t.Fatal(err)
 	}
 	team, err := service.CreateTeam(ctx, player, board.ID, "Blue Team")
@@ -175,7 +175,7 @@ func TestSubmissionPolicyAndInstanceTaskRealPostgres(t *testing.T) {
 	if _, err := service.AdminBoardAction(ctx, admin, board.ID, BoardActionPublish); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.JoinBoard(ctx, player, board.ID); err != nil {
+	if _, err := service.JoinBoard(ctx, player, board.ID, testJoinCode(t, db, board.ID, "P1-POLICY-CODE-001")); err != nil {
 		t.Fatal(err)
 	}
 

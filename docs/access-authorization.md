@@ -158,8 +158,9 @@ IsSubjectInAudience(ctx, boardID, audienceID, subject) (bool, error)
   shell and their exact module for management. Participant-own endpoints must still verify joined participation +
   ABAC in their domain service. Explicit permission grants affect Authorizer permission checks; they do not
   substitute for participation/Policy visibility and never override a revoked participant access group.
-- `CanJoinBoard` enforces board window, CLOSED rejection, and the access-group gate. For `INVITE_ONLY`, the board
-  service must validate the invite code before calling it; this helper does not infer invite success.
+- `CanJoinBoard` enforces board window, CLOSED rejection, and the access-group gate. Enrollment is code-only for
+  every registration mode (including `PUBLIC`), so the board service validates the board join code before calling
+  it; this helper does not infer code success. See `docs/board-code-enrollment.md`.
 - Module visibility requires a joined subject and either no module audiences or membership in **at least one**
   listed audience. Audience revocation is immediate. Scoped staff bypass applies only to the exact management scope.
 - TEAM boards resolve the current team (`team_members`) as the `TEAM` subject; every participant is not treated as

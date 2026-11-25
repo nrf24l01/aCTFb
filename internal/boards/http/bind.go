@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"encoding/json"
 	stderrors "errors"
 	"io"
@@ -38,17 +39,57 @@ func bindJSON(c *echo.Context, dst any) (rawBody, *apiProblem) {
 		return nil, unsupportedMediaProblem()
 	}
 
-	body := http.MaxBytesReader(c.Response(), c.Request().Body, maxBoardBodyBytes)
-	raw, err := io.ReadAll(body)
-	if err != nil {
-		return nil, invalidJSONProblem("Malformed JSON")
+	raw, problem := readBody(c)
+	if problem != nil {
+		return nil, problem
 	}
 	if len(raw) == 0 {
 		return nil, invalidJSONProblem("Malformed JSON")
 	}
+	return decodeStrict(raw, dst)
+}
 
+// bindOptionalJSON accepts a genuinely absent or empty body and otherwise
+// applies exactly the same strict contract as bindJSON. It is used by additive
+// operations whose body is optional, such as generating a random join code.
+func bindOptionalJSON(c *echo.Context, dst any) (rawBody, *apiProblem) {
+	contentType := c.Request().Header.Get("Content-Type")
+	if contentType == "" {
+		return nil, nil
+	}
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil || !strings.EqualFold(mediaType, "application/json") {
+		return nil, unsupportedMediaProblem()
+	}
+	raw, problem := readBody(c)
+	if problem != nil {
+		return nil, problem
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, nil
+	}
+	return decodeStrict(raw, dst)
+}
+
+func readBody(c *echo.Context) ([]byte, *apiProblem) {
+	body := http.MaxBytesReader(c.Response(), c.Request().Body, maxBoardBodyBytes)
+	raw, err := io.ReadAll(body)
+	if err != nil {
+		var maxBytesError *http.MaxBytesError
+		if stderrors.As(err, &maxBytesError) {
+			return nil, &apiProblem{
+				status: http.StatusRequestEntityTooLarge, code: oapimodels.ErrorCodePAYLOADTOOLARGE,
+				message: "Payload too large",
+			}
+		}
+		return nil, invalidJSONProblem("Malformed JSON")
+	}
+	return raw, nil
+}
+
+func decodeStrict(raw []byte, dst any) (rawBody, *apiProblem) {
 	var presence rawBody
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(dst); err != nil {
 		return nil, malformedJSONProblem(err)

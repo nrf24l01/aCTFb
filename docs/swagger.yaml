@@ -1375,6 +1375,73 @@ paths:
               path: /api/v2/boards/{boardUuid}
       produces:
       - application/json
+  /boards/join:
+    post:
+      x-error-codes:
+        '400':
+        - INVALID_JSON
+        '401':
+        - UNAUTHORIZED
+        '403':
+        - BOARD_ACCESS_DENIED
+        - JOIN_CODE_INVALID
+        '415':
+        - UNSUPPORTED_MEDIA_TYPE
+        '422':
+        - VALIDATION_FAILED
+        '429':
+        - RATE_LIMITED
+        '500':
+        - INTERNAL_ERROR
+      tags:
+      - Boards
+      summary: Join a board with a code
+      description: Resolves the board server-side from the supplied code, so no board UUID is needed. The code is
+        the only enrollment credential; the access group, audience, board window and CLOSED rules still apply.
+        Wrong or unknown codes return one generic error and never reveal a board identity.
+      operationId: joinBoardByCode
+      x-required-permissions: []
+      parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/BoardJoinByCodeRequest'
+      responses:
+        '200':
+          description: Enrolled board identity and the caller's participation view.
+          schema:
+            $ref: '#/definitions/BoardJoinResponse'
+        '400':
+          description: '400 Malformed JSON. Code: INVALID_JSON.'
+          schema:
+            $ref: '#/definitions/Http400_InvalidJson_Error'
+        '401':
+          description: '401 Unauthorized. Code: UNAUTHORIZED.'
+          schema:
+            $ref: '#/definitions/Http401_Unauthorized_Error'
+        '403':
+          description: '403 Forbidden. Code: JOIN_CODE_INVALID, BOARD_ACCESS_DENIED.'
+          schema:
+            $ref: '#/definitions/Http403_Forbidden_Error'
+        '415':
+          description: '415 Unsupported media type. Code: UNSUPPORTED_MEDIA_TYPE.'
+          schema:
+            $ref: '#/definitions/Http415_UnsupportedMediaType_Error'
+        '422':
+          description: '422 Validation failed. Code: VALIDATION_FAILED.'
+          schema:
+            $ref: '#/definitions/Http422_ValidationFailed_Error'
+        '429':
+          description: '429 Rate limited. Code: RATE_LIMITED.'
+          schema:
+            $ref: '#/definitions/Http429_RateLimited_Error'
+        '500':
+          description: '500 Internal error. Code: INTERNAL_ERROR.'
+          schema:
+            $ref: '#/definitions/Http500_InternalError_Error'
+      security:
+      - bearerAuth: []
   /boards/{boardUuid}/join:
     post:
       x-error-codes:
@@ -1384,22 +1451,27 @@ paths:
         - UNAUTHORIZED
         '403':
         - BOARD_ACCESS_DENIED
+        - JOIN_CODE_REQUIRED
+        - JOIN_CODE_INVALID
         '404':
         - BOARD_NOT_FOUND
         '409':
         - BOARD_REGISTRATION_CLOSED
-        - ALREADY_JOINED
         - BOARD_FINISHED
         '415':
         - UNSUPPORTED_MEDIA_TYPE
         '422':
         - INVALID_INVITE_CODE
         - VALIDATION_FAILED
+        '429':
+        - RATE_LIMITED
         '500':
         - INTERNAL_ERROR
       tags:
       - Boards
-      summary: Join board
+      summary: Join board by code
+      description: Enrolls the caller in this exact board. A valid board join code is required; an already joined
+        caller is answered idempotently with the current participation view.
       operationId: joinBoard
       x-required-permissions: []
       x-scope: board
@@ -23544,6 +23616,129 @@ paths:
             $ref: '#/definitions/Http500_InternalError_Error'
       security:
       - bearerAuth: []
+  /admin/boards/{boardUuid}/join-code:
+    get:
+      x-error-codes:
+        '401':
+        - UNAUTHORIZED
+        '403':
+        - FORBIDDEN
+        '404':
+        - BOARD_NOT_FOUND
+        '500':
+        - INTERNAL_ERROR
+      tags:
+      - Boards
+      summary: Board join code status
+      description: Reports whether a join code is configured and when it last changed. It never returns code
+        material; the plaintext is only returned once by the generate/replace operation.
+      operationId: getBoardJoinCodeStatus
+      x-required-permissions:
+      - board.update
+      x-scope: board
+      x-scope-params:
+      - boardUuid
+      parameters:
+      - $ref: '#/parameters/BoardUuidParam'
+      responses:
+        '200':
+          description: Join code status.
+          schema:
+            $ref: '#/definitions/BoardJoinCodeStatus'
+        '401':
+          description: '401 Unauthorized. Code: UNAUTHORIZED.'
+          schema:
+            $ref: '#/definitions/Http401_Unauthorized_Error'
+        '403':
+          description: '403 Forbidden. Code: FORBIDDEN.'
+          schema:
+            $ref: '#/definitions/Http403_Forbidden_Error'
+        '404':
+          description: '404 Board not found. Code: BOARD_NOT_FOUND.'
+          schema:
+            $ref: '#/definitions/Http404_BoardNotFound_Error'
+        '500':
+          description: '500 Internal error. Code: INTERNAL_ERROR.'
+          schema:
+            $ref: '#/definitions/Http500_InternalError_Error'
+      security:
+      - bearerAuth: []
+    post:
+      x-error-codes:
+        '400':
+        - INVALID_JSON
+        '401':
+        - UNAUTHORIZED
+        '403':
+        - FORBIDDEN
+        '404':
+        - BOARD_NOT_FOUND
+        '409':
+        - BOARD_STATE_CONFLICT
+        '415':
+        - UNSUPPORTED_MEDIA_TYPE
+        '422':
+        - VALIDATION_FAILED
+        '500':
+        - INTERNAL_ERROR
+      tags:
+      - Boards
+      summary: Generate or replace the board join code
+      description: With an empty body a cryptographically random code is generated. With a body code, that custom
+        code replaces the current one. Replacing invalidates the previous code immediately. The plaintext is
+        returned exactly once; it is never stored, logged or returned by a read.
+      operationId: setBoardJoinCode
+      x-required-permissions:
+      - board.update
+      x-scope: board
+      x-scope-params:
+      - boardUuid
+      parameters:
+      - $ref: '#/parameters/BoardUuidParam'
+      - name: body
+        in: body
+        required: false
+        schema:
+          $ref: '#/definitions/BoardJoinCodeSetRequest'
+      responses:
+        '200':
+          description: New join code. The code field is present only in this response.
+          schema:
+            $ref: '#/definitions/BoardJoinCodeResponse'
+        '400':
+          description: '400 Malformed JSON. Code: INVALID_JSON.'
+          schema:
+            $ref: '#/definitions/Http400_InvalidJson_Error'
+        '401':
+          description: '401 Unauthorized. Code: UNAUTHORIZED.'
+          schema:
+            $ref: '#/definitions/Http401_Unauthorized_Error'
+        '403':
+          description: '403 Forbidden. Code: FORBIDDEN.'
+          schema:
+            $ref: '#/definitions/Http403_Forbidden_Error'
+        '404':
+          description: '404 Board not found. Code: BOARD_NOT_FOUND.'
+          schema:
+            $ref: '#/definitions/Http404_BoardNotFound_Error'
+        '409':
+          description: '409 The custom code is already in use. Code: BOARD_STATE_CONFLICT.'
+          schema:
+            $ref: '#/definitions/Http409_BoardStateConflict_Error'
+        '415':
+          description: '415 Unsupported media type. Code: UNSUPPORTED_MEDIA_TYPE.'
+          schema:
+            $ref: '#/definitions/Http415_UnsupportedMediaType_Error'
+        '422':
+          description: '422 Validation failed. Code: VALIDATION_FAILED.'
+          schema:
+            $ref: '#/definitions/Http422_ValidationFailed_Error'
+        '500':
+          description: '500 Internal error. Code: INTERNAL_ERROR.'
+          schema:
+            $ref: '#/definitions/Http500_InternalError_Error'
+      security:
+      - bearerAuth: []
   /admin/permission-grants:
     get:
       tags:
@@ -25874,6 +26069,8 @@ definitions:
     - BOARD_STATE_CONFLICT
     - ALREADY_JOINED
     - INVALID_INVITE_CODE
+    - JOIN_CODE_REQUIRED
+    - JOIN_CODE_INVALID
     - RATING_HIDDEN
     - TEAM_NOT_FOUND
     - TEAM_FULL
@@ -26572,16 +26769,103 @@ definitions:
     - description
     - visibility
     additionalProperties: false
+  BoardJoinByCodeRequest:
+    type: object
+    required:
+    - code
+    additionalProperties: false
+    properties:
+      code:
+        type: string
+        minLength: 8
+        maxLength: 64
+        description: Board join code issued by the organizer. Trimmed and uppercased; interior characters are never
+          rewritten.
+      boardUuid:
+        $ref: '#/definitions/UUID'
+        description: Optional UX hint from a board page. It never authorizes anything; a mismatch is reported as an
+          invalid code.
+  BoardJoinResponse:
+    type: object
+    required:
+    - boardUuid
+    - slug
+    - name
+    - joined
+    - alreadyParticipating
+    - me
+    additionalProperties: false
+    properties:
+      boardUuid:
+        $ref: '#/definitions/UUID'
+      slug:
+        $ref: '#/definitions/Slug'
+      name:
+        type: string
+      joined:
+        type: boolean
+      alreadyParticipating:
+        type: boolean
+        description: True when the caller was already a participant; the call is idempotent and adds no duplicate
+          membership.
+      me:
+        $ref: '#/definitions/BoardMe'
+  BoardJoinCodeStatus:
+    type: object
+    required:
+    - configured
+    additionalProperties: false
+    properties:
+      configured:
+        type: boolean
+      updatedAt:
+        type: string
+        format: date-time
+        x-nullable: true
+  BoardJoinCodeSetRequest:
+    type: object
+    additionalProperties: false
+    properties:
+      code:
+        type: string
+        minLength: 8
+        maxLength: 64
+        description: Custom join code. Omit or send an empty string to generate a random code. Trimmed and uppercased;
+          only A-Z, 0-9 and hyphen are accepted.
+  BoardJoinCodeResponse:
+    type: object
+    required:
+    - configured
+    - code
+    additionalProperties: false
+    properties:
+      configured:
+        type: boolean
+      code:
+        type: string
+        description: Plaintext join code. Returned only by this response and never persisted or logged.
+      updatedAt:
+        type: string
+        format: date-time
+        x-nullable: true
   BoardJoinRequest:
     type: object
     additionalProperties: false
     properties:
+      code:
+        type: string
+        minLength: 8
+        maxLength: 64
+        description: Board join code issued by the organizer. Enrollment is code-only for every registration mode,
+          including PUBLIC boards. The code is never echoed back and is never accepted as a URL parameter.
       inviteCode:
         type: string
         minLength: 8
         maxLength: 128
+        description: Deprecated alias for code. Accepted only for boards that still have a legacy sealed invite code;
+          new boards issue a join code.
     x-validation-rules:
-    - inviteCode is required for INVITE_ONLY and must be omitted for OPEN
+    - code (or the deprecated inviteCode) is required for every self-join; a bare board UUID never enrolls
   Team:
     type: object
     required:

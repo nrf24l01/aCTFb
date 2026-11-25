@@ -23,6 +23,10 @@ import type {
   BoardListItem,
   BoardListResponse,
   BoardMe,
+  BoardJoinByCodeRequest,
+  BoardJoinCodeResponse,
+  BoardJoinCodeStatus,
+  BoardJoinResponse,
   BoardPermissionsResponse,
   BoardRoleBinding,
   BoardRoleBindingCreateRequest,
@@ -75,8 +79,31 @@ export const boardsApi = {
     return apiRequest<Board>(`/boards/${boardUuid}`)
   },
 
-  joinBoard(boardUuid: string, inviteCode?: string): Promise<BoardMe> {
-    return apiPost<BoardMe>(`/boards/${boardUuid}/join`, inviteCode ? { inviteCode } : {})
+  /**
+   * Per-board enrollment. It still requires a code: a bare board UUID never
+   * enrolls. The canonical code-only route is joinBoardByCode.
+   */
+  joinBoard(boardUuid: string, code: string): Promise<BoardMe> {
+    return apiPost<BoardMe>(`/boards/${boardUuid}/join`, { code })
+  },
+
+  /** Canonical code-only enrollment: the server resolves the board from the code. */
+  joinBoardByCode(code: string, boardUuid?: string): Promise<BoardJoinResponse> {
+    const body: BoardJoinByCodeRequest = boardUuid ? { code, boardUuid } : { code }
+    return apiPost<BoardJoinResponse>('/boards/join', body)
+  },
+
+  /** Join code status. Never returns code material. */
+  getBoardJoinCodeStatus(boardUuid: string): Promise<BoardJoinCodeStatus> {
+    return apiRequest<BoardJoinCodeStatus>(`/admin/boards/${boardUuid}/join-code`)
+  },
+
+  /** Generates a random code when no custom code is supplied; revealed once. */
+  setBoardJoinCode(boardUuid: string, code?: string): Promise<BoardJoinCodeResponse> {
+    return apiPost<BoardJoinCodeResponse>(
+      `/admin/boards/${boardUuid}/join-code`,
+      code && code.trim() ? { code: code.trim() } : {},
+    )
   },
 
   leaveBoard(boardUuid: string): Promise<void> {

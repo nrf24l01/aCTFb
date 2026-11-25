@@ -100,8 +100,9 @@ func TestP1RHTTPRoutes(t *testing.T) {
 	manualTaskID := string(*manualTask.UUID)
 	doJSON(t, router, http.MethodPost, "/api/v2/admin/boards/"+boardID+"/actions", adminToken,
 		map[string]any{"action": "PUBLISH"}, nil, http.StatusOK)
-	doJSON(t, router, http.MethodPost, "/api/v2/boards/"+boardID+"/join", p1Token, map[string]any{}, nil, http.StatusOK)
-	doJSON(t, router, http.MethodPost, "/api/v2/boards/"+boardID+"/join", p2Token, map[string]any{}, nil, http.StatusOK)
+	boardJoinCode := issueJoinCode(t, router, boardID, adminToken)
+	doJSON(t, router, http.MethodPost, "/api/v2/boards/"+boardID+"/join", p1Token, map[string]any{"code": boardJoinCode}, nil, http.StatusOK)
+	doJSON(t, router, http.MethodPost, "/api/v2/boards/"+boardID+"/join", p2Token, map[string]any{"code": boardJoinCode}, nil, http.StatusOK)
 
 	team := decode[oapimodels.Team](t, doJSON(t, router, http.MethodPost, "/api/v2/boards/"+boardID+"/teams", p1Token,
 		map[string]any{"name": "HTTP Team"}, nil, http.StatusCreated), http.StatusCreated)

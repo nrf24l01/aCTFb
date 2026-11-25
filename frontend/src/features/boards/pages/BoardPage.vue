@@ -4,8 +4,6 @@ import { useRoute } from 'vue-router'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import EmptyState from '@/components/layout/EmptyState.vue'
-import FormField from '@/components/layout/FormField.vue'
-import { Input } from '@/components/ui/input'
 import ErrorAlert from '@/components/layout/ErrorAlert.vue'
 import LoadingState from '@/components/layout/LoadingState.vue'
 import PageContainer from '@/components/layout/PageContainer.vue'
@@ -13,6 +11,7 @@ import PageHeader from '@/components/layout/PageHeader.vue'
 import StatusPill from '@/components/layout/StatusPill.vue'
 import ConfirmDialog from '@/components/layout/ConfirmDialog.vue'
 import ModuleCard from '@/features/boards/components/ModuleCard.vue'
+import JoinBoardDialog from '@/features/boards/components/JoinBoardDialog.vue'
 import TeamPanel from '@/features/teams/components/TeamPanel.vue'
 import { boardsApi } from '@/features/boards/api/boards'
 import { useSession } from '@/features/auth/session'
@@ -25,7 +24,7 @@ import {
 } from '@/features/boards/permissions'
 import { isApiError } from '@/shared/api/errors'
 import { formatDateTime, plural } from '@/shared/lib/format'
-import { accessModeLabel, participationLabel, requiresInviteCode } from '@/features/boards/accessMode'
+import { accessModeLabel, participationLabel } from '@/features/boards/accessMode'
 import type { Board, BoardMe, BoardPermissionsResponse, ModuleListItem } from '@/shared/types/api'
 
 const route = useRoute()
@@ -40,9 +39,8 @@ const loading = ref(true)
 const error = ref<unknown>(null)
 const permissionsError = ref<unknown>(null)
 const accessDenied = ref(false)
-const joining = ref(false)
-const joinError = ref<unknown>(null)
-const joinInviteCode = ref('')
+const joinOpen = ref(false)
+const joinNotice = ref<string | null>(null)
 const leaveOpen = ref(false)
 const leaving = ref(false)
 const leaveError = ref<unknown>(null)
@@ -120,17 +118,15 @@ async function load() {
   }
 }
 
-async function join() {
-  joining.value = true
-  joinError.value = null
-  try {
-    await boardsApi.joinBoard(boardUuid.value, joinInviteCode.value.trim() || undefined)
-    await load()
-  } catch (caught) {
-    joinError.value = caught
-  } finally {
-    joining.value = false
-  }
+function openJoin() {
+  joinNotice.value = null
+  joinOpen.value = true
+}
+
+async function onJoined() {
+  joinOpen.value = false
+  joinNotice.value = 'Already participating'
+  await load()
 }
 
 async function leave() {
@@ -160,12 +156,11 @@ void load()
       description="Sign in and join to continue. If the organizer gave you an invite code, enter it below."
     >
       <div class="space-y-3">
-        <ErrorAlert v-if="joinError" :error="joinError" title="Could not join board" />
         <template v-if="isAuthenticated">
-          <FormField label="Invite code" for-id="board-join-invite" hint="Only needed when the organizer provided one.">
-            <Input id="board-join-invite" v-model="joinInviteCode" autocomplete="off" spellcheck="false" />
-          </FormField>
-          <Button :disabled="joining" @click="join">{{ joining ? 'Joining…' : 'Join this board' }}</Button>
+          <Button @click="openJoin">Enter board code</Button>
+          <p class="text-xs text-muted-foreground">
+            The board is resolved from the code, so you do not need a link. Browsing this page never joins you.
+          </p>
         </template>
         <Button v-else as-child>
           <RouterLink :to="{ name: 'sign-in', query: { redirect: route.fullPath } }">Sign in to join</RouterLink>
@@ -258,20 +253,13 @@ void load()
               >
                 Leave board
               </Button>
-              <form v-else-if="canJoinFromPage" class="space-y-2 border-t border-border pt-3" novalidate @submit.prevent="join">
-                <ErrorAlert v-if="joinError" :error="joinError" title="Could not join board" />
-                <FormField
-                  v-if="requiresInviteCode(board)"
-                  label="Invite code"
-                  for-id="board-detail-invite"
-                  hint="The organizer provides this code."
-                >
-                  <Input id="board-detail-invite" v-model="joinInviteCode" autocomplete="off" spellcheck="false" />
-                </FormField>
-                <Button type="submit" class="w-full" :disabled="joining">
-                  {{ joining ? 'Joining…' : 'Join this board' }}
-                </Button>
-              </form>
+              <div v-else-if="canJoinFromPage" class="space-y-2 border-t border-border pt-3">
+                <p v-if="joinNotice" class="text-xs text-pine">{{ joinNotice }}</p>
+                <p class="text-xs text-muted-foreground">
+                  Joining needs the board code from the organizer.
+                </p>
+                <Button class="w-full" @click="openJoin">Enter board code</Button>
+              </div>
               <ErrorAlert v-if="leaveError" :error="leaveError" title="Could not leave board" />
             </div>
           </section>
@@ -282,6 +270,8 @@ void load()
           </section>
         </aside>
       </div>
+
+      <JoinBoardDialog v-model:open="joinOpen" :board-uuid="boardUuid" @joined="onJoined" />
 
       <ConfirmDialog
         v-model:open="leaveOpen"
