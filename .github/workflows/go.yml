@@ -244,6 +244,13 @@ jobs:
         working-directory: e2e
         run: bun install --frozen-lockfile
 
+      # The default-profile browser run serves the app from a Vite dev server, so
+      # it needs the frontend dependencies. Installing them here keeps that a
+      # visible, cached step instead of an implicit install inside the script.
+      - name: Install frontend dependencies for the browser acceptance
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
       - name: Install Chromium
         working-directory: e2e
         run: bunx playwright install --with-deps chromium

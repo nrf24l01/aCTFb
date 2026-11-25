@@ -267,8 +267,16 @@ Docker daemon needed because the profile has every optional feature off):
 4 passed (18.1s)
 ```
 
-If the retry path is ever needed in CI, the log now prints the Vite output, so the
-next failure is diagnosable from the job log alone.
+A third gated run (`45609783244`, `4174a1c`) then failed in 4 seconds with **no
+output at all**. That was a diagnosis gap, not a new product issue: the setup
+phase redirects build, install and service output to files, so a `set -e` failure
+there exits silently. The runner now prints `==> <phase>` markers (stdout only,
+never a token, password or join code), installs an `ERR` trap that reports the
+failing line number and dumps every log this run produced, and turns the silent
+redirected commands (database create, backend build, admin bootstrap, frontend
+install) into explicit failures that print their log. The workflow also installs
+the frontend dependencies as a visible cached step, since the default-profile run
+serves the app from Vite rather than the Compose nginx container.
 
 ## Post-approval: CI-gate defect found by the first gated run
 

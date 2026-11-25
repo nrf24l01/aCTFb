@@ -49,7 +49,31 @@ cleanup() {
 }
 lifecycle_traps cleanup
 
-psql "$PG_DSN" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${DB_NAME}\"" >"$WORKDIR/createdb.log" 2>&1
+# Dump every log this run produced. The setup phase redirects build, install and
+# service output to files, so a failure there would otherwise be silent.
+dump_logs() {
+  local file
+  for file in "$WORKDIR"/*.log; do
+    [[ -f "$file" ]] || continue
+    echo "--- ${file} (last 40 lines) ---" >&2
+    tail -40 "$file" >&2 || true
+  done
+}
+
+# Any unexpected non-zero exit prints the failing line and the logs.
+trap 'code=$?; echo "default-profile runner failed at line ${LINENO} (exit ${code})" >&2; dump_logs; exit "${code}"' ERR
+
+# Phase markers: stdout only, never a token, password or code. They show which
+# stage the runner reached, so a failure in a redirected command is locatable
+# without tracing commands that carry credentials.
+phase() { printf '==> %s\n' "$1"; }
+
+phase "create fixture database"
+if ! psql "$PG_DSN" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${DB_NAME}\"" >"$WORKDIR/createdb.log" 2>&1; then
+  echo "could not create the fixture database ${DB_NAME}" >&2
+  cat "$WORKDIR/createdb.log" >&2 || true
+  exit 1
+fi
 
 DB_DSN="$(python3 - "$PG_DSN" "$DB_NAME" <<'PY'
 import sys, urllib.parse as u
@@ -130,7 +154,12 @@ PY
 export POSTGRES_HOST="$PG_HOST" POSTGRES_PORT="$PG_PORT" POSTGRES_USER="$PG_USER"
 export POSTGRES_PASSWORD="$PG_PASSWORD" POSTGRES_DBNAME="$PG_DBNAME" POSTGRES_SSLMODE="$PG_SSLMODE"
 
-(cd "$ROOT" && go build -o "$WORKDIR/backend" ./cmd/backend) >"$WORKDIR/build.log" 2>&1
+phase "build backend"
+if ! (cd "$ROOT" && go build -o "$WORKDIR/backend" ./cmd/backend) >"$WORKDIR/build.log" 2>&1; then
+  echo "backend build failed" >&2
+  cat "$WORKDIR/build.log" >&2 || true
+  exit 1
+fi
 
 wait_http() {
   local url="$1"
@@ -148,16 +177,23 @@ wait_http() {
 
 # The backend applies migrations on boot; the operator CLI then bootstraps the
 # first admin. Both use the same CONFIG_FILE and PostgreSQL environment.
+phase "start backend"
 service_start backend "$WORKDIR/backend.log" "$WORKDIR/backend" >/dev/null
 wait_http "http://127.0.0.1:${APP_PORT}/health"
 wait_http "http://127.0.0.1:${APP_PORT}/ready"
 
 ADMIN="e2e_default_admin_${RUN_ID}"
 PASSWORD="E2E-$(openssl rand -hex 12)!"
-printf '%s\n' "$PASSWORD" | "$WORKDIR/backend" admin create \
+phase "bootstrap admin"
+if ! printf '%s\n' "$PASSWORD" | "$WORKDIR/backend" admin create \
   --username "$ADMIN" --email "${ADMIN}@actfb.test" --password-stdin \
-  >"$WORKDIR/admin-create.log" 2>&1
+  >"$WORKDIR/admin-create.log" 2>&1; then
+  echo "admin bootstrap failed" >&2
+  cat "$WORKDIR/admin-create.log" >&2 || true
+  exit 1
+fi
 
+phase "check empty catalog"
 # The catalog must answer 200 with an empty page — not 404 — under this profile.
 curl -fsS -X POST "http://127.0.0.1:${APP_PORT}/api/v2/auth/login" \
   -H 'Content-Type: application/json' \
@@ -184,7 +220,11 @@ start_frontend() {
   # have them, and an existing local install is reused as-is. Check the binary we
   # actually invoke, not just the directory, so a partial install is repaired.
   if [[ ! -f "$ROOT/frontend/node_modules/vite/bin/vite.js" ]]; then
-    (cd "$ROOT/frontend" && bun install --frozen-lockfile) >"$WORKDIR/frontend-install.log" 2>&1
+    if ! (cd "$ROOT/frontend" && bun install --frozen-lockfile) >"$WORKDIR/frontend-install.log" 2>&1; then
+      echo "frontend dependency install failed" >&2
+      cat "$WORKDIR/frontend-install.log" >&2 || true
+      exit 1
+    fi
   fi
   service_start frontend "$WORKDIR/frontend.log" \
     env VITE_DEV_PROXY_TARGET="http://127.0.0.1:${APP_PORT}" \
@@ -192,6 +232,7 @@ start_frontend() {
     _ "$ROOT/frontend" "$FRONTEND_PORT" >/dev/null
 }
 
+phase "start frontend"
 start_frontend
 if ! wait_http "http://127.0.0.1:${FRONTEND_PORT}/" "$WORKDIR/frontend.log" 240; then
   # One retry on a fresh port covers a lost free-port race on a busy CI runner.
@@ -206,6 +247,7 @@ if ! wait_http "http://127.0.0.1:${FRONTEND_PORT}/" "$WORKDIR/frontend.log" 240;
   wait_http "http://127.0.0.1:${FRONTEND_PORT}/" "$WORKDIR/frontend.log" 240
 fi
 
+phase "register participants"
 # Participants are created once, before Playwright, because registration is
 # limited to 5 per 15 minutes per IP in the backend. Tests then only sign in.
 PARTICIPANT_ONE="e2e_participant_${RUN_ID}"
@@ -249,6 +291,7 @@ if [[ -z "${E2E_CHROMIUM_PATH:-}" && -x /usr/bin/chromium ]]; then
   export E2E_CHROMIUM_PATH=/usr/bin/chromium
 fi
 
+phase "run playwright"
 cd "$ROOT/e2e"
 # E2E_GREP narrows a local run to one test; CI runs the whole file.
 bunx playwright test tests/default-profile.spec.ts ${E2E_GREP:+--grep "$E2E_GREP"}
