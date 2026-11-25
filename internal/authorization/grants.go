@@ -91,9 +91,30 @@ func (s *GrantStore) HasGrant(ctx context.Context, userID uuid.UUID, permission 
 	if userID == uuid.Nil || permission == "" {
 		return false, nil
 	}
+	return s.hasGrantWith(ctx, s.db.Pool, userID, permission, scope)
+}
 
+// HasGrantWithQuerier evaluates the same live grant lookup on the supplied
+// querier. A transaction caller passes its pgx.Tx so the grant read happens on
+// the connection it already holds: no second pool connection is acquired while a
+// transaction is open, and the grant/expiry/revocation state is read inside the
+// same transaction.
+func (s *GrantStore) HasGrantWithQuerier(ctx context.Context, q rowsQuerier, userID uuid.UUID, permission Permission, scope Scope) (bool, error) {
+	if s == nil {
+		return false, ErrNoDatabase
+	}
+	if q == nil {
+		return false, ErrNoDatabase
+	}
+	if userID == uuid.Nil || permission == "" {
+		return false, nil
+	}
+	return s.hasGrantWith(ctx, q, userID, permission, scope)
+}
+
+func (s *GrantStore) hasGrantWith(ctx context.Context, q rowQuerier, userID uuid.UUID, permission Permission, scope Scope) (bool, error) {
 	var exists bool
-	err := s.db.Pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1
 			FROM permission_grants
@@ -119,6 +140,15 @@ func (s *GrantStore) HasGrant(ctx context.Context, userID uuid.UUID, permission 
 	}
 	return exists, nil
 }
+
+// TransactionalGrantChecker is implemented by a PermissionGrantChecker that can
+// evaluate a grant on a caller-supplied querier. A transaction authorizer uses it
+// so no second pool connection is acquired while a transaction is open.
+type TransactionalGrantChecker interface {
+	HasGrantWithQuerier(ctx context.Context, q rowsQuerier, userID uuid.UUID, permission Permission, scope Scope) (bool, error)
+}
+
+var _ TransactionalGrantChecker = (*GrantStore)(nil)
 
 // ActiveGrantsForUserBoard returns global and board-scoped active grants for the
 // permission-context endpoint. Module filtering is applied by the caller.

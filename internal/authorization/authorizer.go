@@ -344,6 +344,22 @@ func (a *AuthorizerService) decide(
 	permission Permission,
 	scope Scope,
 ) (Decision, error) {
+	return a.decideWithGrants(ctx, q, user, permission, scope, a.grants)
+}
+
+// decideWithGrants is decide with an explicit grant checker. The transaction
+// authorizer passes a checker bound to its own pgx.Tx, so a grant read never
+// acquires a second pool connection while a transaction is open and the grant
+// state is read inside that transaction. The shared authorizer's own checker is
+// never mutated (that would be a data race across concurrent requests).
+func (a *AuthorizerService) decideWithGrants(
+	ctx context.Context,
+	q rowsQuerier,
+	user liveUser,
+	permission Permission,
+	scope Scope,
+	grants PermissionGrantChecker,
+) (Decision, error) {
 	if a == nil || a.registry == nil {
 		return Decision{}, ErrNoAuthorizer
 	}
@@ -352,7 +368,7 @@ func (a *AuthorizerService) decide(
 		return Decision{}, ErrInvalidPermission
 	}
 	if definition.Source != "core" {
-		return a.decidePlugin(ctx, q, user, definition, scope)
+		return a.decidePlugin(ctx, q, user, definition, scope, grants)
 	}
 	var decision Decision
 	if scope.BoardID == uuid.Nil && !isGlobalPermission(permission) {
@@ -383,8 +399,8 @@ func (a *AuthorizerService) decide(
 		}
 		return decision, nil
 	}
-	if a.grants != nil && !isParticipationOnlyPermission(permission) {
-		hasGrant, err := a.grants.HasGrant(ctx, user.ID, permission, scope)
+	if grants != nil && !isParticipationOnlyPermission(permission) {
+		hasGrant, err := grants.HasGrant(ctx, user.ID, permission, scope)
 		if err != nil {
 			return Decision{}, err
 		}
@@ -407,6 +423,7 @@ func (a *AuthorizerService) decidePlugin(
 	user liveUser,
 	definition PermissionDefinition,
 	scope Scope,
+	grants PermissionGrantChecker,
 ) (Decision, error) {
 	switch {
 	case scope.BoardID == uuid.Nil:
@@ -440,8 +457,8 @@ func (a *AuthorizerService) decidePlugin(
 		return Decision{Allowed: false, Reason: "plugin disabled"}, nil
 	}
 	allowed := false
-	if a.grants != nil {
-		allowed, err = a.grants.HasGrant(ctx, user.ID, definition.Permission, scope)
+	if grants != nil {
+		allowed, err = grants.HasGrant(ctx, user.ID, definition.Permission, scope)
 		if err != nil {
 			return Decision{}, err
 		}
