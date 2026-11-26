@@ -10,7 +10,8 @@ same digest.
 | Field | Value |
 | --- | --- |
 | Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/45840313641 |
-| Commit | `034329bffd51123d4c5f7a89fa4852d337d1bdbe` |
+| Commit (image source) | `034329bffd51123d4c5f7a89fa4852d337d1bdbe` |
+| `main` HEAD at publication record | `1f61ab1` — docs only; differs from the image source by `docs/` files, which the workflow path filter excludes, so no second run or image rebuild is expected |
 | Conclusion | success (Backend quality, Frontend quality, Integration, Publish images — 4/4) |
 | Immutable tag | `sha-034329bffd51123d4c5f7a89fa4852d337d1bdbe` |
 | Platform | `linux/amd64` only (read from each image config) |
