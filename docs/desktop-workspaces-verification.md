@@ -1,8 +1,10 @@
 # Desktop workspaces verification (2026-11-26)
 
-Status: **implemented, pending independent review and main screenshot inspection**. Nothing is
-published. This file records what was actually executed, the numbers the browser measured, and what
-the evidence does *not* prove.
+Status: **reviewed and approved for the product; publication pending a green four-job CI run**.
+The whole-slice independent review is `docs/desktop-workspaces-review.md` and main has accepted the
+screenshot set. Nothing is published: GHCR `latest` remains the `0da549e` baseline until CI is green.
+This file records what was actually executed, the numbers the browser measured, and what the evidence
+does *not* prove.
 
 - Feature spec: `docs/superpowers/specs/2026-11-26-desktop-workspaces-design.md` (approved).
 - Slice reports: `task-1-report.md`, `task-2-report.md`, `task-3-report.md` under
@@ -31,7 +33,7 @@ responsive assertion is skip-gated when `ACTFB_E2E=1`.
 | Workspace split | `minmax(0,1fr) 320px` (360px for the task reader) at ≥1100px usable; stacked below |
 | Card tracks | board modules 2 columns at 760px; module tasks and admin hub/templates 2 at 720px and 3 at 1200px; 1 column on the phone |
 | Threshold neighbours | 1099/1100 usable, 719/720, 759/760, 1199/1200 |
-| Catalog | real templates created through the authoring API, 3 then 6 on a fresh database, measured in the browser |
+| Catalog | real templates created through the authoring API; this run adds 3 then 3 of its own, and the grid is measured against the real catalog total, which a fresh owned run showed as 4 then 7 |
 | Zoom | 200% CSS-zoom reflow and the effective 960x540 CSS layout of a real 200% browser zoom |
 | Authoring | no outer Write/Preview tabs on all four surfaces, Visual/Source functional, exact Unicode bytes, rune counting, one save, undo across resizes |
 | Regressions | no duplicate editor, no extra request on resize, no orphan focus target, no own-history request in organizer preview |
@@ -53,17 +55,24 @@ responsive assertion is skip-gated when `ACTFB_E2E=1`.
 
 ### Card tracks
 
-| Collection | Own width | Columns |
-|---|---|---|
-| board modules (4 cards) | 760 | 2 (2 rows) |
-| board modules | 759 | 1 (4 rows) |
-| module tasks (6 cards) | 1200 | 3 (2 rows) |
-| module tasks | 1199 | 2 (3 rows) |
-| module tasks | 776 / 700 | 2 / 1 |
-| admin hub / template catalog | 1200 | 3 |
-| admin hub / template catalog | 1199 | 2 |
-| admin hub / template catalog | 720 / 719 | 2 / 1 |
-| any collection at 375 | 343 | 1 |
+Columns are counted from real card coordinates; rows are `ceil(records / columns)` for the record
+count the API actually returned in that run, so they are not hard-coded.
+
+| Collection | Own width | Cards | Columns × rows |
+|---|---|---|---|
+| board modules | 760 | 4 | 2 × 2 |
+| board modules | 759 | 4 | 1 × 4 |
+| module tasks | 1200 | 6 | 3 × 2 |
+| module tasks | 1199 | 6 | 2 × 3 |
+| module tasks at 200% zoom | 700 | 6 | 1 × 6 |
+| template catalog, stage 1 | 1552 | 4 (1 root + this run's 3) | 3 × 2 |
+| template catalog, stage 1 | 1180 | 4 | 2 × 2 |
+| template catalog, stage 1 | 764 | 4 | 2 × 2 |
+| template catalog, stage 2 | 1552 | 7 (1 root + this run's 6) | 3 × 3 |
+| template catalog, stage 2 | 1200 | 7 | 3 × 3 |
+| template catalog, stage 2 | 1199 | 7 | 2 × 4 |
+| admin hub | 1200 / 1199 / 720 / 719 | 8 (role-dependent) | 3 / 2 / 2 / 1 |
+| any collection at 375 | 343 | — | 1 |
 
 ## Commands actually run
 
@@ -74,22 +83,49 @@ bun run typecheck                                       # clean
 bun run build                                           # clean, chunk sizes below
 
 # result of the owned-stack run below
-#   5 passed (17.1s)        root default-profile suite, all 5 ran
+#   5 passed (17.9s)        root default-profile suite, all 5 ran
 #  21 skipped / 69 passed   markdown-render + rich-text-editor + desktop-workspaces
 #  EXIT=0
 
 # one owned cold stack, the real CI runner, everything in one invocation
 E2E_PG_DSN=postgres://postgres@127.0.0.1:<owned-port>/postgres?sslmode=disable \
-E2E_WORKDIR=/tmp/opencode/desktop-workspaces/final-run \
-E2E_SCREENSHOT_DIR=/tmp/opencode/desktop-workspaces/final-all \
+E2E_KEEP=1 \
+E2E_WORKDIR=/tmp/opencode/desktop-workspaces/final-fix-run \
+E2E_SCREENSHOT_DIR=/tmp/opencode/desktop-workspaces/final-fix-shots \
 ./e2e/run-default-profile-e2e.sh
 ```
+
+The publication-wave run (2026-11-27) is the one above: `RUNNER_EXIT=0`, root `5 passed`, frontend
+`69 passed / 21 skipped`, log at `/tmp/opencode/desktop-workspaces/final-fix-run.log`. The accepted
+screenshots are unchanged from the earlier run because no UI source changed; this run wrote 39
+captures to `final-fix-shots/` as a side effect and they were not re-selected.
+
+### Catalog totals, measured rather than assumed
+
+A read-only sampler polled `GET /api/v2/admin/deployment-templates` with the runner's bootstrap
+admin token during the run (GETs only, no writes, 2s interval). It observed `1 template` at 9s —
+the root suite's own record, created before the desktop spec started — and `7 templates` at 105s and
+every sample after that.
+
+The intermediate stage is arithmetic on measured inputs, not a sampled number: 1 measured existing
+record plus the 3 records this run creates at stage 1 gives **4**, and 1 plus its 6 gives **7**, which
+the sampler confirms directly. The sampler did not catch the brief stage-1 window, and the committed
+assertion derives rows from whatever total the API returns, so it proves the grid matches the real
+total rather than pinning the total to 4. Nothing is deleted to force a round number.
 
 The runner creates its own fixture database, builds the real backend, boots it with every optional
 feature off, starts Vite, bootstraps one admin and two participants, checks the empty catalog answers
 `200`, then runs `e2e/tests/default-profile.spec.ts` followed by `markdown-render.spec.ts`,
 `rich-text-editor.spec.ts` and `desktop-workspaces.spec.ts` on that same stack. No workflow file was
 changed: the existing four CI jobs already call this script.
+
+The desktop spec's `beforeAll` signs in two roles and then seeds the board, so it sets its own budget
+with `test.setTimeout(240_000)` as the first statement. That covers the honest worst case of two 61s
+limiter waits plus two 8s failed-login detections plus fixture creation. Playwright applies it to the
+hook only, which was verified rather than assumed: a 5s hook passes under a 3s project timeout with a
+15s hook budget, a 1s hook budget aborts a 2.5s hook, and a body test still fails at the project
+default while the hook keeps its larger budget. Every individual test therefore keeps the 90s
+`playwright.config.ts` default.
 
 ## Bundle behaviour
 
@@ -100,12 +136,13 @@ which `rich-text-editor.spec.ts` asserts by watching the network for `MarkdownEd
 ## Screenshots
 
 `/tmp/opencode/desktop-workspaces/final/` holds 20 screenshots selected for the main assistant's
-inspection (real app, never a fixture): admin board 1920/1440/375, the real six-template catalog at
-1920, task participant 1920/1024/375/200%-zoom, organizer preview and board dialog at the effective
-960px layout, module tasks 1920/1440/375, participant board 1920/375, site form 1920/375 and the task
-editor at 1920/1440/375. The full run produced 39 captures in
-`/tmp/opencode/desktop-workspaces/final-all/`. See `task-3-report.md` for the exact list and why each
-one exists.
+inspection (real app, never a fixture): admin board 1920/1440/375, the template catalog at 1920 (the
+file is named `admin-templates-1920-6.png` for this run's six templates, but the rendered catalog is
+the real total: those six plus the root suite's existing template, i.e. 7 cards), task participant
+1920/1024/375/200%-zoom, organizer preview and board dialog at the effective 960px layout, module
+tasks 1920/1440/375, participant board 1920/375, site form 1920/375 and the task editor at
+1920/1440/375. The full run produced 39 captures in `/tmp/opencode/desktop-workspaces/final-all/`.
+See `task-3-report.md` for the exact list and why each one exists.
 
 ## Limitations, stated honestly
 

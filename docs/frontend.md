@@ -236,9 +236,10 @@ the same registry through `safeLowlight`, so an unknown language stays plain in 
 - `desktop-workspaces.spec.ts` — 21 tests per project (16 chromium, 5 phone; the other 5/16 are
   project-specific skips, not a disabled gate). Real DOM geometry with ±1px assertions: page cap,
   dialog caps, rail widths, one-column card fallbacks, the 1099/1100, 719/720, 759/760 and
-  1199/1200 threshold neighbours, a real three- then six-template catalog created through the
-  authoring API, the 200% zoom reflow (CSS and device-metrics), Unicode rune counting with exact
-  stored bytes, one editor across resizes, and no duplicate request or orphan form target. See
+  1199/1200 threshold neighbours, a real catalog created through the authoring API (this run adds 3
+  then 3 of its own templates and the grid is measured against the real catalog total), the 200% zoom
+  reflow (CSS and device-metrics), Unicode rune counting with exact stored bytes, one editor across
+  resizes, and no duplicate request or orphan form target. See
   `docs/desktop-workspaces-verification.md` for the measured numbers and screenshots.
 - The CI default-profile runner (`e2e/run-default-profile-e2e.sh`) sets `ACTFB_E2E=1` and executes
   `markdown-render.spec.ts`, `rich-text-editor.spec.ts` and `desktop-workspaces.spec.ts` against the
@@ -279,8 +280,9 @@ implemented; FLAG automatic checks have no accept/reject control.
 - shadcn-vue primitives are the only UI kit: `button`, `input`, `label`, `textarea`, `select`, `dialog`, `table`,
   `alert`, `badge`, `card`, `skeleton`, `separator`, `checkbox`, `tabs`, `sheet`. Files were installed with the
   shadcn-vue registry CLI, not hand-built lookalikes.
-- Desktop sidebar; under 760 px it becomes a Sheet drawer with 44 px minimum controls. Every async surface has
-  loading, empty, error/no-permission and populated states; focus-visible outlines are preserved.
+- Desktop sidebar; under 768 px (Tailwind `md`) it becomes a Sheet drawer. The 44 px minimum control rule
+  applies at 760 px and below. Every async surface has loading, empty, error/no-permission and populated
+  states; focus-visible outlines are preserved.
 - Server strings are rendered as text (no `v-html`). `description` whitespace is preserved with CSS only.
 
 ### Desktop workspaces (content-width layout)
@@ -314,9 +316,9 @@ Decisions that follow from this, and why:
   scrolling. Constraining all of `.markdown-body` would squeeze code and tables.
 - **Simple forms stay bounded.** `PageContainer`'s `bounded` variant keeps the profile-like form at
   its previous 1104px; a wider workspace is not a licence to stretch every input.
-- **Phone.** Below 760px the sidebar becomes a Sheet drawer, controls are at least 44px tall, and the
-  workspace, cards and dialogs all fall back to one column at the 343px content width of a 375px
-  viewport.
+- **Phone.** Below 768px the sidebar becomes a Sheet drawer; at 760px and below every control is at
+  least 44px tall, and the workspace, cards and dialogs all fall back to one column at the 343px
+  content width of a 375px viewport.
 - **Zoom.** At 200% the effective layout viewport halves, so the same container rules reflow the
   columns instead of shrinking controls. This is asserted two ways in
   `frontend/e2e/desktop-workspaces.spec.ts`: a CSS-`zoom` pass that proves the container-query

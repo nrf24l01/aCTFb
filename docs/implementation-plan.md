@@ -1001,10 +1001,11 @@ gates and CI wiring.
   in Chromium (happy-dom cannot exercise DOMPurify/ProseMirror selection); the authoring browser
   gate requires the real backend/PG stack and is not part of the frontend-only job.
 
-**Desktop workspaces and direct authoring (2026-11-26):** status **implemented, pending independent
-review and main screenshot inspection** — Tasks 1, 2 and 3 are implemented and locally verified. No
-publication is claimed: nothing is pushed, no CI run was triggered and the main assistant has not yet
-inspected the final screenshots.
+**Desktop workspaces and direct authoring (2026-11-26):** status **reviewed; publication pending CI**
+— Tasks 1, 2 and 3 are implemented, locally verified, independently reviewed
+(`docs/desktop-workspaces-review.md`) and main has accepted the screenshot set. Nothing is published:
+GHCR `latest` remains the `0da549e` baseline until the existing four-job CI run is green on the
+publication commit.
 
 - Spec: `docs/superpowers/specs/2026-11-26-desktop-workspaces-design.md`.
 - Plan: `docs/superpowers/plans/2026-11-26-desktop-workspaces.md` (base `0da549e`).
@@ -1050,7 +1051,7 @@ inspected the final screenshots.
   dialog 1052, layout 1000, stacked; phone 375px → dialog 375, body/layout 343, stacked, 44px
   input/button controls; site form 1104px at 1440/1920 with a 320px rail, 764px and stacked at
   1024, 343px and stacked at 375.
-- Screenshots (main assistant inspection pending): `/tmp/opencode/desktop-workspaces/task1/` —
+- Screenshots (inspected and accepted by main): `/tmp/opencode/desktop-workspaces/task1/` —
   `board-dialog-1440.png`, `module-dialog-1440.png`, `task-dialog-1920.png`,
   `task-dialog-1440.png`, `task-dialog-manual-1920.png`, `task-dialog-instance-1920.png`,
   `site-introduction-1440.png`, `site-introduction-1920.png`, `board-dialog-375.png`,
@@ -1066,9 +1067,9 @@ inspected the final screenshots.
   default-profile 5-test suite was not rerun in Task 1; independent review and main screenshot
   inspection are still required before publication.
 
-**Task 2 — shared workspace and reader/organizer views (2026-11-26):** implemented, pending
-independent review. Base `9c4466b`; source and tests in `006809d`. Frontend-only; no backend, API,
-migration, dependency or provider change and no new fetch/mutation call.
+**Task 2 — shared workspace and reader/organizer views (2026-11-26):** implemented and
+independently reviewed. Base `9c4466b`; source and tests in `006809d`. Frontend-only; no backend,
+API, migration, dependency or provider change and no new fetch/mutation call.
 
 - Scope: `PageContainer`, `AppShell`, `style.css`, `BoardsPage`, `BoardPage`, `ModulePage`,
   `TaskPage`, `AdminBoardPage`, `AdminHubPage`, `AdminTemplatesPage`, `AdminInstancesPage`,
@@ -1113,7 +1114,7 @@ migration, dependency or provider change and no new fetch/mutation call.
   1920 and 2×4 at 1440; admin users table >1200 with a ≤384 search input; profile remains 1104
   bounded; site form 1552/1180/764/343 and stacked below 1100; 375px admin board document width
   375 with a wrapping, ≥44px legacy button.
-- Screenshots (main assistant inspection pending): `/tmp/opencode/desktop-workspaces/task2/screenshots/`
+- Screenshots (inspected and accepted by main): `/tmp/opencode/desktop-workspaces/task2/screenshots/`
   — task participant 1920/1440/1024, task preview 1920, board participant 1920/1440, module
   participant 1920/1440, admin board 1920 (closed and open lifecycle)/1440/1024/375, admin users
   1920, site introduction 1920/1440/375, plus the Task 1 dialogs re-captured in the same run.
@@ -1122,10 +1123,11 @@ migration, dependency or provider change and no new fetch/mutation call.
   (`cmd/backend/routes_integration.go:137`; the boot guard `deployment_catalog_pg_test.go` and the
   root default-profile spec already create a template with every optional feature off). Task 2
   did not seed or measure the catalog: it inferred the grid from the shared `admin-cards` rule on
-  the admin hub plus a unit structure test. Task 3 created three and then six real templates
-  through the authoring API on the same default profile and measured 3/2/1-column tracks in the
-  browser; the root default-profile suite, the CI inclusion of the new spec and the full matrix
-  are done there. Independent review and main screenshot inspection are still required. Full
+  the admin hub plus a unit structure test. Task 3 adds three and then three more real templates of
+  its own through the authoring API on the same default profile and measures the grid against the
+  real catalog total, which a fresh owned run showed as 4 then 7 records (the root default-profile
+  suite creates one template first); the root suite, the CI inclusion of the new spec and the full
+  matrix are done there. Independent review and main screenshot inspection are complete. Full
   details: `.superpowers/sdd/2026-11-26-desktop-workspaces/task-2-report.md` and
   `task-3-report.md`.
 ## CI optimisation pass (2026-11-26)
