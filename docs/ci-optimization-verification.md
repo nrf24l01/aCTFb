@@ -1,6 +1,6 @@
 # CI optimisation verification (2026-11-26)
 
-Status: **implemented locally, pending CI, not yet published.** The five-file change is applied and validated
+Status: **implemented locally, pending CI, not yet published.** The five code files are applied and validated
 on this machine but has not been pushed, so `main` still carries the previous workflow and GHCR `latest`
 still points at the pre-change build.
 
@@ -51,9 +51,20 @@ so it never gated anything.
 | H1: integration independence | 188 s of dead wait removed from the serial path | **≈ −193 s (−19.5 %)** |
 | H2: working gha cache in the integration build | 37.6 s cold `go build` + 11.4 s `bun run build` | **≈ −40 to −50 s** |
 
-These are arithmetic on measured durations, **not** measurements. No second run has been performed. The first
-pipeline after this lands is still cold — nothing has written the integration cache yet — so the second
-pipeline is the first real signal.
+These are arithmetic on measured durations, **not** measurements. No second run has been performed.
+
+**Run 1 is expected to be slower, not merely "cold", for two concrete reasons.** Neither is a regression:
+
+1. The integration build now performs a real `mode=max` cache **export** that it previously skipped entirely —
+   without credentials the gha exporter silently no-oped, so that cost simply did not exist. The
+   `Build all production images` step may therefore exceed the 72 s baseline on run 1.
+2. `scripts/lib/ci-contract.sh` is a new file under `scripts/`, and `.dockerignore` does **not** exclude
+   `scripts/`, so `COPY . .` changes and the 37.6 s compile is cold for that reason as well. `.github/`,
+   `e2e/` and `docs/` *are* excluded, so future CI-only edits will not bust the image cache.
+
+The second pipeline is the first real signal for H2, and the two `Build all production images` durations
+should be compared before quoting any saving. No net improvement is claimed anywhere in this document: the
+full-stack gate adds wall clock and its cost is unknown.
 
 ## Cache shape: cold versus warm
 
@@ -148,34 +159,86 @@ expected to **add** wall clock, and must not be netted against the H1/H2 savings
 
 ### Why it was not executed on this machine
 
-`e2e/run-full-e2e.sh` cleans up by diffing container IDs before and after the run and force-removing
-everything new (`cleanup_new_docker_resources`, lines 66-81):
+The runner's cleanup force-removes any container created during its window. That is correct on an ephemeral
+CI VM and unsafe beside a live operator stack, so the removal is now gated (see "Cleanup ownership" below)
+and the run still belongs on the CI host rather than this machine, which has `actfb-prod-*` on 8080.
 
-```bash
-new_containers="$(comm -13 "$WORKDIR/containers-before.txt" <(docker ps -aq | sort) …)"
-[[ -n "$new_containers" ]] && docker rm -f $new_containers
-```
+The specs were not weakened to make them runnable in a smaller profile, and this document does not claim the
+gate passed anywhere. It has never executed, on any host.
 
-Volumes are filtered to `^actfb`, but **containers are not** — any container created by any process during
-the run window is destroyed. This machine has a live operator stack (`actfb-prod-*`, seven containers,
-8080 published) plus a buildx builder. Pre-existing containers are in the before-snapshot and would survive,
-but a concurrent container creation would not, and a builder recreated mid-run would be removed.
+## Cleanup ownership
 
-The broad-cleanup case therefore applies: the runner belongs on the ephemeral CI host, where destroying
-everything created during the run is exactly correct. It was not run locally, and the specs were not weakened
-to make them runnable in a smaller profile.
+Root cause: `cleanup_new_docker_resources` diffed container IDs and force-removed **everything** new. Volumes
+were namespace-filtered; containers were not. On a shared host that destroys a concurrent `docker compose up`,
+a recreated buildx builder, or an operator container.
+
+The policy now lives in `e2e/lib/run-cleanup.sh` and is applied by both runners:
+
+| Resource | Rule |
+| --- | --- |
+| Containers/volumes the harness created by exact name (`$CLAMAV_NAME`, `$PG_NAME`, …) | always removed — safe on any host |
+| Anything else that appeared during the run | removed **only** when `GITHUB_ACTIONS == true` **and** `RUNNER_ENVIRONMENT == github-hosted`; otherwise reported and left in place |
+| Volumes in the difference set | stay filtered to `^actfb` **even on a hosted runner**, so a concurrently created operator volume is never deleted |
+| The scratch `$WORKDIR` | removed only after resolving it under the shared temp root, so a bad `E2E_WORKDIR` cannot delete a checkout |
+
+`${CI:-}` alone is deliberately **not** accepted: a shared CI box or a developer machine can set `CI=true`
+without being disposable. A self-hosted runner (`RUNNER_ENVIRONMENT=self-hosted`) is denied.
+
+When removal is refused, the existing leak assertion still runs and fails the script, so a leftover cannot be
+mistaken for success. The cost of the conservative choice is documented: on a manual host a failed full-stack
+run may need explicit cleanup of its own containers.
+
+Verified with `./e2e/test-run-cleanup.sh` — 18 checks against a stub `docker` on `PATH`, no daemon:
+a bystander container survives a manual host, `CI=true` alone does not authorise deletion, a self-hosted
+runner is denied, a hosted runner removes its own and the bystander but never a pre-existing container,
+non-`actfb` volumes are untouched, and a non-temp workdir is refused. Removing the guard from the helper
+turns 5 of those checks red, so they are live rather than decorative.
+
+## Failure evidence capture
+
+Root cause: both runners assigned `E2E_OUTPUT_DIR`/`E2E_REPORT_DIR` unconditionally inside `$WORKDIR`, which
+`cleanup()` deletes on every exit including failure. `playwright.config.ts` produces trace/screenshot/video
+`on-failure` — so a failing gate deleted its own evidence, and the workflow's `if: failure()` upload collects
+only workspace paths.
+
+Both runners now honour a caller-supplied directory (`${E2E_OUTPUT_DIR:-…}`), and the workflow sets
+`${{ github.workspace }}/e2e/test-results/<gate>` and `…/playwright-report/<gate>` for both browser steps. The
+scratch workdir — which holds the generated PostgreSQL credentials — is still deleted, and the run log now
+prints the two artifact directories (paths only, never file contents).
+
+What the upload can therefore contain: Playwright traces, screenshots and video, plus the HTML report. Traces
+record browser network activity, which includes the synthetic CI bearer tokens issued by the harness's
+ephemeral accounts. Those accounts and their credentials are generated per run, never persisted, and the
+generated PostgreSQL password lives only in the deleted workdir. No operator data, no `config.yaml`, no
+`.env` and no repository secret is written to these paths.
+
+## Contract self-test exactness
+
+Root cause: `_ci_expect` treated *any* failure as a rejection, so a fixture whose mutation accidentally broke
+an unrelated check would still pass. It also injected `packages: write` at an indentation that is not valid
+YAML, so the fixture did not prove the check fires on a real job-level block.
+
+Now each fixture names the failure label it must produce, matched as a fixed string against the recorded
+labels, and failure labels are stable identities with detail carried separately (so an expected label never
+embeds an interpolated value). The permissions fixture is a correctly indented job-level block. Two fixtures
+were added: workflow-level `write-all` (M1) and a meta-check proving a wrong expected label fails. Verified
+RED: pointing the push fixture at the wrong label makes the self-test fail with
+`expected failure label: … / actual failure labels: …`.
 
 ## Local validations performed
 
 All commands below were run on this machine at the change, after applying it. Exit codes are the real ones.
+No Docker build, no Go or frontend test run, no server: the cleanup tests use a stub `docker` on `PATH`.
 
 | Check | Command | Result |
 | --- | --- | --- |
 | Patch applied exactly | `diff <(grep -v '^index ' prepared.patch) <(grep -v '^index ' <(git diff))` | byte-identical |
-| Shell syntax | `bash -n` on all four changed scripts | 4/4 OK |
-| Contract, positive | `ci_contract_check .github/workflows/go.yml docker-bake.hcl` | **66 passed, 0 failed** (deterministic over 3 runs) |
-| Contract self-test | `ci_contract_selftest …` | **11 passed, 0 failed** — 10 mutated workflows each rejected |
-| Contract, negative control | `ci_contract_check` against the pre-change workflow | **19 failed** — the gate is live, not decorative |
+| Shell syntax | `bash -n` on all changed scripts | OK |
+| Contract, positive | `ci_contract_check .github/workflows/go.yml docker-bake.hcl` | **69 passed, 0 failed** (deterministic over 3 runs) |
+| Contract self-test | `ci_contract_selftest …` | **13 passed, 0 failed** — 11 mutants + 1 meta-check, each pinned to its own expected label |
+| Contract, negative control | `ci_contract_check` against baseline `0da549e` | **19 failed** — the gate is live, not decorative |
+| Contract test runner | `./scripts/test-ci-contract.sh` | **9 passed, 0 failed** |
+| Cleanup policy tests | `./e2e/test-run-cleanup.sh` (mock `docker`, no daemon) | **18 passed, 0 failed** |
 | Packaging script | `./scripts/test-production-packaging.sh` | **337 passed, 0 failed**, 1 SKIP |
 | Workflow YAML | PyYAML 6.0.4 (preinstalled) | parses; 4 jobs; `integration` has no `needs`, no `permissions`; `publish` keeps `needs: [backend, frontend, integration]` |
 | Bake definition | `docker buildx bake -f docker-bake.hcl --print` with the ten `set` overrides | 10 targets, exact `actfb-<target>:ci` tags, `context: .` (frontend `frontend`), `linux/amd64`, per-target gha scopes with `mode=max` |
@@ -213,16 +276,16 @@ block**, so publish's legitimate push still passes.
 
 ## The `GOARCH` non-issue
 
-An earlier report in this session showed the Dockerfile build line as `GOARmd64`. **That was a display
-artifact, not a defect in the file.** Byte-exact check of the committed blob:
+An earlier report in this session rendered the Dockerfile build line as a garbled token. **That was a
+display artifact, not a defect in the file.** Byte-exact check of the committed blob:
 
 ```
 $ git show HEAD:Dockerfile | sed -n '31p' | od -c
 … C G O _ E N A B L E D = 0   G O O S = l i n u x   G O A R C H = a m d 6 4   \
 ```
 
-The file contains `GOARmd64`. No Dockerfile change is part of this work, and none is needed. `docs/
-instance-lifetime-verification.md` already records the same finding from an earlier session.
+Target architecture is configured correctly; no Dockerfile change was needed, and none is part of this
+work. `docs/instance-lifetime-verification.md` already records the same finding from an earlier session.
 
 Related: `GOFLAGS` / `-p=1` never existed in this Dockerfile (`git log -S GOFLAGS -- Dockerfile` is empty),
 so it was not added. Build memory is bounded by `max-parallelism = 2` plus the already-sequential
@@ -255,7 +318,7 @@ change reaches `main` and a new run passes.
 | --- | --- | --- |
 | 1 | The full-stack gate has never run in CI; duration unknown, ClamAV download is a flake source | 45-minute step bound inside a 120-minute job. A real failure is a product finding, not something to loosen |
 | 2 | If the gate plus existing steps exceed 120 minutes, the job times out | Watch the first run; raising `timeout-minutes` is a one-line follow-up |
-| 3 | First pipeline after landing is still cold | Expected. Second pipeline is the first measurement of H2 |
+| 3 | First pipeline after landing is cold and may be slower (first real cache export + new `scripts/` file busts the compile) | Expected, see above. Second pipeline is the first measurement of H2 |
 | 4 | H1 makes a red commit more expensive | Accepted and documented in the workflow comment. Green commits are strictly faster; `publish` still blocks on all three |
 | 5 | The integration independence assertion is a known-snapshot check | If a genuine artifact dependency is ever wanted, that assertion must change deliberately |
 | 6 | `bake-action` tag overrides verified from the action schema and `bake --print`, not yet observed on a real runner | If a tag were wrong, the packaging/runtime smokes fail loudly in the same job |

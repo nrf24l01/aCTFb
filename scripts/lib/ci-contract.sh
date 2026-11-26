@@ -16,13 +16,31 @@
 
 CI_CONTRACT_PASSES=0
 CI_CONTRACT_FAILURES=0
+# Labels of the checks that failed, so a fixture can assert that *its* invariant
+# fired rather than "some check somewhere failed".
+CI_CONTRACT_FAILED_LABELS=()
 
 # Every image the integration job must load locally and the publish job must
 # push. One list so a target can never be added to one half only.
 CI_CONTRACT_TARGETS="backend notification retention events-dispatcher file-scanner storage-init plugin-runner ad-worker instance-worker frontend"
 
+_ci_reset() { CI_CONTRACT_PASSES=0; CI_CONTRACT_FAILURES=0; CI_CONTRACT_FAILED_LABELS=(); }
+
 _ci_pass() { printf 'PASS %s\n' "$1"; CI_CONTRACT_PASSES=$((CI_CONTRACT_PASSES + 1)); }
-_ci_fail() { printf 'FAIL %s\n' "$1" >&2; CI_CONTRACT_FAILURES=$((CI_CONTRACT_FAILURES + 1)); }
+
+# _ci_fail LABEL [DETAIL]
+# Only the stable LABEL is recorded for the self-test, so an expected label never
+# embeds an interpolated value. DETAIL carries the pattern or the actual value.
+_ci_fail() {
+  local label="$1" detail="${2:-}"
+  if [[ -n "$detail" ]]; then
+    printf 'FAIL %s (%s)\n' "$label" "$detail" >&2
+  else
+    printf 'FAIL %s\n' "$label" >&2
+  fi
+  CI_CONTRACT_FAILURES=$((CI_CONTRACT_FAILURES + 1))
+  CI_CONTRACT_FAILED_LABELS+=("$label")
+}
 
 # Print one job block from a workflow. Jobs live at two-space indent under
 # `jobs:`; a following two-space key ends the block.
@@ -36,30 +54,29 @@ ci_job_block() {
 }
 
 _ci_require_in() { # block label literal
-  if [[ "$1" == *"$3"* ]]; then _ci_pass "$2"; else _ci_fail "$2 (missing: $3)"; fi
+  if [[ "$1" == *"$3"* ]]; then _ci_pass "$2"; else _ci_fail "$2" "missing: $3"; fi
 }
 
 _ci_forbid_in() { # block label literal
-  if [[ "$1" == *"$3"* ]]; then _ci_fail "$2 (unexpected: $3)"; else _ci_pass "$2"; fi
+  if [[ "$1" == *"$3"* ]]; then _ci_fail "$2" "unexpected: $3"; else _ci_pass "$2"; fi
 }
 
 # Line-anchored variants. These exist because a substring check can be satisfied
 # by prose: a comment mentioning `push: false` would otherwise let a step that
 # actually pushes pass the gate. Indentation is part of the pattern on purpose.
 _ci_require_line() { # block label ere
-  if printf '%s\n' "$1" | grep -Eq -- "$3"; then _ci_pass "$2"; else _ci_fail "$2 (no line matches: $3)"; fi
+  if printf '%s\n' "$1" | grep -Eq -- "$3"; then _ci_pass "$2"; else _ci_fail "$2" "no line matches: $3"; fi
 }
 
 _ci_forbid_line() { # block label ere
-  if printf '%s\n' "$1" | grep -Eq -- "$3"; then _ci_fail "$2 (line matches: $3)"; else _ci_pass "$2"; fi
+  if printf '%s\n' "$1" | grep -Eq -- "$3"; then _ci_fail "$2" "line matches: $3"; else _ci_pass "$2"; fi
 }
 
 # --- one workflow/bake pair -------------------------------------------------
 
 ci_contract_check() {
   local wf="$1" bake="$2"
-  CI_CONTRACT_PASSES=0
-  CI_CONTRACT_FAILURES=0
+  _ci_reset
 
   if [[ ! -f "$wf" ]]; then _ci_fail "ci contract: missing workflow $wf"; return 1; fi
   if [[ ! -f "$bake" ]]; then _ci_fail "ci contract: missing bake definition $bake"; return 1; fi
@@ -69,7 +86,8 @@ ci_contract_check() {
   if [[ "$jobs" == $'backend\nfrontend\nintegration\npublish' ]]; then
     _ci_pass 'workflow has exactly backend/frontend/integration/publish jobs'
   else
-    _ci_fail "workflow jobs are not the approved four: $(printf '%s' "$jobs" | tr '\n' ' ')"
+    _ci_fail 'workflow has exactly backend/frontend/integration/publish jobs' \
+      "got: $(printf '%s' "$jobs" | tr '\n' ' ')"
   fi
 
   local backend frontend integration publish
@@ -93,10 +111,17 @@ ci_contract_check() {
   # real artifact dependency this assertion must be changed deliberately; it is
   # not meant to forbid such a design, only to make it explicit.
   _ci_forbid_line "$integration" 'integration does not wait on the quality jobs' '^    needs:'
+  # Any job-level permissions block at all: the job must inherit the global
+  # read-only default. A `write-all` here would grant packages: write even though
+  # the literal `packages: write` is absent.
+  _ci_forbid_line "$integration" 'integration declares no job permissions' '^    permissions:'
   _ci_forbid_line "$integration" 'integration cannot write packages' '^      packages: write$'
   _ci_forbid_line "$integration" 'integration does not log in to a registry' '^        uses: docker/login-action@'
   _ci_forbid_line "$integration" 'integration never pushes images' '^ *docker push'
-  _ci_forbid_line "$integration" 'integration has no hand-written buildx loop' '^ *docker buildx build'
+  # Any `docker buildx` subcommand, not just `buildx build`, and regardless of a
+  # `env X=1` / `bash -c` prefix. The bake shape checks below are the primary
+  # guard; this is the defence-in-depth one.
+  _ci_forbid_line "$integration" 'integration has no hand-written buildx invocation' '^ *([A-Za-z_][A-Za-z0-9_]*=[^ ]+ +)*(sudo +)?docker +buildx'
   _ci_forbid_line "$integration" 'integration does not pass its own cache flags' '^ *--cache-from'
 
   # --- the integration build must be the official, bounded, load-only bake --
@@ -134,7 +159,8 @@ ci_contract_check() {
   if [[ "$publish_needs" == *backend* && "$publish_needs" == *frontend* && "$publish_needs" == *integration* ]]; then
     _ci_pass 'publish needs backend, frontend and integration'
   else
-    _ci_fail "publish does not need all three prior jobs (got: ${publish_needs:-none})"
+    _ci_fail 'publish needs backend, frontend and integration' \
+      "got: ${publish_needs:-none}"
   fi
   _ci_require_in "$publish" 'publish may write packages' 'packages: write'
   _ci_require_in "$publish" 'publish is main-only' "github.ref == 'refs/heads/main'"
@@ -142,6 +168,22 @@ ci_contract_check() {
   _ci_require_in "$publish" 'publish publishes the immutable full-SHA tag' 'sha-${{ github.sha }}'
 
   # --- the bake definition carries platform, scopes and labels -------------
+  # Workflow-level permissions must be exactly the read-only default; a
+  # `write-all` there would silently grant integration package write.
+  local global_perms
+  global_perms="$(awk '
+    /^permissions:[[:space:]]*$/ { inside = 1; print; next }
+    inside && /^[^[:space:]]/ { inside = 0 }
+    inside { print }
+  ' "$wf")"
+  if [[ "$global_perms" == $'permissions:\n  contents: read' ]]; then
+    _ci_pass 'workflow permissions are exactly contents: read'
+  else
+    _ci_fail 'workflow permissions are exactly contents: read' \
+      "got: $(printf '%s' "$global_perms" | tr '\n' ' ')"
+  fi
+  _ci_forbid_line "$(printf '%s\n' "$global_perms")" 'workflow never grants write-all' 'write-all'
+
   if grep -Eq 'platforms[[:space:]]*=[[:space:]]*\["linux/amd64"\]' "$bake"; then
     _ci_pass 'bake builds only linux/amd64'
   else
@@ -156,12 +198,12 @@ ci_contract_check() {
     if [[ "$(grep -c "scope=actfb-${target}\"" "$bake")" -ge 2 ]]; then
       _ci_pass "bake keeps a separate GHA cache scope for ${target}"
     else
-      _ci_fail "bake is missing the GHA cache scope for ${target}"
+      _ci_fail "bake keeps a separate GHA cache scope for ${target}"
     fi
     if grep -q "mode=max,scope=actfb-${target}\"" "$bake"; then
       _ci_pass "bake exports max-mode cache for ${target}"
     else
-      _ci_fail "bake does not export max-mode cache for ${target}"
+      _ci_fail "bake exports max-mode cache for ${target}"
     fi
   done
 
@@ -190,36 +232,69 @@ _ci_mutate_insert_after_job() { # file job literal-line
   ' "$1"
 }
 
-_ci_expect() { # expect(accept|reject) label mutated-workflow log bake
-  local want="$1" label="$2" mutated="$3" log="$4" bake="$5"
+# Assert one fixture's verdict. For `reject`, the expected failure label must be
+# present: proving that *this* invariant fired, not merely that some check did.
+# A mutation that breaks an unrelated check therefore fails the self-test.
+_ci_expect() { # expect(accept|reject) label mutated-workflow log bake [expected-fail-label]
+  local want="$1" label="$2" mutated="$3" log="$4" bake="$5" expected="${6:-}"
   # ci_contract_check resets the counters, so preserve the running selftest
   # tally and only add this fixture's own verdict to it.
   local saved_passes="$CI_CONTRACT_PASSES" saved_failures="$CI_CONTRACT_FAILURES"
   ci_contract_check "$mutated" "$bake" >"$log" 2>&1 || true
   local fails="$CI_CONTRACT_FAILURES"
+  local labels
+  labels="$(printf '%s\n' "${CI_CONTRACT_FAILED_LABELS[@]+"${CI_CONTRACT_FAILED_LABELS[@]}"}")"
   CI_CONTRACT_PASSES="$saved_passes"
   CI_CONTRACT_FAILURES="$saved_failures"
+
   if [[ "$want" == reject ]]; then
-    if [[ "$fails" -gt 0 ]]; then
-      _ci_pass "contract rejects ${label}"
-    else
+    if [[ -z "$expected" ]]; then
+      _ci_fail "self-test fixture '${label}' has no expected failure label"
+      return 1
+    fi
+    if [[ "$fails" -eq 0 ]]; then
       _ci_fail "contract accepts ${label}: that unsafe edit is not detected"
       sed 's/^/    /' "$log" >&2 || true
+      return 1
     fi
+    # Fixed-string, whole-line match against the recorded labels.
+    if printf '%s\n' "$labels" | grep -qxF -- "$expected"; then
+      _ci_pass "contract rejects ${label}"
+      return 0
+    fi
+    _ci_fail "contract rejects ${label} but not for the expected reason"
+    printf '    expected failure label: %s\n' "$expected" >&2
+    printf '    actual failure labels:\n' >&2
+    printf '%s\n' "$labels" | sed 's/^/      /' >&2
+    return 1
+  fi
+
+  if [[ "$fails" -eq 0 ]]; then
+    _ci_pass "contract accepts ${label}"
+    return 0
+  fi
+  _ci_fail "contract rejects ${label}, which should be valid"
+  printf '%s\n' "$labels" | sed 's/^/    /' >&2 || true
+  return 1
+}
+
+# Meta-fixture: prove the expected-label check itself is live. Running the same
+# mutant with a label no check emits must FAIL; otherwise every fixture above
+# would pass on "some check fired". The probe runs in a subshell so its
+# deliberate failure cannot leak into the selftest totals.
+_ci_expect_label_check_is_live() { # mutated log bake
+  local mutated="$1" log="$2" bake="$3"
+  if ( _ci_expect reject 'a wrong expected label' "$mutated" "$log" "$bake" \
+        'this label is never emitted by any check' ) >/dev/null 2>&1; then
+    _ci_fail 'self-test detects a wrong expected label'
   else
-    if [[ "$fails" -eq 0 ]]; then
-      _ci_pass "contract accepts ${label}"
-    else
-      _ci_fail "contract rejects ${label}, which should be valid"
-      sed 's/^/    /' "$log" >&2 || true
-    fi
+    _ci_pass 'self-test detects a wrong expected label'
   fi
 }
 
 ci_contract_selftest() {
   local wf="$1" bake="$2"
-  CI_CONTRACT_PASSES=0
-  CI_CONTRACT_FAILURES=0
+  _ci_reset
 
   local dir
   dir="$(mktemp -d "${TMPDIR:-/tmp}/actfb-ci-contract.XXXXXX")"
@@ -230,34 +305,56 @@ ci_contract_selftest() {
   _ci_expect accept 'the shipped workflow' "$wf" "$log" "$bake"
 
   _ci_mutate_replace "$wf" 'needs: [backend, frontend, integration]' 'needs: [backend, frontend]' >"$dir/no-publish-dep.yml"
-  _ci_expect reject 'publish that dropped integration' "$dir/no-publish-dep.yml" "$log" "$bake"
+  _ci_expect reject 'publish that dropped integration' "$dir/no-publish-dep.yml" "$log" "$bake" \
+    'publish needs backend, frontend and integration'
 
   _ci_mutate_replace "$wf" '          push: false' '          push: true' >"$dir/integration-push.yml"
-  _ci_expect reject 'an integration step that pushes' "$dir/integration-push.yml" "$log" "$bake"
+  _ci_expect reject 'an integration step that pushes' "$dir/integration-push.yml" "$log" "$bake" \
+    'integration bake never pushes'
 
   _ci_mutate_replace "$wf" '          load: true' '          load: false' >"$dir/integration-noload.yml"
-  _ci_expect reject 'an integration build that keeps no image' "$dir/integration-noload.yml" "$log" "$bake"
+  _ci_expect reject 'an integration build that keeps no image' "$dir/integration-noload.yml" "$log" "$bake" \
+    'integration bake loads images locally'
 
   _ci_mutate_drop "$wf" '            retention.tags=actfb-retention:ci' >"$dir/missing-tag.yml"
-  _ci_expect reject 'a build that lost one image tag' "$dir/missing-tag.yml" "$log" "$bake"
+  _ci_expect reject 'a build that lost one image tag' "$dir/missing-tag.yml" "$log" "$bake" \
+    'integration tags actfb-retention:ci'
 
   _ci_mutate_drop "$wf" '            max-parallelism = 2' >"$dir/unbounded.yml"
-  _ci_expect reject 'an unbounded build' "$dir/unbounded.yml" "$log" "$bake"
+  _ci_expect reject 'an unbounded build' "$dir/unbounded.yml" "$log" "$bake" \
+    'integration bake is bounded'
 
   _ci_mutate_insert_after_job "$wf" integration '    needs: [backend, frontend]' >"$dir/restored-needs.yml"
-  _ci_expect reject 'integration waiting on the quality jobs again' "$dir/restored-needs.yml" "$log" "$bake"
+  _ci_expect reject 'integration waiting on the quality jobs again' "$dir/restored-needs.yml" "$log" "$bake" \
+    'integration does not wait on the quality jobs'
 
-  _ci_mutate_insert_after_job "$wf" integration '      packages: write' >"$dir/integration-packages.yml"
-  _ci_expect reject 'an integration job with package write' "$dir/integration-packages.yml" "$log" "$bake"
+  # Valid job-level permissions block, correctly indented (4 spaces for the key,
+  # 6 for its child) so the fixture is syntactically real YAML.
+  _ci_mutate_insert_after_job "$wf" integration $'    permissions:\n      packages: write' >"$dir/integration-packages.yml"
+  _ci_expect reject 'an integration job with package write' "$dir/integration-packages.yml" "$log" "$bake" \
+    'integration declares no job permissions'
 
   _ci_mutate_insert_after_job "$wf" integration '        uses: docker/login-action@v4' >"$dir/integration-login.yml"
-  _ci_expect reject 'an integration job that logs in to a registry' "$dir/integration-login.yml" "$log" "$bake"
+  _ci_expect reject 'an integration job that logs in to a registry' "$dir/integration-login.yml" "$log" "$bake" \
+    'integration does not log in to a registry'
 
   _ci_mutate_insert_after_job "$wf" integration '          docker buildx build \' >"$dir/manual-buildx.yml"
-  _ci_expect reject 'a hand-written buildx loop' "$dir/manual-buildx.yml" "$log" "$bake"
+  _ci_expect reject 'a hand-written buildx loop' "$dir/manual-buildx.yml" "$log" "$bake" \
+    'integration has no hand-written buildx invocation'
 
   _ci_mutate_drop "$wf" 'TestRustFSFullStackIntegration' >"$dir/dropped-gate.yml"
-  _ci_expect reject 'a workflow that dropped a gate step' "$dir/dropped-gate.yml" "$log" "$bake"
+  _ci_expect reject 'a workflow that dropped a gate step' "$dir/dropped-gate.yml" "$log" "$bake" \
+    'integration still runs TestRustFSFullStackIntegration'
+
+  # Workflow-level privilege escalation: write-all must be rejected even though
+  # no job declares its own permissions block.
+  _ci_mutate_replace "$wf" '  contents: read' '  write-all' >"$dir/global-write-all.yml"
+  _ci_expect reject 'a workflow-level write-all' "$dir/global-write-all.yml" "$log" "$bake" \
+    'workflow never grants write-all'
+
+  # Meta-fixture: the expected-label check itself must be live. Claiming a label
+  # that no check emits has to fail, otherwise every fixture above is vacuous.
+  _ci_expect_label_check_is_live "$dir/integration-push.yml" "$log" "$bake"
 
   rm -rf "$dir"
   [[ "$CI_CONTRACT_FAILURES" -eq 0 ]]

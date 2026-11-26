@@ -318,11 +318,14 @@ forbid_pattern .github/workflows/go.yml 'docker push' 'workflow does not use a s
 # unrelated `needs:` elsewhere, and it re-runs itself against mutated copies of
 # the workflow to prove each invariant actually rejects an unsafe edit.
 source scripts/lib/ci-contract.sh
-ci_contract_check .github/workflows/go.yml docker-bake.hcl
+# A non-zero return here must not abort the script before the summary: the FAIL
+# lines are already printed and the counts are folded, so the operator still gets
+# the full "N passed / M failed" report and a non-zero exit at the end.
+ci_contract_check .github/workflows/go.yml docker-bake.hcl || true
 passes=$((passes + CI_CONTRACT_PASSES))
 failures=$((failures + CI_CONTRACT_FAILURES))
 if [[ "${ACTFB_SKIP_CI_CONTRACT_SELFTEST:-0}" != "1" ]]; then
-  ci_contract_selftest .github/workflows/go.yml docker-bake.hcl
+  ci_contract_selftest .github/workflows/go.yml docker-bake.hcl || true
   passes=$((passes + CI_CONTRACT_PASSES))
   failures=$((failures + CI_CONTRACT_FAILURES))
 fi

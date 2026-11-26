@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=e2e/lib/run-cleanup.sh
+source "$ROOT/e2e/lib/run-cleanup.sh"
 RUN_ID="$(openssl rand -hex 4)"
 PROJECT="${E2E_COMPOSE_PROJECT:-actfb-e2e-${RUN_ID}}"
 WORKDIR="${E2E_WORKDIR:-/tmp/opencode/${PROJECT}}"
@@ -44,7 +46,9 @@ cleanup() {
   docker compose -p "$PROJECT" --profile frontend -f "$ROOT/docker-compose.dev.yaml" down --volumes --remove-orphans --timeout 20 \
     >"$WORKDIR/compose-down.log" 2>&1 || true
   if [[ "${E2E_KEEP:-0}" != "1" ]]; then
-    rm -rf "$WORKDIR"
+    # Only ever removes the harness temp root, never a caller-supplied output
+    # directory and never a checkout.
+    run_cleanup_remove_workdir "$WORKDIR" || true
   fi
 }
 trap cleanup EXIT
@@ -105,8 +109,8 @@ export E2E_OUTSIDER_PASSWORD="$PASSWORD"
 export E2E_SCORER_USERNAME="$SCORER"
 export E2E_SCORER_PASSWORD="$PASSWORD"
 export E2E_FLAG="$FLAG"
-export E2E_OUTPUT_DIR="$WORKDIR/test-results"
-export E2E_REPORT_DIR="$WORKDIR/playwright-report"
+export E2E_OUTPUT_DIR="${E2E_OUTPUT_DIR:-$WORKDIR/test-results}"
+export E2E_REPORT_DIR="${E2E_REPORT_DIR:-$WORKDIR/playwright-report}"
 if [[ -z "${E2E_CHROMIUM_PATH:-}" && -x /usr/bin/chromium ]]; then
   export E2E_CHROMIUM_PATH=/usr/bin/chromium
 fi

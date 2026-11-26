@@ -264,6 +264,9 @@ jobs:
 
       - name: Run real-browser acceptance
         timeout-minutes: 40
+        env:
+          E2E_OUTPUT_DIR: ${{ github.workspace }}/e2e/test-results/p1-core
+          E2E_REPORT_DIR: ${{ github.workspace }}/e2e/playwright-report/p1-core
         run: ./e2e/run-e2e.sh p1-core.spec.ts
 
       # The full-stack suite forces every optional feature on, which is exactly
@@ -284,6 +287,12 @@ jobs:
       # containers are CI-only. It costs wall clock and is expected to.
       - name: Run full-stack browser acceptance
         timeout-minutes: 45
+        # Playwright artefacts are written into the workspace so the existing
+        # `if: failure()` upload can collect them; the scratch workdir, which
+        # holds the generated PostgreSQL credentials, is still deleted.
+        env:
+          E2E_OUTPUT_DIR: ${{ github.workspace }}/e2e/test-results/full-stack
+          E2E_REPORT_DIR: ${{ github.workspace }}/e2e/playwright-report/full-stack
         run: ./e2e/run-full-e2e.sh full-stage.spec.ts organizer-ux.spec.ts
 
       - name: Set up Docker Buildx

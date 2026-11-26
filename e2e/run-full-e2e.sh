@@ -15,6 +15,8 @@ set -m
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=e2e/lib/service-lifecycle.sh
 source "$ROOT/e2e/lib/service-lifecycle.sh"
+# shellcheck source=e2e/lib/run-cleanup.sh
+source "$ROOT/e2e/lib/run-cleanup.sh"
 cd "$ROOT"
 # Docker-only acceptance. Never inherit a caller's DOCKER_HOST (for example a
 # Podman compatibility socket) and refuse to substitute another runtime.
@@ -54,40 +56,38 @@ export E2E_FRONTEND_PORT="$FRONTEND_PORT"
 export E2E_PLUGIN_PACKAGE="hello"
 export E2E_PLUGIN_UPGRADE="hello-upgrade"
 export E2E_ASSET_ORIGIN="http://127.0.0.2:${ASSET_PORT}"
-export E2E_OUTPUT_DIR="$WORKDIR/test-results"
+# Playwright output honours a caller-provided directory so CI can keep traces on
+# the runner while the scratch workdir (which holds generated PG credentials) is
+# deleted. Defaults stay inside $WORKDIR for a manual run.
+export E2E_OUTPUT_DIR="${E2E_OUTPUT_DIR:-$WORKDIR/test-results}"
 export E2E_INSTANCE_PORT="$INSTANCE_PORT"
 export E2E_DOCKER_SOCKET=/var/run/docker.sock
-export E2E_REPORT_DIR="$WORKDIR/playwright-report"
+export E2E_REPORT_DIR="${E2E_REPORT_DIR:-$WORKDIR/playwright-report}"
 export E2E_FULL_STACK=1
 
 docker ps -aq | sort >"$WORKDIR/containers-before.txt"
 docker volume ls -q | sort >"$WORKDIR/volumes-before.txt"
 
 cleanup_new_docker_resources() {
-  # Remove only containers/volumes that did not exist before this isolated run.
-  # Exact IDs from a before/after diff; never a broad label deletion that could
-  # hit another developer's aCTFb stack.
-  local new_containers new_volumes
-  new_containers="$(comm -13 "$WORKDIR/containers-before.txt" <(docker ps -aq | sort) 2>/dev/null || true)"
-  if [[ -n "$new_containers" ]]; then
-    # shellcheck disable=SC2086
-    docker rm -f $new_containers >/dev/null 2>&1 || true
-  fi
-  new_volumes="$(comm -13 "$WORKDIR/volumes-before.txt" <(docker volume ls -q | sort) 2>/dev/null | grep -E '^actfb' || true)"
-  if [[ -n "$new_volumes" ]]; then
-    # shellcheck disable=SC2086
-    docker volume rm $new_volumes >/dev/null 2>&1 || true
-  fi
+  # Exact owned names first: safe on any host, including a developer machine
+  # beside a live operator stack.
+  run_cleanup_owned_containers "$CLAMAV_NAME" "$RUSTFS_NAME" "$NATS_NAME" "$PG_NAME"
+  run_cleanup_owned_volumes "${PROJECT}-clamav-db"
+  # Anything else that appeared during the run is only removed on a hosted,
+  # ephemeral runner. On a shared host this reports the leftovers and the
+  # assertion below fails, rather than deleting a concurrent container.
+  run_cleanup_unclassified "$WORKDIR/containers-before.txt" "$WORKDIR/volumes-before.txt" || true
 }
 
 cleanup() {
   # Owned process groups only; bounded TERM then exact-group KILL fallback.
   services_stop_all
-  docker rm -f "$CLAMAV_NAME" "$RUSTFS_NAME" "$NATS_NAME" "$PG_NAME" >/dev/null 2>&1 || true
-  docker volume rm "${PROJECT}-clamav-db" >/dev/null 2>&1 || true
   cleanup_new_docker_resources
   if [[ "${E2E_KEEP:-0}" != "1" ]]; then
-    rm -rf "$WORKDIR"
+    # Never deletes outside the harness temp root, so a bad E2E_WORKDIR cannot
+    # remove a checkout. A caller-supplied E2E_OUTPUT_DIR/E2E_REPORT_DIR lives
+    # outside $WORKDIR and therefore survives.
+    run_cleanup_remove_workdir "$WORKDIR" || true
   fi
 }
 # Preserve the real exit status on success/failure and map INT/TERM to 130/143.
@@ -318,6 +318,9 @@ playwright_pid="$SERVICE_LAST_PID"
 playwright_status=0
 wait "$playwright_pid" || playwright_status=$?
 cat "$WORKDIR/playwright.log"
+# Name the artefact directories in the log so CI can point at what it uploaded.
+# Paths only: no file contents and no credentials are printed.
+printf 'playwright artifacts: output=%s report=%s\n' "$E2E_OUTPUT_DIR" "$E2E_REPORT_DIR" | tee -a "$WORKDIR/summary.txt"
 if [[ "$playwright_status" -ne 0 ]]; then
   exit "$playwright_status"
 fi
