@@ -1128,3 +1128,45 @@ migration, dependency or provider change and no new fetch/mutation call.
   are done there. Independent review and main screenshot inspection are still required. Full
   details: `.superpowers/sdd/2026-11-26-desktop-workspaces/task-2-report.md` and
   `task-3-report.md`.
+## CI optimisation pass (2026-11-26)
+
+Status: **pending CI — implemented locally, unpublished.** Evidence: `docs/ci-optimization-verification.md`.
+
+Measured baseline before touching anything: run
+https://github.com/nrf24l01/aCTFb/actions/runs/45889089999 at `0da549e`, success, **990 s (16 m 30 s)** —
+Frontend 36 s, Backend 188 s, Integration 738 s, Publish 54 s.
+
+Changed in this pass (the "serial `integration`" wording in the 2026-11-14 packaging slice above is superseded
+here; that historical entry is left intact):
+
+- `integration` no longer declares `needs: [backend, frontend]`. It consumed no artifact from those jobs — it
+  checks out, installs its own toolchains and builds the ten images itself — so the dependency only
+  serialised it. `publish` still needs all three, so the tests-before-push invariant is unchanged.
+- The integration image build uses `docker/bake-action@v7` with `push: false`, `load: true` and ten
+  `actfb-<target>:ci` tag overrides instead of a hand-written `docker buildx build` loop. The action receives
+  the Actions cache credentials a `run:` step does not, which is why the ten `type=gha` scopes in
+  `docker-bake.hcl` were previously never read or written from this job. BuildKit parallelism is bounded at 2.
+- The 18 browser specs that `run-e2e.sh` collected and skipped (`full-stage.spec.ts` 7 +
+  `organizer-ux.spec.ts` 11) now run as a real gate through `./e2e/run-full-e2e.sh`, and `run-e2e.sh` is
+  scoped to the one spec it actually executed. The other 5 of the former 23 skips were already covered by
+  the default-profile step; `p1-core` is not duplicated.
+- `scripts/test-production-packaging.sh` validates the job graph, the build shape and the publish gate
+  semantically (`scripts/lib/ci-contract.sh`) instead of grepping workflow prose, with a self-test that
+  mutates a temporary copy and proves each assertion rejects an unsafe edit.
+
+Theory, **not** measured: ≈ −193 s from the dependency removal and ≈ −40 to −50 s from the cache fix, i.e.
+roughly 13 minutes once warm. The first run after landing is still cold. The full-stack gate has never
+executed in CI and is expected to **add** time; it is a coverage fix, not a speed win.
+
+Local validation at this commit: `bash -n` clean on all four changed scripts; contract 66 passed / 0 failed
+plus 11 self-test fixtures, and 19 failures against the pre-change workflow (gate proven live);
+`./scripts/test-production-packaging.sh` 337 passed / 0 failed with one intentional SKIP for the image checks
+(no fresh local images); workflow parses under PyYAML; `docker buildx bake --print` resolves all ten
+`actfb-<target>:ci` tags with `linux/amd64` and per-target gha scopes; Playwright collects 18 / 1 / 24 for the
+scoped full gate, the scoped `run-e2e.sh` and the unchanged operator default. `actionlint` was **not** run —
+not installed on this host. The full-stack runner was **not** executed locally: its cleanup force-removes every
+container created during the run, which is correct on an ephemeral CI host and unsafe beside the live operator
+stack.
+
+Published state is unchanged: GHCR `latest` still resolves to the baseline `0da549e` images. Nothing from
+this pass, and nothing from the desktop UI work, is published until this reaches `main` and a new run passes.
