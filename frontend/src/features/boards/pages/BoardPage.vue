@@ -215,8 +215,8 @@ void load()
         </AlertDescription>
       </Alert>
 
-      <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <section aria-labelledby="modules-heading">
+      <div class="workspace-layout" data-slot="workspace">
+        <section class="workspace-main" data-slot="workspace-main" aria-labelledby="modules-heading">
           <h2 id="modules-heading" class="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             Modules
           </h2>
@@ -226,15 +226,17 @@ void load()
           <div v-else-if="modules.length === 0" class="border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
             No modules are available yet. The organizer may still be preparing this board.
           </div>
-          <div v-else class="space-y-2">
-            <ModuleCard v-for="module in modules" :key="module.uuid" :module="module" />
+          <div v-else class="workspace-cards workspace-cards--board" data-slot="board-modules">
+            <div class="workspace-card-grid gap-2">
+              <ModuleCard v-for="module in modules" :key="module.uuid" :module="module" />
+            </div>
           </div>
           <div v-if="board.participationMode === 'TEAM' && me?.joined" class="mt-6">
             <TeamPanel :board-uuid="board.uuid" />
           </div>
         </section>
 
-        <aside class="space-y-4 self-start">
+        <aside class="workspace-aside space-y-4" data-slot="workspace-aside">
           <section v-if="!isAuthenticated" class="border border-border px-4 py-4 text-sm">
             <h2 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Participate</h2>
             <p class="mt-2 text-muted-foreground">Sign in to join this board, see its modules and submit answers.</p>

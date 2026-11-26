@@ -101,7 +101,7 @@ void load()
       </ErrorAlert>
 
       <form v-else class="authoring-home" novalidate @submit.prevent="save">
-        <ErrorAlert v-if="saveError" :error="saveError" title="Could not save site settings" />
+        <ErrorAlert v-if="saveError" :error="saveError" title="Could not save site settings" class="mb-3" />
 
         <div class="authoring-home-layout" data-slot="authoring-layout">
           <div class="authoring-main space-y-5" data-slot="authoring-main">

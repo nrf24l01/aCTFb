@@ -1,33 +1,42 @@
-import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type BrowserContext, type Locator, type Page } from '@playwright/test'
 
 /**
- * Task 1 desktop-authoring geometry, measured in a real browser.
+ * Desktop authoring (Task 1) and workspace (Task 2) geometry, measured in a
+ * real browser.
  *
  *   ACTFB_E2E=1 \
  *   E2E_BASE_URL=http://127.0.0.1:5173 \
  *   E2E_API_URL=http://127.0.0.1:8080/api/v2 \
  *   E2E_ADMIN_USERNAME=... E2E_ADMIN_PASSWORD=... \
- *   [E2E_SCREENSHOT_DIR=/tmp/opencode/desktop-workspaces/task1] \
+ *   E2E_PARTICIPANT_USERNAME=... E2E_PARTICIPANT_PASSWORD=... \
+ *   [E2E_SCREENSHOT_DIR=/tmp/opencode/desktop-workspaces/task2] \
  *   bun run test:e2e -- desktop-workspaces.spec.ts
  *
- * This task covers the four authoring surfaces only: the three dialogs and the
- * site-introduction form. Reader/organizer pages are Task 2 and are not
- * asserted here. Fixtures are created through the real HTTP API; no SQL and no
- * token in browser storage.
+ * Task 1 covers the four authoring surfaces (three dialogs and the site
+ * introduction). Task 2 covers the shared page container, the reader/organizer
+ * boards, the module/task workspaces and the administration catalog. Fixtures
+ * are created through the real HTTP API; no SQL and no token in browser
+ * storage.
  */
 const enabled = process.env.ACTFB_E2E === '1'
 const apiUrl = (process.env.E2E_API_URL || 'http://127.0.0.1:8080/api/v2').replace(/\/+$/, '')
 const baseUrl = process.env.E2E_BASE_URL || 'http://127.0.0.1:5173'
 const adminUser = process.env.E2E_ADMIN_USERNAME ?? ''
 const adminPass = process.env.E2E_ADMIN_PASSWORD ?? ''
+const participantUser = process.env.E2E_PARTICIPANT_USERNAME ?? ''
+const participantPass = process.env.E2E_PARTICIPANT_PASSWORD ?? ''
 const screenshotDir = process.env.E2E_SCREENSHOT_DIR
 
 interface Fixture {
   boardUuid: string
   boardName: string
+  boardSlug: string
   flagModuleUuid: string
   manualModuleUuid: string
   instanceModuleUuid: string
+  longModuleUuid: string
+  firstTaskUuid: string
+  joinCode: string
 }
 
 interface Box {
@@ -87,6 +96,53 @@ async function box(locator: Locator): Promise<Box> {
 async function screenshot(page: Page, name: string): Promise<void> {
   if (!screenshotDir) return
   await page.screenshot({ path: `${screenshotDir}/${name}.png` })
+}
+
+/** Screenshots start at the top with local fonts settled, so the page title is visible. */
+async function capture(page: Page, name: string): Promise<void> {
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await page.evaluate(() => document.fonts.ready)
+  await screenshot(page, name)
+}
+
+async function signInAs(page: Page, username: string, password: string): Promise<void> {
+  await page.goto('/sign-in')
+  await page.locator('#sign-in-username').fill(username)
+  await page.locator('#sign-in-password').fill(password)
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page).toHaveURL(/\/boards/)
+}
+
+/**
+ * Usable page width: the shared PageContainer is the last direct div in
+ * `main`; its content box excludes the 24px desktop side padding. This is the
+ * width the CSS container queries see, not `window.innerWidth`.
+ */
+async function pageContentWidth(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const main = document.querySelector('main')
+    if (!main) throw new Error('main element missing')
+    const containers = Array.from(main.children).filter(
+      (child): child is HTMLElement => child instanceof HTMLElement && child.tagName === 'DIV',
+    )
+    const container = containers[containers.length - 1]
+    const style = getComputedStyle(container)
+    return container.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+  })
+}
+
+/** Count distinct card columns/rows from actual viewport coordinates. */
+async function cardTracks(locator: Locator): Promise<{ columns: number; rows: number }> {
+  const positions = await locator.evaluateAll((elements) =>
+    elements.map((element) => {
+      const rect = element.getBoundingClientRect()
+      return { left: Math.round(rect.left), top: Math.round(rect.top) }
+    }),
+  )
+  return {
+    columns: new Set(positions.map((position) => position.left)).size,
+    rows: new Set(positions.map((position) => position.top)).size,
+  }
 }
 
 async function openBoardDialog(page: Page): Promise<Locator> {
@@ -177,19 +233,44 @@ test.describe('desktop authoring workspaces', () => {
   test.describe.configure({ mode: 'serial' })
 
   let fixture: Fixture
+  let adminContext: BrowserContext
+  let adminPage: Page
+  let participantContext: BrowserContext | undefined
+  let participantPage: Page | undefined
 
-  test.beforeAll(async ({ request }) => {
+  test.beforeAll(async ({ browser, request }) => {
     if (!adminUser || !adminPass) throw new Error('E2E_ADMIN_USERNAME and E2E_ADMIN_PASSWORD are required')
+
+    // One owned browser session per role for the whole spec: the backend
+    // limits logins per IP and the refresh token rotates on every use, so each
+    // test must not sign in again.
+    const contextOptions = {
+      baseURL: baseUrl,
+      viewport: test.info().project.use.viewport ?? undefined,
+      deviceScaleFactor: test.info().project.use.deviceScaleFactor,
+      isMobile: test.info().project.use.isMobile,
+      hasTouch: test.info().project.use.hasTouch,
+    }
+    adminContext = await browser.newContext(contextOptions)
+    adminPage = await adminContext.newPage()
+    await signIn(adminPage)
+    if (participantUser && participantPass) {
+      participantContext = await browser.newContext(contextOptions)
+      participantPage = await participantContext.newPage()
+      await signInAs(participantPage, participantUser, participantPass)
+    }
+
     const login = await request.post(`${apiUrl}/auth/login`, {
       data: { username: adminUser, password: adminPass },
     })
     if (!login.ok()) throw new Error(`admin login failed: ${login.status()} ${await login.text()}`)
     const token = ((await login.json()) as { accessToken: string }).accessToken
 
-    const suffix = `${Date.now()}`
+    const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
     const boardName = `Desktop workspace ${suffix}`
+    const boardSlug = `desktop-workspace-${suffix}`
     const board = await json<{ uuid: string }>(request, 'POST', '/admin/boards', {
-      slug: `desktop-workspace-${suffix}`,
+      slug: boardSlug,
       name: boardName,
       description: 'Workspace fixture',
       participationMode: 'INDIVIDUAL',
@@ -222,19 +303,90 @@ test.describe('desktop authoring workspaces', () => {
       return module.uuid
     }
 
+    const createFlagTask = async (moduleUuid: string, title: string, description: string) =>
+      json<{ uuid: string }>(
+        request,
+        'POST',
+        `/admin/boards/${board.uuid}/modules/${moduleUuid}/tasks`,
+        {
+          title,
+          type: 'FLAG',
+          category: 'misc',
+          description,
+          points: 50,
+          visible: true,
+          submission: {
+            mode: 'TEXT',
+            checker: 'AUTOMATIC',
+            text: { required: true, minLength: 1, maxLength: 1024 },
+            files: null,
+          },
+          acceptedAnswers: [`flag{workspace_${suffix}_${title.replace(/\W+/g, '_')}}`],
+          instance: { enabled: false },
+        },
+        token,
+      )
+
+    const flagModuleUuid = await createModule('Workspace FLAG', ['FLAG'])
+    const manualModuleUuid = await createModule('Workspace MANUAL', ['MANUAL'])
+    const instanceModuleUuid = await createModule('Workspace INSTANCE', ['INSTANCE'])
+    const longModuleUuid = await createModule('Workspace LONG', ['FLAG'])
+
+    const firstTask = await createFlagTask(
+      flagModuleUuid,
+      'Workspace task 1',
+      [
+        'A readable paragraph for the desktop task reader.',
+        '',
+        '```',
+        'x'.repeat(200),
+        '```',
+        '',
+        '| field | description |',
+        '|---|---|',
+        '| one | two |',
+      ].join('\n'),
+    )
+    for (const index of [2, 3, 4, 5, 6]) {
+      await createFlagTask(flagModuleUuid, `Workspace task ${index}`, `Task ${index} description.`)
+    }
+    // A single unbroken token: the administrative table may only scroll inside
+    // its own panel, never widen the document.
+    await createFlagTask(longModuleUuid, `Long${'L'.repeat(120)}`, 'Long token fixture.')
+
+    await json(request, 'POST', `/admin/boards/${board.uuid}/actions`, { action: 'PUBLISH' }, token)
+
+    const joinCode = `WORKSPACE-${suffix}`
+    await json(
+      request,
+      'POST',
+      `/admin/boards/${board.uuid}/join-code`,
+      { code: joinCode },
+      token,
+    )
+
     fixture = {
       boardUuid: board.uuid,
       boardName,
-      flagModuleUuid: await createModule('Workspace FLAG', ['FLAG']),
-      manualModuleUuid: await createModule('Workspace MANUAL', ['MANUAL']),
-      instanceModuleUuid: await createModule('Workspace INSTANCE', ['INSTANCE']),
+      boardSlug,
+      flagModuleUuid,
+      manualModuleUuid,
+      instanceModuleUuid,
+      longModuleUuid,
+      firstTaskUuid: firstTask.uuid,
+      joinCode,
     }
   })
 
-  test('board and module dialogs are 1200px with a 320px rail and one scroller at 1440', async ({ page }) => {
+  test.afterAll(async () => {
+    await adminContext?.close()
+    await participantContext?.close()
+  })
+
+  test('board and module dialogs are 1200px with a 320px rail and one scroller at 1440', async () => {
+    const page = adminPage
     test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
     await page.setViewportSize({ width: 1440, height: 900 })
-    await signIn(page)
     await page.goto(`/admin/boards/${fixture.boardUuid}`)
     await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
 
@@ -270,10 +422,10 @@ test.describe('desktop authoring workspaces', () => {
     await closeDialog(page, moduleDialog)
   })
 
-  test('task dialog is 1360px at 1920 and keeps one editor, selection and undo across width changes', async ({ page }) => {
+  test('task dialog is 1360px at 1920 and keeps one editor, selection and undo across width changes', async () => {
+    const page = adminPage
     test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
     await page.setViewportSize({ width: 1920, height: 1080 })
-    await signIn(page)
     await page.goto(`/admin/boards/${fixture.boardUuid}`)
     await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
 
@@ -324,10 +476,10 @@ test.describe('desktop authoring workspaces', () => {
     await closeDialog(page, taskDialog)
   })
 
-  test('long MANUAL and INSTANCE task forms keep their fields in the settings rail', async ({ page }) => {
+  test('long MANUAL and INSTANCE task forms keep their fields in the settings rail', async () => {
+    const page = adminPage
     test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
     await page.setViewportSize({ width: 1920, height: 1080 })
-    await signIn(page)
     await page.goto(`/admin/boards/${fixture.boardUuid}`)
     await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
 
@@ -354,10 +506,10 @@ test.describe('desktop authoring workspaces', () => {
     await closeDialog(page, instanceDialog)
   })
 
-  test('site introduction form uses the 1100px main/settings split and stacks at 1024', async ({ page }) => {
+  test('site introduction form uses the 1100px main/settings split and stacks at 1024', async () => {
+    const page = adminPage
     test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
     await page.setViewportSize({ width: 1440, height: 900 })
-    await signIn(page)
     await page.goto('/admin/site')
     await expect(page.locator('.ProseMirror')).toBeVisible()
 
@@ -368,24 +520,31 @@ test.describe('desktop authoring workspaces', () => {
     const layoutBox = await box(layout)
     const mainBox = await box(main)
     const settingsBox = await box(settings)
-    expect(Math.abs(layoutBox.width - 1104)).toBeLessThanOrEqual(1)
+    // Task 2 raises the shared page cap to 1600px outer / 1552px usable at
+    // 1920, so 1440 now has 1180px of usable page width.
+    expect(Math.abs(layoutBox.width - 1180)).toBeLessThanOrEqual(1)
+    expect(Math.abs(mainBox.width - 836)).toBeLessThanOrEqual(1)
     expect(Math.abs(mainBox.top - settingsBox.top)).toBeLessThanOrEqual(1)
     expect(Math.abs(settingsBox.width - 320)).toBeLessThanOrEqual(1)
     expect(Math.abs(settingsBox.left - mainBox.right - 24)).toBeLessThanOrEqual(1)
     await expect(form.locator('#site-intro')).toBeVisible()
     await expect(settings.getByRole('button', { name: 'Save changes' })).toBeVisible()
-    await screenshot(page, 'site-introduction-1440')
+    await capture(page, 'site-introduction-1440')
 
-    // 1920 still uses the current global 1152px page cap (Task 2 owns widening
-    // it); the form remains 1104px and the split stays correct.
+    // The widened page container gives the site form the full 1552px usable
+    // width at 1920; the 1100px container query still splits it.
     await page.setViewportSize({ width: 1920, height: 1080 })
-    await expect.poll(async () => Math.round((await box(form)).width)).toBe(1104)
-    expect(Math.abs((await box(form)).width - 1104)).toBeLessThanOrEqual(1)
-    await screenshot(page, 'site-introduction-1920')
+    await expect.poll(async () => Math.round((await box(form)).width)).toBe(1552)
+    expect(Math.abs((await box(form)).width - 1552)).toBeLessThanOrEqual(1)
+    const wideMain = await box(main)
+    const wideSettings = await box(settings)
+    expect(Math.abs(wideMain.width - 1208)).toBeLessThanOrEqual(1)
+    expect(Math.abs(wideSettings.width - 320)).toBeLessThanOrEqual(1)
+    await capture(page, 'site-introduction-1920')
 
     // Below the 1100px usable-width threshold the form stacks in one column.
     await page.setViewportSize({ width: 1024, height: 900 })
-    await expect.poll(async () => Math.round((await box(form)).width)).toBeLessThan(1100)
+    await expect.poll(async () => Math.round((await box(form)).width)).toBe(764)
     const stackedForm = await box(form)
     const stackedMain = await box(main)
     const stackedSettings = await box(settings)
@@ -395,9 +554,9 @@ test.describe('desktop authoring workspaces', () => {
     expect(stackedSettings.top).toBeGreaterThanOrEqual(stackedMain.bottom - 1)
   })
 
-  test('phone dialogs are exactly viewport wide, stack at 343px and keep 44px controls', async ({ page }) => {
+  test('phone dialogs are exactly viewport wide, stack at 343px and keep 44px controls', async () => {
+    const page = adminPage
     test.skip(test.info().project.name !== 'phone', 'Phone geometry runs in the 375px phone project')
-    await signIn(page)
     await page.goto(`/admin/boards/${fixture.boardUuid}`)
     await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
 
@@ -444,5 +603,292 @@ test.describe('desktop authoring workspaces', () => {
     expect(settings.top).toBeGreaterThanOrEqual(main.bottom - 1)
     expect((await box(form.getByRole('button', { name: 'Save changes' }))).height).toBeGreaterThanOrEqual(44)
     await screenshot(page, 'site-introduction-375')
+  })
+
+  test('page container uses the 1600px cap and keeps simple forms bounded', async () => {
+    const page = adminPage
+    test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto('/boards')
+    await expect(page.getByRole('heading', { name: 'Boards', exact: true })).toBeVisible()
+    await expect.poll(() => pageContentWidth(page)).toBe(1552)
+
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect.poll(() => pageContentWidth(page)).toBe(1180)
+
+    await page.setViewportSize({ width: 1024, height: 900 })
+    await expect.poll(() => pageContentWidth(page)).toBe(764)
+
+    // A simple account form stays on its previous bounded width; the wider
+    // workspace never stretches every input to the page.
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto('/profile')
+    await expect(page.getByRole('heading', { name: 'Profile', exact: true })).toBeVisible()
+    await expect.poll(() => pageContentWidth(page)).toBe(1104)
+    expect((await box(page.locator('#profile-username'))).width).toBeLessThanOrEqual(1104)
+
+    // Administrative tables use the wide page; their search control does not.
+    await page.goto('/admin/users')
+    await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible()
+    expect((await box(page.getByPlaceholder('Search users'))).width).toBeLessThanOrEqual(384)
+    const table = page.locator('[data-slot="table-container"]').first()
+    await expect(table).toBeVisible()
+    expect((await box(table)).width).toBeGreaterThan(1200)
+    await capture(page, 'admin-users-1920')
+
+    // Administration navigation cards use the same content-width tracks.
+    await page.goto('/admin')
+    await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible()
+    const adminCards = page.locator('[data-slot="admin-cards"] .workspace-card-grid > *')
+    await expect(adminCards).toHaveCount(8)
+    expect(await cardTracks(adminCards)).toEqual({ columns: 3, rows: 3 })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect.poll(() => pageContentWidth(page)).toBe(1180)
+    expect(await cardTracks(adminCards)).toEqual({ columns: 2, rows: 4 })
+  })
+
+  test('participant board uses a 320px rail and two module card columns at 1920', async () => {
+    const page = participantPage!
+    test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
+    test.skip(!participantUser || !participantPass, 'E2E_PARTICIPANT_USERNAME/PASSWORD are required')
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto(`/boards/${fixture.boardUuid}`)
+    await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
+
+    // Real canonical code enrollment through the UI, no request interception.
+    await page.getByRole('button', { name: 'Enter board code' }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByLabel('Board code').fill(fixture.joinCode)
+    await dialog.getByRole('button', { name: 'Join', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Leave board' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Your standing' })).toBeVisible()
+
+    const workspace = page.locator('[data-slot="workspace"]')
+    const main = workspace.locator('[data-slot="workspace-main"]')
+    const aside = workspace.locator('[data-slot="workspace-aside"]')
+    const mainBox = await box(main)
+    const asideBox = await box(aside)
+    expect(Math.abs(asideBox.width - 320)).toBeLessThanOrEqual(1)
+    expect(Math.abs(asideBox.left - mainBox.right - 24)).toBeLessThanOrEqual(1)
+    expect(Math.abs(mainBox.top - asideBox.top)).toBeLessThanOrEqual(1)
+
+    const cards = main.locator('[data-slot="board-modules"] .workspace-card-grid > *')
+    await expect(cards).toHaveCount(4)
+    expect(await cardTracks(cards)).toEqual({ columns: 2, rows: 2 })
+    await capture(page, 'board-participant-1920')
+
+    // 1440: 1180 usable -> 836 main + 320 rail + 24 gap.
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect.poll(async () => Math.round((await box(main)).width)).toBe(836)
+    expect(Math.abs((await box(aside)).width - 320)).toBeLessThanOrEqual(1)
+    await capture(page, 'board-participant-1440')
+
+    // Module tasks count their own width: three columns at 1920, two at 1440.
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto(`/boards/${fixture.boardUuid}/modules/${fixture.flagModuleUuid}`)
+    await expect(page.getByRole('heading', { name: 'Workspace FLAG' })).toBeVisible()
+    const taskCards = page.locator('[data-slot="module-tasks"] .workspace-card-grid > *')
+    await expect(taskCards).toHaveCount(6)
+    expect(await cardTracks(taskCards)).toEqual({ columns: 3, rows: 2 })
+    await capture(page, 'module-participant-1920')
+
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect.poll(async () => Math.round((await box(page.locator('[data-slot="module-tasks"]'))).width)).toBe(1180)
+    expect(await cardTracks(taskCards)).toEqual({ columns: 2, rows: 3 })
+    await capture(page, 'module-participant-1440')
+  })
+
+  test('participant task stacks at 1024 and splits at 1920/1440 with an 80ch prose measure', async () => {
+    const page = participantPage!
+    test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
+    test.skip(!participantUser || !participantPass, 'E2E_PARTICIPANT_USERNAME/PASSWORD are required')
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    // Join through the real canonical code flow if the previous participant
+    // test has not already enrolled this fixture account.
+    await page.goto(`/boards/${fixture.boardUuid}`)
+    await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
+    const join = page.getByRole('button', { name: 'Enter board code' })
+    if (await join.isVisible().catch(() => false)) {
+      await join.click()
+      const joinDialog = page.getByRole('dialog')
+      await joinDialog.getByLabel('Board code').fill(fixture.joinCode)
+      await joinDialog.getByRole('button', { name: 'Join', exact: true }).click()
+      await expect(page.getByRole('button', { name: 'Leave board' })).toBeVisible()
+    }
+    let historyRequests = 0
+    page.on('request', (request) => {
+      if (request.url().includes('/submissions/me')) historyRequests += 1
+    })
+
+    await page.goto(
+      `/boards/${fixture.boardUuid}/modules/${fixture.flagModuleUuid}/tasks/${fixture.firstTaskUuid}`,
+    )
+    await expect(page.getByRole('heading', { name: 'Workspace task 1' })).toBeVisible()
+
+    const workspace = page.locator('[data-slot="workspace"]')
+    const main = workspace.locator('[data-slot="workspace-main"]')
+    const aside = workspace.locator('[data-slot="workspace-aside"]')
+    const mainBox = await box(main)
+    const asideBox = await box(aside)
+    expect(Math.abs(mainBox.width - 1168)).toBeLessThanOrEqual(1)
+    expect(Math.abs(asideBox.width - 360)).toBeLessThanOrEqual(1)
+    expect(Math.abs(asideBox.left - mainBox.right - 24)).toBeLessThanOrEqual(1)
+    expect(Math.abs(mainBox.top - asideBox.top)).toBeLessThanOrEqual(1)
+    await expect(aside.getByRole('textbox', { name: 'Flag', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Your submissions' })).toBeVisible()
+    expect(historyRequests).toBe(1)
+
+    // Prose text blocks keep the 80ch measure; code uses the panel and scrolls
+    // inside itself instead of widening the document.
+    const description = page.locator('section[aria-labelledby="description-heading"]')
+    const paragraphBox = await box(description.locator('.markdown-body p').first())
+    // 80ch at the 14px reader size is ~672px, far below the 1136px panel.
+    expect(paragraphBox.width).toBeGreaterThan(600)
+    expect(paragraphBox.width).toBeLessThanOrEqual(680)
+    const pre = description.locator('.markdown-body pre').first()
+    const preBox = await box(pre)
+    expect(preBox.width).toBeGreaterThan(paragraphBox.width)
+    const preOverflow = await pre.evaluate((element) => ({
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    }))
+    expect(preOverflow.scrollWidth).toBeGreaterThan(preOverflow.clientWidth)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1920)
+    await capture(page, 'task-participant-1920')
+
+    // 1440: 1180 usable -> 796 main + 360 rail + 24 gap.
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect.poll(async () => Math.round((await box(main)).width)).toBe(796)
+    expect(Math.abs((await box(aside)).width - 360)).toBeLessThanOrEqual(1)
+    await capture(page, 'task-participant-1440')
+
+    // 1024 with the persistent 212px sidebar: 764 usable -> full-width stack.
+    await page.setViewportSize({ width: 1024, height: 900 })
+    await expect.poll(() => pageContentWidth(page)).toBe(764)
+    const stackedMain = await box(main)
+    const stackedAside = await box(aside)
+    expect(Math.abs(stackedMain.width - 764)).toBeLessThanOrEqual(1)
+    expect(Math.abs(stackedAside.width - 764)).toBeLessThanOrEqual(1)
+    expect(stackedAside.top).toBeGreaterThanOrEqual(stackedMain.bottom - 1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1024)
+    // Resizing neither refetches own history nor mounts a second form.
+    expect(historyRequests).toBe(1)
+    await expect(page.getByRole('textbox', { name: 'Flag', exact: true })).toHaveCount(1)
+    await capture(page, 'task-participant-1024')
+  })
+
+  test('organizer preview keeps the explanation without participant controls or own-history requests', async () => {
+    const page = adminPage
+    test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    const ownHistory: string[] = []
+    page.on('request', (request) => {
+      if (request.url().includes('/submissions/me')) ownHistory.push(request.url())
+    })
+
+    await page.goto(
+      `/boards/${fixture.boardUuid}/modules/${fixture.flagModuleUuid}/tasks/${fixture.firstTaskUuid}`,
+    )
+    await expect(page.getByText('Organizer preview')).toBeVisible()
+    await expect(page.getByRole('textbox', { name: 'Flag', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'Your submissions' })).toHaveCount(0)
+    const aside = page.locator('[data-slot="workspace-aside"]')
+    await expect(aside).toContainText('Submission and instance actions are available after joining the board.')
+    expect(ownHistory).toHaveLength(0)
+    await capture(page, 'task-preview-1920')
+  })
+
+  test('admin board puts module work beside the Join code and lifecycle rail at 1920 and 1440', async () => {
+    const page = adminPage
+    test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto(`/admin/boards/${fixture.boardUuid}`)
+    await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
+
+    const workspace = page.locator('[data-slot="workspace"]')
+    const main = workspace.locator('[data-slot="workspace-main"]')
+    const aside = workspace.locator('[data-slot="workspace-aside"]')
+    const mainBox = await box(main)
+    const asideBox = await box(aside)
+    expect(Math.abs(asideBox.width - 320)).toBeLessThanOrEqual(1)
+    expect(Math.abs(asideBox.left - mainBox.right - 24)).toBeLessThanOrEqual(1)
+    expect(Math.abs(mainBox.top - asideBox.top)).toBeLessThanOrEqual(1)
+    expect(mainBox.width).toBeGreaterThanOrEqual(1207)
+
+    // Module work now starts at or above the Lifecycle section instead of below
+    // it; Join code and Lifecycle live in the rail.
+    const modulesTop = (await box(page.locator('#admin-modules-heading'))).top
+    const lifecycleTop = (await box(page.locator('#lifecycle-heading'))).top
+    expect(modulesTop).toBeLessThanOrEqual(lifecycleTop + 1)
+    await expect(main.locator('#admin-modules-heading')).toBeVisible()
+    await expect(aside.locator('#join-code-heading')).toBeVisible()
+    await expect(aside.locator('#lifecycle-heading')).toBeVisible()
+
+    const toggle = aside.getByRole('button', { name: 'Show lifecycle actions' })
+    expect(await toggle.getAttribute('aria-expanded')).toBe('false')
+    await expect(page.getByRole('button', { name: 'Delete board' })).toHaveCount(0)
+    await capture(page, 'admin-board-1920')
+
+    await toggle.click()
+    await expect(page.getByRole('button', { name: 'Delete board' })).toBeVisible()
+    await capture(page, 'admin-board-1920-lifecycle-open')
+    await page.getByRole('button', { name: 'Delete board' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: 'Delete board' })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+    // 1440: 1180 usable -> 836 main + 320 rail + 24 gap; the ordinary module
+    // table fits without local scrolling.
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect.poll(async () => Math.round((await box(main)).width)).toBe(836)
+    expect(Math.abs((await box(aside)).width - 320)).toBeLessThanOrEqual(1)
+    const flagScroller = (await moduleSection(page, 'Workspace FLAG')).locator('[data-slot="table-container"]').first()
+    const flagMetrics = await flagScroller.evaluate((element) => ({
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    }))
+    expect(flagMetrics.scrollWidth).toBeLessThanOrEqual(flagMetrics.clientWidth + 1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440)
+    await capture(page, 'admin-board-1440')
+  })
+
+  test('admin board keeps a long table token inside its own scroller at 1024', async () => {
+    const page = adminPage
+    test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
+    await page.setViewportSize({ width: 1024, height: 900 })
+    await page.goto(`/admin/boards/${fixture.boardUuid}`)
+    await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
+
+    const workspace = page.locator('[data-slot="workspace"]')
+    const mainBox = await box(workspace.locator('[data-slot="workspace-main"]'))
+    const asideBox = await box(workspace.locator('[data-slot="workspace-aside"]'))
+    expect(Math.abs(mainBox.width - 764)).toBeLessThanOrEqual(1)
+    expect(Math.abs(asideBox.width - 764)).toBeLessThanOrEqual(1)
+    expect(asideBox.top).toBeGreaterThanOrEqual(mainBox.bottom - 1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1024)
+
+    const scroller = (await moduleSection(page, 'Workspace LONG')).locator('[data-slot="table-container"]').first()
+    const metrics = await scroller.evaluate((element) => ({
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    }))
+    expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth)
+    await capture(page, 'admin-board-1024')
+  })
+
+  test('legacy invite action wraps inside 375px without widening the document', async () => {
+    const page = adminPage
+    test.skip(test.info().project.name !== 'phone', 'Phone geometry runs in the 375px phone project')
+    await page.goto(`/admin/boards/${fixture.boardUuid}`)
+    await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
+
+    const legacy = page.getByRole('button', { name: /Legacy invite code/ })
+    await expect(legacy).toBeVisible()
+    const legacyBox = await box(legacy)
+    expect(legacyBox.width).toBeLessThanOrEqual(343)
+    expect(legacyBox.height).toBeGreaterThanOrEqual(44)
+    await expect(legacy).toHaveCSS('white-space', 'normal')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375)
+    await capture(page, 'admin-board-375')
   })
 })

@@ -54,6 +54,7 @@ const editBoardOpen = ref(false)
  * canonical join code panel is the primary code management surface.
  */
 const legacyInviteOpen = ref(false)
+const lifecycleOpen = ref(false)
 const createModuleOpen = ref(false)
 const editModule = ref<AdminModule | null>(null)
 const deleteModule = ref<AdminModule | null>(null)
@@ -205,11 +206,6 @@ void load()
         </template>
       </PageHeader>
 
-      <div class="mb-4 flex flex-wrap items-center gap-2">
-        <StatusPill :status="board.status" />
-        <span class="text-xs text-muted-foreground">{{ accessModeLabel(board.accessMode) }} · rating {{ board.rating.visibility === 'HIDDEN' ? 'hidden' : 'public' }}</span>
-      </div>
-
       <Alert v-if="board.accessMode === 'LEGACY'" class="mb-4 rounded-none border-gold/60 bg-black">
         <AlertTitle>Legacy access</AlertTitle>
         <AlertDescription>
@@ -220,100 +216,120 @@ void load()
 
       <ErrorAlert v-if="actionError" :error="actionError" title="Board action failed" class="mb-4" />
 
-      <section v-if="canPublish || isAdmin" class="mb-6 border border-border" aria-labelledby="lifecycle-heading">
-        <div class="border-b border-border px-4 py-3">
-          <h2 id="lifecycle-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-            Lifecycle
-          </h2>
-        </div>
-        <div class="flex flex-wrap items-center gap-2 px-4 py-4">
-          <Button
-            v-if="canPublish && board.status !== 'ARCHIVED' && board.status !== 'ACTIVE'"
-            :disabled="actionPending || modules.length === 0"
-            @click="runAction('PUBLISH')"
-          >
-            {{ actionPending ? 'Working…' : 'Publish' }}
-          </Button>
-          <Button
-            v-if="canPublish && board.status === 'SCHEDULED'"
-            variant="outline"
-            :disabled="actionPending"
-            @click="runAction('UNPUBLISH')"
-          >
-            Unpublish
-          </Button>
-          <Button
-            v-if="isAdmin && board.status !== 'ARCHIVED'"
-            variant="destructive"
-            :disabled="actionPending"
-            @click="archiveOpen = true"
-          >
-            Archive board
-          </Button>
-          <Button
-            v-if="isAdmin"
-            variant="destructive"
-            :disabled="actionPending"
-            @click="deleteBoardOpen = true"
-          >
-            Delete board
-          </Button>
-          <p v-if="modules.length === 0" class="text-xs text-muted-foreground">
-            Publishing requires at least one enabled TASKS module.
-          </p>
-          <p class="text-xs text-muted-foreground">
-            Only a global admin can archive or delete a board. Owners cannot create boards or grant owner.
-          </p>
-        </div>
-      </section>
-
-      <JoinCodePanel
-        v-if="canEditBoard"
-        :board-uuid="boardUuid"
-        class="mb-6"
-      />
-
-      <div v-if="canEditBoard" class="mb-6 space-y-3">
-        <Button variant="ghost" size="sm" @click="legacyInviteOpen = !legacyInviteOpen">
-          {{ legacyInviteOpen ? 'Hide legacy invite code' : 'Legacy invite code (pre-join-code boards)' }}
-        </Button>
-        <InviteCodePanel v-if="legacyInviteOpen" :board-uuid="boardUuid" />
-      </div>
-
       <Alert v-if="board.rating.visibility === 'HIDDEN'" class="mb-6 rounded-none border-gold/60 bg-black">
         <AlertTitle>Rating hidden</AlertTitle>
         <AlertDescription>Participant scoreboard and place return 403 while this setting is on.</AlertDescription>
       </Alert>
 
-      <section aria-labelledby="admin-modules-heading">
-        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 id="admin-modules-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+      <div class="workspace-layout" data-slot="workspace">
+        <section class="workspace-main" data-slot="workspace-main" aria-labelledby="admin-modules-heading">
+          <h2 id="admin-modules-heading" class="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             Modules and tasks
           </h2>
-          <Button v-if="canCreate" size="sm" variant="outline" @click="createModuleOpen = true">Create module</Button>
-        </div>
-        <EmptyState
-          v-if="modules.length === 0"
-          title="No modules"
-          description="Create a TASKS module that allows FLAG tasks, then add a task."
-        >
-          <Button v-if="canCreate" @click="createModuleOpen = true">Create module</Button>
-        </EmptyState>
-        <div v-else class="space-y-4">
-          <AdminModuleSection
-            v-for="module in modules"
-            :key="module.uuid"
-            :board-uuid="boardUuid"
-            :module="module"
-            :can-edit-module="moduleCanEdit(module)"
-            :can-delete-module="moduleCanDelete(module)"
-            :can-manage-tasks="moduleCanManageTasks(module)"
-            @edit-module="editModule = module"
-            @delete-module="deleteModule = module; deleteModuleError = null"
-            @changed="load"
+          <EmptyState
+            v-if="modules.length === 0"
+            title="No modules"
+            description="Create a TASKS module that allows FLAG tasks, then add a task."
           />
-        </div>
-      </section>
+          <div v-else class="space-y-4">
+            <AdminModuleSection
+              v-for="module in modules"
+              :key="module.uuid"
+              :board-uuid="boardUuid"
+              :module="module"
+              :can-edit-module="moduleCanEdit(module)"
+              :can-delete-module="moduleCanDelete(module)"
+              :can-manage-tasks="moduleCanManageTasks(module)"
+              @edit-module="editModule = module"
+              @delete-module="deleteModule = module; deleteModuleError = null"
+              @changed="load"
+            />
+          </div>
+        </section>
+
+        <aside class="workspace-aside space-y-4" data-slot="workspace-aside">
+          <JoinCodePanel v-if="canEditBoard" :board-uuid="boardUuid" />
+
+          <div class="flex flex-wrap items-center gap-2 border border-border px-4 py-3" data-slot="board-info">
+            <StatusPill :status="board.status" />
+            <span class="text-xs text-muted-foreground">{{ accessModeLabel(board.accessMode) }} · rating {{ board.rating.visibility === 'HIDDEN' ? 'hidden' : 'public' }}</span>
+          </div>
+
+          <section
+            v-if="canPublish || isAdmin"
+            class="border border-border"
+            data-slot="lifecycle-disclosure"
+            aria-labelledby="lifecycle-heading"
+          >
+            <div class="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+              <h2 id="lifecycle-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                Lifecycle
+              </h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                :aria-expanded="lifecycleOpen"
+                aria-controls="lifecycle-body"
+                :aria-label="lifecycleOpen ? 'Hide lifecycle actions' : 'Show lifecycle actions'"
+                @click="lifecycleOpen = !lifecycleOpen"
+              >
+                {{ lifecycleOpen ? 'Hide' : 'Show' }}
+              </Button>
+            </div>
+            <div v-if="lifecycleOpen" id="lifecycle-body" class="flex flex-wrap items-center gap-2 px-4 py-4">
+              <Button
+                v-if="canPublish && board.status !== 'ARCHIVED' && board.status !== 'ACTIVE'"
+                :disabled="actionPending || modules.length === 0"
+                @click="runAction('PUBLISH')"
+              >
+                {{ actionPending ? 'Working…' : 'Publish' }}
+              </Button>
+              <Button
+                v-if="canPublish && board.status === 'SCHEDULED'"
+                variant="outline"
+                :disabled="actionPending"
+                @click="runAction('UNPUBLISH')"
+              >
+                Unpublish
+              </Button>
+              <Button
+                v-if="isAdmin && board.status !== 'ARCHIVED'"
+                variant="destructive"
+                :disabled="actionPending"
+                @click="archiveOpen = true"
+              >
+                Archive board
+              </Button>
+              <Button
+                v-if="isAdmin"
+                variant="destructive"
+                :disabled="actionPending"
+                @click="deleteBoardOpen = true"
+              >
+                Delete board
+              </Button>
+              <p v-if="modules.length === 0" class="text-xs text-muted-foreground">
+                Publishing requires at least one enabled TASKS module.
+              </p>
+              <p class="text-xs text-muted-foreground">
+                Only a global admin can archive or delete a board. Owners cannot create boards or grant owner.
+              </p>
+            </div>
+          </section>
+
+          <div v-if="canEditBoard" class="min-w-0 space-y-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              class="legacy-invite-toggle"
+              @click="legacyInviteOpen = !legacyInviteOpen"
+            >
+              {{ legacyInviteOpen ? 'Hide legacy invite code' : 'Legacy invite code (pre-join-code boards)' }}
+            </Button>
+            <InviteCodePanel v-if="legacyInviteOpen" :board-uuid="boardUuid" />
+          </div>
+        </aside>
+      </div>
 
       <BoardSettingsDialog v-model:open="editBoardOpen" :board="board" :can-manage-access-groups="isAdmin" @saved="onBoardSaved" />
       <ModuleEditorDialog

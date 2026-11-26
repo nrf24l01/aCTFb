@@ -126,4 +126,22 @@ describe('AdminTemplatesPage catalog states', () => {
     expect(wrapper.text()).toContain('Administrator access required')
     wrapper.unmount()
   })
+
+  it('keeps catalog order inside the shared admin card grid', async () => {
+    const second: DeploymentTemplate = {
+      ...sample,
+      uuid: '22222222-2222-4222-8222-222222222222',
+      slug: 'second-template',
+      name: 'Second template',
+    }
+    list.mockResolvedValue({ items: [sample, second], limit: 100, offset: 0, total: 2 })
+    const wrapper = await mountPage()
+
+    const scope = wrapper.get('[data-slot="admin-cards"]')
+    const text = scope.text()
+
+    expect(scope.findAll('a')).toHaveLength(2)
+    expect(text.indexOf(sample.name)).toBeLessThan(text.indexOf(second.name))
+    wrapper.unmount()
+  })
 })

@@ -479,7 +479,7 @@ async function submit() {
 
       <form class="flex min-h-0 flex-1 flex-col" novalidate @submit.prevent="submit">
         <div class="authoring-body min-h-0 flex-1 overflow-y-auto md:pr-1" data-slot="authoring-scroll">
-          <ErrorAlert v-if="error" :error="error" title="Could not save task" />
+          <ErrorAlert v-if="error" :error="error" title="Could not save task" class="mb-3" />
 
           <div class="authoring-layout" data-slot="authoring-layout">
             <div class="authoring-main space-y-4" data-slot="authoring-main">

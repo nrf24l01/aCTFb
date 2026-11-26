@@ -82,7 +82,7 @@ void load()
     </PageHeader>
     <EmptyState v-if="!isAdmin" title="Administrator access required" description="Instance inventory is global-admin visible." />
     <template v-else>
-      <div class="mb-4 flex flex-wrap gap-2">
+      <div class="mb-4 flex flex-wrap items-center gap-2" data-slot="filter-toolbar">
         <Input v-model="boardUuid" placeholder="boardUuid" class="max-w-xs" />
         <Input v-model="moduleUuid" placeholder="moduleUuid" class="max-w-xs" />
         <Input v-model="status" placeholder="status" class="max-w-40" />

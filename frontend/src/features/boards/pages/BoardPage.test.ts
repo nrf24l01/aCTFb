@@ -60,6 +60,28 @@ const permissions: BoardPermissionsResponse = {
   modules: [],
 }
 
+const firstModule: ModuleListItem = {
+  uuid: 'module-a',
+  boardUuid: 'board-1',
+  name: 'Alpha module',
+  type: 'TASKS',
+  allowedTaskTypes: ['FLAG'],
+  status: 'ACTIVE',
+  audienceUuids: [],
+  order: 1,
+}
+
+const secondModule: ModuleListItem = {
+  uuid: 'module-b',
+  boardUuid: 'board-1',
+  name: 'Beta module',
+  type: 'TASKS',
+  allowedTaskTypes: ['FLAG'],
+  status: 'ACTIVE',
+  audienceUuids: [],
+  order: 2,
+}
+
 async function mountPage() {
   const wrapper = mount(BoardPage, {
     global: { stubs: { RouterLink: { props: ['to'], template: '<a><slot /></a>' } } },
@@ -101,6 +123,33 @@ describe('BoardPage description rendering', () => {
 
     expect(wrapper.find('script').exists()).toBe(false)
     expect(wrapper.text()).toContain('<script>alert(1)</script>')
+    wrapper.unmount()
+  })
+})
+
+describe('BoardPage desktop workspace', () => {
+  it('keeps the server module order in the main card list and standing in the rail', async () => {
+    listModules.mockResolvedValue({
+      items: [secondModule, firstModule],
+      limit: 100,
+      offset: 0,
+      total: 2,
+    })
+    const wrapper = await mountPage()
+
+    const workspace = wrapper.get('[data-slot="workspace"]')
+    const main = workspace.get('[data-slot="workspace-main"]')
+    const aside = workspace.get('[data-slot="workspace-aside"]')
+    const cards = main.get('[data-slot="board-modules"]')
+    const text = cards.text()
+
+    expect(cards.findAll('a')).toHaveLength(2)
+    expect(text.indexOf(secondModule.name)).toBeLessThan(text.indexOf(firstModule.name))
+    expect(aside.text()).toContain('Your standing')
+    expect(
+      main.element.compareDocumentPosition(aside.element) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
     wrapper.unmount()
   })
 })

@@ -90,7 +90,7 @@ async function resendVerification() {
 </script>
 
 <template>
-  <PageContainer>
+  <PageContainer bounded>
     <PageHeader title="Profile" description="Account details, email verification and password." />
 
     <EmptyState v-if="!user" title="Not signed in" description="Sign in to view your profile." />

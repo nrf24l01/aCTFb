@@ -180,3 +180,42 @@ describe('TaskPage description rendering', () => {
     wrapper.unmount()
   })
 })
+
+describe('TaskPage desktop workspace regions', () => {
+  it('keeps the description in the main column, participation in the rail and history below the workspace', async () => {
+    getBoard.mockResolvedValue({ ...board, joined: true, preview: false, canParticipate: true })
+    getModule.mockResolvedValue({ ...moduleItem, preview: false, canParticipate: true })
+    getTask.mockResolvedValue({ ...task, preview: false, canParticipate: true })
+    const wrapper = await mountPage()
+
+    const workspace = wrapper.get('[data-slot="workspace"]')
+    const main = workspace.get('[data-slot="workspace-main"]')
+    const aside = workspace.get('[data-slot="workspace-aside"]')
+    const history = wrapper.get('#history-heading')
+
+    expect(main.find('#description-heading').exists()).toBe(true)
+    expect(aside.find('[data-test="flag-form"]').exists()).toBe(true)
+    expect(workspace.find('#history-heading').exists()).toBe(false)
+    expect(
+      main.element.compareDocumentPosition(aside.element) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      workspace.element.compareDocumentPosition(history.element) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
+    wrapper.unmount()
+  })
+
+  it('keeps the preview explanation in the rail without participant controls or history', async () => {
+    const wrapper = await mountPage()
+
+    const aside = wrapper.get('[data-slot="workspace-aside"]')
+    expect(aside.text()).toContain('Submission and instance actions are available after joining the board.')
+    expect(aside.find('[data-test="flag-form"]').exists()).toBe(false)
+    expect(aside.find('[data-test="instance-panel"]').exists()).toBe(false)
+    expect(wrapper.find('#history-heading').exists()).toBe(false)
+    expect(listMySubmissions).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+})

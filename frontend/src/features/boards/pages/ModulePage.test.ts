@@ -165,3 +165,25 @@ describe('ModulePage description rendering', () => {
     wrapper.unmount()
   })
 })
+
+describe('ModulePage desktop task grid', () => {
+  it('keeps the server task order inside the task card grid', async () => {
+    const firstTask: TaskListItem = { ...task, uuid: 'task-a', title: 'Alpha task' }
+    const secondTask: TaskListItem = { ...task, uuid: 'task-b', title: 'Beta task' }
+    listTasks.mockResolvedValue({
+      items: [secondTask, firstTask],
+      limit: 100,
+      offset: 0,
+      total: 2,
+    })
+    const wrapper = await mountPage()
+
+    const grid = wrapper.get('[data-slot="module-tasks"]')
+    const text = grid.text()
+
+    expect(grid.findAll('a')).toHaveLength(2)
+    expect(text.indexOf(secondTask.title)).toBeLessThan(text.indexOf(firstTask.title))
+
+    wrapper.unmount()
+  })
+})

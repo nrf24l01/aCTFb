@@ -209,8 +209,8 @@ void load()
         <AlertDescription>The board, module or schedule does not allow submissions right now.</AlertDescription>
       </Alert>
 
-      <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-        <div class="space-y-6">
+      <div class="workspace-layout workspace-layout--task" data-slot="workspace">
+        <div class="workspace-main space-y-6" data-slot="workspace-main">
           <section class="border border-border" aria-labelledby="description-heading">
             <div class="border-b border-border px-4 py-3">
               <h2 id="description-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
@@ -218,7 +218,7 @@ void load()
               </h2>
             </div>
             <!-- Sanitised by renderMarkdown. -->
-            <article class="markdown-body space-y-3 px-4 py-4 text-sm" v-html="description" />
+            <article class="markdown-body workspace-prose space-y-3 px-4 py-4 text-sm" v-html="description" />
             <p v-if="!task.description" class="px-4 pb-4 text-sm text-muted-foreground">No description.</p>
           </section>
 
@@ -240,7 +240,7 @@ void load()
           </section>
         </div>
 
-        <div class="space-y-4 self-start">
+        <div class="workspace-aside space-y-4" data-slot="workspace-aside">
           <template v-if="isParticipant">
             <FlagSubmitForm
               v-if="task.type === 'FLAG'"

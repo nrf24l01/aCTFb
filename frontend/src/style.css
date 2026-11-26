@@ -639,7 +639,7 @@ body {
 /*
  * The site introduction is a page form, not a dialog. It uses the same
  * main/settings shape but switches at the shared 1100px usable-width
- * threshold. The global PageContainer cap is unchanged in this task.
+ * threshold.
  */
 .authoring-home {
   container-type: inline-size;
@@ -656,6 +656,135 @@ body {
 @container home-authoring (min-width: 1100px) {
   .authoring-home-layout {
     grid-template-columns: minmax(0, 1fr) 320px;
+  }
+}
+
+/*
+ * Shared desktop workspaces.
+ *
+ * PageContainer is the query container, so every threshold is based on the
+ * actual usable content width after the persistent 212px sidebar and the 24px
+ * side padding. It is never derived from `window.innerWidth`. The default rail
+ * is 320px; the task reader uses 360px. Both columns and their ancestors are
+ * `min-width: 0` so wide tables and long tokens cannot widen the page.
+ */
+.page-workspace {
+  container-type: inline-size;
+  container-name: workspace;
+}
+
+.workspace-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.workspace-layout > * {
+  min-width: 0;
+}
+
+@container workspace (min-width: 1100px) {
+  .workspace-layout {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+
+  .workspace-layout--task {
+    grid-template-columns: minmax(0, 1fr) 360px;
+  }
+}
+
+/*
+ * Card collections count their own width, not the viewport. Board modules use
+ * two columns at 760px; module tasks and the administration catalogs use two
+ * at 720px and three at 1200px. Row order stays the server order: no masonry.
+ */
+.workspace-cards {
+  container-type: inline-size;
+}
+
+.workspace-cards--board {
+  container-name: board-modules;
+}
+
+.workspace-cards--tasks {
+  container-name: module-tasks;
+}
+
+.workspace-cards--admin {
+  container-name: admin-cards;
+}
+
+.workspace-card-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace-card-grid > * {
+  min-width: 0;
+}
+
+@container board-modules (min-width: 760px) {
+  .workspace-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container module-tasks (min-width: 720px) {
+  .workspace-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container module-tasks (min-width: 1200px) {
+  .workspace-card-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container admin-cards (min-width: 720px) {
+  .workspace-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container admin-cards (min-width: 1200px) {
+  .workspace-card-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/*
+ * Reader prose keeps a readable measure, but only on text blocks. Code and
+ * tables keep the full panel width and keep their own local overflow, so a
+ * long line or a wide table never narrows the article or the page.
+ */
+.workspace-prose > :where(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote) {
+  max-width: 80ch;
+}
+
+/*
+ * The legacy invite toggle is explicit/advanced and must wrap at 375px instead
+ * of forcing a 366px single line and a 7px document overflow.
+ */
+.legacy-invite-toggle {
+  height: auto;
+  max-width: 100%;
+  white-space: normal;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+/*
+ * Desktop authoring keeps the editor usable at 16rem, not the old 10rem. The
+ * rule is scoped to the authoring main column and starts at desktop width;
+ * before the two-column threshold the height is still normal.
+ */
+@media (min-width: 768px) {
+  .authoring-main .markdown-editor,
+  .authoring-main .markdown-editor .ProseMirror,
+  .authoring-main .markdown-editor-source {
+    min-height: 16rem;
   }
 }
 

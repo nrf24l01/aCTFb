@@ -69,8 +69,8 @@ void load()
       <AlertDescription>Check your inbox if email verification is required for this deployment.</AlertDescription>
     </Alert>
 
-    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-      <section aria-labelledby="board-list-heading">
+    <div class="workspace-layout" data-slot="workspace">
+      <section class="workspace-main" data-slot="workspace-main" aria-labelledby="board-list-heading">
         <h2 id="board-list-heading" class="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           Your boards
         </h2>
@@ -92,7 +92,7 @@ void load()
         </div>
       </section>
 
-      <section class="border border-border self-start" aria-labelledby="join-heading">
+      <section class="workspace-aside border border-border self-start" data-slot="workspace-aside" aria-labelledby="join-heading">
         <div class="border-b border-border px-4 py-3">
           <h2 id="join-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             Join a board

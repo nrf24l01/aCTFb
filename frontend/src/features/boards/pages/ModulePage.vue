@@ -147,14 +147,16 @@ void load()
           title="No tasks available"
           description="Tasks appear when the organizer publishes them and the module is active."
         />
-        <div v-else class="space-y-2">
-          <TaskCard
-            v-for="task in tasks"
-            :key="task.uuid"
-            :task="task"
-            :board-uuid="boardUuid"
-            :module-uuid="moduleUuid"
-          />
+        <div v-else class="workspace-cards workspace-cards--tasks" data-slot="module-tasks">
+          <div class="workspace-card-grid gap-2">
+            <TaskCard
+              v-for="task in tasks"
+              :key="task.uuid"
+              :task="task"
+              :board-uuid="boardUuid"
+              :module-uuid="moduleUuid"
+            />
+          </div>
         </div>
       </section>
     </template>

@@ -94,20 +94,22 @@ void load()
           {{ creating ? 'Creating…' : 'Create template' }}
         </Button>
       </EmptyState>
-      <div v-else class="space-y-2">
-        <RouterLink
-          v-for="template in items"
-          :key="template.uuid"
-          :to="`/admin/templates/${template.uuid}`"
-          class="block border border-border bg-black px-4 py-3 hover:border-muted-foreground"
-        >
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 class="font-semibold">{{ template.name }}</h2>
-            <span class="text-xs text-muted-foreground">{{ template.slug }}</span>
-          </div>
-          <p class="text-sm text-muted-foreground">{{ template.description || 'No description' }}</p>
-          <p class="mt-1 text-xs text-muted-foreground">Updated {{ formatDateTime(template.updatedAt) }}</p>
-        </RouterLink>
+      <div v-else class="workspace-cards workspace-cards--admin" data-slot="admin-cards">
+        <div class="workspace-card-grid gap-2">
+          <RouterLink
+            v-for="template in items"
+            :key="template.uuid"
+            :to="`/admin/templates/${template.uuid}`"
+            class="block border border-border bg-black px-4 py-3 hover:border-muted-foreground"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h2 class="font-semibold">{{ template.name }}</h2>
+              <span class="text-xs text-muted-foreground">{{ template.slug }}</span>
+            </div>
+            <p class="text-sm text-muted-foreground">{{ template.description || 'No description' }}</p>
+            <p class="mt-1 text-xs text-muted-foreground">Updated {{ formatDateTime(template.updatedAt) }}</p>
+          </RouterLink>
+        </div>
       </div>
     </template>
   </PageContainer>

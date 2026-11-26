@@ -24,11 +24,13 @@ const links = [
   <PageContainer>
     <PageHeader title="Administration" description="Global-admin console. Scoped board work stays in the board's own Manage view." />
     <EmptyState v-if="!isAdmin" title="Administrator access required" description="Only a global admin can open this console." />
-    <div v-else class="grid gap-3 sm:grid-cols-2">
-      <RouterLink v-for="link in links" :key="link.to" :to="link.to" class="border border-border bg-black p-4 hover:border-muted-foreground">
-        <h2 class="font-semibold">{{ link.title }}</h2>
-        <p class="mt-1 text-sm text-muted-foreground">{{ link.text }}</p>
-      </RouterLink>
+    <div v-else class="workspace-cards workspace-cards--admin" data-slot="admin-cards">
+      <div class="workspace-card-grid gap-3">
+        <RouterLink v-for="link in links" :key="link.to" :to="link.to" class="border border-border bg-black p-4 hover:border-muted-foreground">
+          <h2 class="font-semibold">{{ link.title }}</h2>
+          <p class="mt-1 text-sm text-muted-foreground">{{ link.text }}</p>
+        </RouterLink>
+      </div>
     </div>
   </PageContainer>
 </template>

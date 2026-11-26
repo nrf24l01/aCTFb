@@ -175,7 +175,7 @@ async function handleSignOut() {
       </aside>
 
       <main class="min-w-0 flex-1">
-        <div class="mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6">
+        <div class="mx-auto w-full max-w-[1600px] px-4 pt-4 sm:px-6">
           <Alert v-if="state.sessionLost" class="rounded-none border-love/60 bg-black">
             <AlertTitle>Session ended</AlertTitle>
             <AlertDescription>Your session expired. Sign in again to continue.</AlertDescription>
