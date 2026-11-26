@@ -60,3 +60,107 @@ describe('inspectMarkdownSupport', () => {
     })
   })
 })
+
+/**
+ * GFM table cells. `marked` shapes a table as `header: Token[]` and
+ * `rows: Token[][]`, and a *cell* is a token-shaped object with `tokens` but no
+ * `type` field. A walk that requires `type` therefore skips every cell — the
+ * whole table silently bypassed the gate and opened in the visual editor.
+ */
+describe('table cells are inspected', () => {
+  it('flags raw HTML in a body cell', () => {
+    expect(inspectMarkdownSupport('| a |\n| - |\n| <div>x</div> |').reasons).toEqual(['raw-html'])
+  })
+
+  it('flags raw HTML in a header cell', () => {
+    expect(inspectMarkdownSupport('| <b>h</b> |\n| - |\n| ok |').reasons).toEqual(['raw-html'])
+  })
+
+  it('flags an unsafe link in a body cell', () => {
+    expect(inspectMarkdownSupport('| a |\n| - |\n| [x](javascript:1) |').reasons).toEqual(['unsafe-url'])
+  })
+
+  it('flags a data: image in a body cell', () => {
+    expect(inspectMarkdownSupport('| a |\n| - |\n| ![i](data:image/png;base64,AA) |').reasons)
+      .toEqual(['unsafe-url'])
+  })
+
+  it('flags an entity-obfuscated unsafe link in a body cell', () => {
+    expect(inspectMarkdownSupport('| a |\n| - |\n| [x](java&#9;script:1) |').reasons)
+      .toEqual(['unsafe-url'])
+  })
+
+  it('finds a nested image and link inside a cell', () => {
+    expect(inspectMarkdownSupport('| a |\n| - |\n| [![alt](/x.png)](/boards) |'))
+      .toEqual({ supported: true, reasons: [] })
+    expect(inspectMarkdownSupport('| a |\n| - |\n| [![a](data:image/png;base64,AA)](/boards) |').reasons)
+      .toEqual(['unsafe-url'])
+  })
+
+  it('flags both problems when one cell has a link and an HTML tag', () => {
+    expect(inspectMarkdownSupport('| a |\n| - |\n| [x](javascript:1) and <b>h</b> |').reasons)
+      .toEqual(['raw-html', 'unsafe-url'])
+  })
+
+  // GFM lexes `- [ ]` inside a table cell as literal text, not a task-list item,
+  // so there is nothing to lose and the cell is legitimately supported.
+  it('keeps a task-list-looking cell as literal text', () => {
+    expect(inspectMarkdownSupport('| a |\n| - |\n| - [ ] todo |'))
+      .toEqual({ supported: true, reasons: [] })
+  })
+
+  it('still accepts a table whose cells hold only supported inline content', () => {
+    const source = '| **a** | `b` |\n| :- | -: |\n| [link](/boards "t") | ![i](/x.png) |'
+    expect(inspectMarkdownSupport(source)).toEqual({ supported: true, reasons: [] })
+  })
+
+  it('does not flag the same payload when it is inside a fenced block', () => {
+    const fenced = [
+      '```markdown',
+      '| a |',
+      '| - |',
+      '| <div>x</div> |',
+      '| [x](javascript:1) |',
+      '| - [ ] todo |',
+      '```',
+    ].join('\n')
+    expect(inspectMarkdownSupport(fenced)).toEqual({ supported: true, reasons: [] })
+  })
+})
+
+/**
+ * Entity decoding must never throw. `String.fromCodePoint` raises `RangeError`
+ * above `0x10FFFF`, and `marked` passes such a destination straight through, so
+ * `[x](&#x110000;)` used to crash `inspectMarkdownSupport` — which runs in
+ * component setup and on every mode switch.
+ */
+describe('bounded entity decoding', () => {
+  it('does not throw on an out-of-range hexadecimal entity', () => {
+    expect(() => inspectMarkdownSupport('[x](&#x110000;)')).not.toThrow()
+  })
+
+  it('does not throw on an out-of-range decimal entity', () => {
+    expect(() => inspectMarkdownSupport('[x](&#9999999999;)')).not.toThrow()
+    expect(() => inspectMarkdownSupport('[x](&#1114112;)')).not.toThrow()
+  })
+
+  it('does not throw on a surrogate code point or a negative numeric reference', () => {
+    expect(() => inspectMarkdownSupport('[x](&#xD800;)')).not.toThrow()
+    expect(() => inspectMarkdownSupport('[x](&#-1;)')).not.toThrow()
+    expect(() => inspectMarkdownSupport('[x](&#;)')).not.toThrow()
+  })
+
+  it('treats an undecodable destination as unsafe rather than as safe text', () => {
+    expect(inspectMarkdownSupport('[x](&#x110000;)').reasons).toEqual(['unsafe-url'])
+    expect(inspectMarkdownSupport('[x](&#xD800;)').reasons).toEqual(['unsafe-url'])
+  })
+
+  it('still decodes a valid numeric entity before judging the scheme', () => {
+    expect(inspectMarkdownSupport('[x](javascript&#58;alert(1))').reasons).toEqual(['unsafe-url'])
+    expect(inspectMarkdownSupport('[x](java&#115;cript:alert(1))').reasons).toEqual(['unsafe-url'])
+  })
+
+  it('leaves a normal relative path alone', () => {
+    expect(inspectMarkdownSupport('[x](/boards?q=1&amp;r=2)').supported).toBe(true)
+  })
+})

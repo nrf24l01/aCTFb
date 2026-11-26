@@ -7,7 +7,13 @@ import { EyeIcon, PencilIcon } from '@lucide/vue'
 import ConfirmDialog from '@/components/layout/ConfirmDialog.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { markdownExtensions } from '@/shared/lib/markdownDocument'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { createMarkdownExtensions } from '@/shared/lib/markdownDocument'
 import type { UnsupportedReason } from '@/shared/lib/markdownUnsupported'
 import { inspectMarkdownSupport } from '@/shared/lib/markdownUnsupported'
 import { isSafeUrl } from '@/shared/lib/markdown'
@@ -101,8 +107,10 @@ const createEditor = (content: string): void => {
   if (editor.value) return
   initialising = true
   const instance = new Editor({
+    // Fresh instances per editor: Tiptap keeps per-editor state on the extension
+    // object, so a shared list would couple two mounted editors.
     extensions: [
-      ...markdownExtensions,
+      ...createMarkdownExtensions(),
       Placeholder.configure({ placeholder: () => props.placeholder ?? '' }),
     ],
     content,
@@ -113,7 +121,6 @@ const createEditor = (content: string): void => {
         role: 'textbox',
         'aria-multiline': 'true',
         'aria-label': props.label,
-        class: 'markdown-editor-input',
       },
     },
     onUpdate: ({ editor: current }) => {
@@ -126,9 +133,14 @@ const createEditor = (content: string): void => {
 }
 
 const toSource = (): void => {
-  // Show the stored value, not a re-serialisation of the document: switching
-  // modes is not an edit.
-  sourceDraft.value = model.value
+  // The last value this control actually produced. Before any edit that is the
+  // original prop, so the bytes are preserved exactly; after an edit it is the
+  // edit, even if the parent has not echoed it yet (a parent that validates and
+  // withholds the update must not roll the author's work back).
+  sourceDraft.value = lastEmitted.value
+  // The warning tracks the content, not a one-time decision: coming back to
+  // Source with unsupported bytes must show it again.
+  visualOverride.value = false
   mode.value = 'source'
   destroyEditor()
   linkRowOpen.value = false
@@ -330,16 +342,23 @@ onBeforeUnmount(() => {
           class="flex-1"
           @request-link="openLinkRow"
         />
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label="Source mode"
-          class="m-1"
-          @click="toggleMode"
-        >
-          <EyeIcon />
-          Source
-        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Source mode"
+                class="m-1"
+                @click="toggleMode"
+              >
+                <EyeIcon />
+                Source
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Edit the raw Markdown instead</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
       <div v-if="mode === 'visual' && editor" class="markdown-editor-body">
@@ -349,15 +368,22 @@ onBeforeUnmount(() => {
       <div v-if="mode === 'source'" class="flex flex-col">
         <div class="flex flex-wrap items-center justify-between gap-1 border-b border-border px-1 py-1">
           <span class="px-1 text-xs text-muted-foreground">Markdown source</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label="Visual mode"
-            @click="toggleMode"
-          >
-            <PencilIcon />
-            Visual
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Visual mode"
+                  @click="toggleMode"
+                >
+                  <PencilIcon />
+                  Visual
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Return to the formatted editor</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
         <textarea
           ref="textarea"
@@ -418,6 +444,7 @@ onBeforeUnmount(() => {
       title="Edit visually anyway?"
       :description="`This description contains ${reasonText}. The visual editor cannot represent it, so saving from visual mode will drop that markup.`"
       confirm-label="Edit visually"
+      destructive
       @update:open="confirmVisualOpen = $event"
       @confirm="confirmVisualAnyway"
     />

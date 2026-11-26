@@ -30,6 +30,16 @@ const CORPUS = [
   '```brainfuck title=extra\n+++\n```',
   '> - quoted list\n> - second',
   '# Heading with **bold** and `code`',
+  '\\# not a heading\n\n\\- not a list',
+  '\\> not a quote\n\n1\\. not a list',
+  '\\+ not a list\n\n2\\) not a list',
+  '\\---',
+  '\\| not a table |',
+  'literal \\# hash and \\> quote inside a sentence',
+  'line with a break  \n\\- second line is not a list',
+  '```\n# not a heading\n- not a list\n| not | a table |\n```',
+  '```\nplain fence\n```',
+  'soft\nbreak stays soft',
 ]
 
 const roundTrip = (source: string): string => serializeMarkdown(parseMarkdown(source))
@@ -251,5 +261,120 @@ describe('pasted HTML filtering', () => {
     const doc = paste('<script>alert(1)</script>')
     expect(JSON.stringify(doc)).not.toContain('alert')
     expect(serializeMarkdown(doc)).toBe('')
+  })
+})
+
+/**
+ * Escaped block markers.
+ *
+ * `marked` lexes `\# not a heading` as an `escape` token, which becomes a text
+ * node whose text starts with `#`. The upstream serializer escapes inline
+ * delimiters (`*`, `_`, `` ` ``, `[`, `]`, `~`) but not block markers, so the
+ * paragraph used to be written back as `# not a heading` and re-read as a
+ * heading — a silent data transform on a supported document. These assertions
+ * pin the paragraph to stay a paragraph, before and after serialisation, and
+ * they check rendered HTML rather than comparing the document to itself.
+ */
+describe('escaped block markers stay literal', () => {
+  const CASES = [
+    { source: '\\# not a heading', text: '# not a heading' },
+    { source: '\\> not a quote', text: '> not a quote' },
+    { source: '\\- not a list', text: '- not a list' },
+    { source: '\\+ not a list', text: '+ not a list' },
+    { source: '1\\. not a list', text: '1. not a list' },
+    { source: '2\\) not a list', text: '2) not a list' },
+    { source: '\\| not a table |', text: '| not a table |' },
+    { source: '\\---', text: '---' },
+  ]
+
+  it.each(CASES)('parses $source as a paragraph', ({ source, text }) => {
+    const doc = parseMarkdown(source)
+    expect(doc.content).toHaveLength(1)
+    expect(doc.content?.[0].type).toBe('paragraph')
+    expect(doc.content?.[0].content?.[0].text).toBe(text)
+  })
+
+  it.each(CASES)('re-reads $source as a paragraph after one round-trip', ({ source, text }) => {
+    const once = roundTrip(source)
+    const doc = parseMarkdown(once)
+    expect(doc.content).toHaveLength(1)
+    expect(doc.content?.[0].type).toBe('paragraph')
+    expect(doc.content?.[0].content?.[0].text).toBe(text)
+  })
+
+  it.each(CASES)('renders $source identically before and after', ({ source }) => {
+    expect(renderMarkdown(roundTrip(source))).toBe(renderMarkdown(source))
+  })
+
+  it('is stable on a second round-trip', () => {
+    for (const { source } of CASES) {
+      const once = roundTrip(source)
+      expect(roundTrip(once)).toBe(once)
+    }
+  })
+
+  it('keeps a marker literal on a line after a hard break', () => {
+    const source = 'first line  \n\\- second line'
+    const paragraph = firstNode(source)
+    expect(paragraph.type).toBe('paragraph')
+    expect(renderMarkdown(roundTrip(source))).toBe(renderMarkdown(source))
+    expect(renderMarkdown(roundTrip(source))).not.toContain('<ul>')
+  })
+
+  it('keeps a marker literal inside a list item', () => {
+    const source = '- item with \\# hash'
+    expect(renderMarkdown(roundTrip(source))).toBe(renderMarkdown(source))
+  })
+})
+
+describe('code is never re-escaped', () => {
+  it('preserves a fence body byte for byte', () => {
+    const body = '# not a heading\n- not a list\n| not | a table |\n> not a quote\n~~~\n\\# escaped'
+    const source = `\`\`\`text\n${body}\n\`\`\``
+    expect(roundTrip(source)).toBe(source)
+  })
+
+  it('preserves inline code that starts with a block marker', () => {
+    const source = '`# not a heading` and `- not a list`'
+    expect(roundTrip(source)).toBe(source)
+    expect(renderMarkdown(roundTrip(source))).toBe(renderMarkdown(source))
+  })
+
+  it('keeps literal angle brackets and markup inside inline code', () => {
+    const source = 'use `<div onclick="x">` literally'
+    expect(roundTrip(source)).toBe(source)
+    expect(renderMarkdown(roundTrip(source))).toBe(renderMarkdown(source))
+    expect(renderMarkdown(roundTrip(source))).not.toContain('<div')
+  })
+
+  it('keeps a hard break inside a paragraph', () => {
+    const source = 'a  \nb'
+    expect(roundTrip(source)).toBe(source)
+  })
+
+  it('keeps a soft line break soft', () => {
+    const source = 'soft\nbreak'
+    expect(roundTrip(source)).toBe(source)
+    expect(parseMarkdown(source).content?.[0].content?.[0].text).toBe('soft\nbreak')
+    expect(renderMarkdown(roundTrip(source))).toBe(renderMarkdown(source))
+  })
+})
+
+/**
+ * The whole corpus at once, compared on rendered HTML rather than by parsing
+ * both sides with the same parser.
+ */
+describe('whole-corpus fidelity', () => {
+  it('renders every corpus item identically after one serialisation', () => {
+    const source = CORPUS.join('\n\n')
+    expect(renderMarkdown(roundTrip(source))).toBe(renderMarkdown(source))
+  })
+
+  it('does not gain a heading, list or table from literal text', () => {
+    const html = renderMarkdown(roundTrip(CORPUS.join('\n\n')))
+    const before = renderMarkdown(CORPUS.join('\n\n'))
+    expect(html.match(/<h[1-6]>/g)?.length).toBe(before.match(/<h[1-6]>/g)?.length)
+    expect(html.match(/<li>/g)?.length).toBe(before.match(/<li>/g)?.length)
+    expect(html.match(/<table>/g)?.length).toBe(before.match(/<table>/g)?.length)
   })
 })

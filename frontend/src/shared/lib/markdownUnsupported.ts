@@ -1,5 +1,4 @@
 import { Marked } from 'marked'
-import type { Token, Tokens } from 'marked'
 import { isSafeUrl } from './markdown'
 
 /**
@@ -54,15 +53,55 @@ const ENTITIES: Readonly<Record<string, string>> = {
   '&apos;': "'",
 }
 
-const decodeEntities = (value: string): string =>
-  value
-    .replace(/&#x([0-9a-f]+);/gi, (_match, hex: string) =>
-      String.fromCodePoint(Number.parseInt(hex, 16)),
-    )
-    .replace(/&#(\d+);/g, (_match, decimal: string) =>
-      String.fromCodePoint(Number.parseInt(decimal, 10)),
-    )
-    .replace(/&[a-z]+;|&#39;/gi, (entity) => ENTITIES[entity.toLowerCase()] ?? entity)
+/** Highest valid Unicode code point (and the end of the basic plane). */
+const MAX_CODE_POINT = 0x10_FFFF
+const HIGH_SURROGATE_START = 0xD800
+const LOW_SURROGATE_END = 0xDFFF
+
+/**
+ * A numeric reference that is not a scalar value cannot be decoded, and it is
+ * not something a browser would show either: it is a malformed destination.
+ * Returning it unchanged would let `[x](&#x110000;)` look like a harmless
+ * relative path, so the caller treats it as unsafe instead.
+ */
+const UNDECODABLE = Symbol('undecodable')
+
+const decodeCodePoint = (raw: string, radix: number): string | typeof UNDECODABLE => {
+  const codePoint = Number.parseInt(raw, radix)
+  if (!Number.isFinite(codePoint) || !Number.isInteger(codePoint)) return UNDECODABLE
+  if (codePoint < 0 || codePoint > MAX_CODE_POINT) return UNDECODABLE
+  // A lone surrogate is not a valid character; refuse instead of emitting it.
+  if (codePoint >= HIGH_SURROGATE_START && codePoint <= LOW_SURROGATE_END) return UNDECODABLE
+  return String.fromCodePoint(codePoint)
+}
+
+interface DecodedDestination {
+  value: string
+  /** True when a numeric reference could not be decoded into a scalar value. */
+  invalid: boolean
+}
+
+/**
+ * Decode the entity spellings a browser would honour, without ever throwing.
+ * `String.fromCodePoint` raises `RangeError` above `0x10FFFF`; a stored
+ * description containing such a reference used to crash the component on mount.
+ */
+const decodeEntities = (value: string): DecodedDestination => {
+  let invalid = false
+  const replaceNumeric = (raw: string, radix: number): string => {
+    const decoded = decodeCodePoint(raw, radix)
+    if (decoded === UNDECODABLE) {
+      invalid = true
+      return raw
+    }
+    return decoded
+  }
+  const decoded = value
+    .replace(/&#x([0-9a-f]+);/gi, (_match, hex: string) => replaceNumeric(hex, 16))
+    .replace(/&#(\d+);/g, (_match, decimal: string) => replaceNumeric(decimal, 10))
+    .replace(/&[a-z]+;/gi, (entity) => ENTITIES[entity.toLowerCase()] ?? entity)
+  return { value: decoded, invalid }
+}
 
 /**
  * `isSafeUrl` already parses with `new URL`, which rejects `javascript:`,
@@ -72,18 +111,19 @@ const decodeEntities = (value: string): string =>
  *
  * Shared with the editor extensions (`SafeLink`, `SafeImage`), so the paste
  * filter and the compatibility gate agree on what "unsafe" means. An empty
- * value is not unsafe: it simply has no destination.
+ * value is not unsafe: it simply has no destination. A destination that cannot
+ * be decoded is treated as unsafe.
  */
 export function isUnsafeUrlCandidate(value: unknown): boolean {
   if (typeof value !== 'string') return false
-  const decoded = decodeEntities(value).replace(CONTROL_CHARACTERS, '').trim()
-  if (decoded === '') return false
-  return !isSafeUrl(decoded)
+  const decoded = decodeEntities(value)
+  if (decoded.invalid) return true
+  const canonical = decoded.value.replace(CONTROL_CHARACTERS, '').trim()
+  if (canonical === '') return false
+  return !isSafeUrl(canonical)
 }
 
 const isUnsafeDestination = isUnsafeUrlCandidate
-
-type AnyToken = Token | Tokens.Generic
 
 /**
  * marked refuses to parse a destination that contains raw whitespace, so
@@ -104,47 +144,65 @@ const inspectProseText = (text: string, reasons: Set<UnsupportedReason>): void =
     if (destination.endsWith('>')) destination = destination.slice(0, -1)
     const titleSeparator = /^(\S+)\s+["'][\s\S]*$/.exec(destination)
     if (titleSeparator) destination = titleSeparator[1]
-    if (HAS_CONTROL_CHARACTER.test(decodeEntities(destination)) && isUnsafeDestination(destination)) {
+    const decoded = decodeEntities(destination)
+    if (decoded.invalid) {
+      reasons.add('unsafe-url')
+    } else if (HAS_CONTROL_CHARACTER.test(decoded.value) && isUnsafeDestination(destination)) {
       reasons.add('unsafe-url')
     }
     index = text.indexOf('](', end)
   }
 }
 
-const collectFromChildren = (token: AnyToken, visit: (child: AnyToken) => void): void => {
-  const record = token as unknown as Record<string, unknown>
-  for (const key of ['tokens', 'items', 'header', 'rows']) {
-    const value = record[key]
-    if (!Array.isArray(value)) continue
-    for (const child of value) {
-      if (child && typeof child === 'object' && typeof (child as AnyToken).type === 'string') {
-        visit(child as AnyToken)
-      }
-    }
-  }
-}
+/**
+ * Child arrays that can hold further tokens. `marked` nests them: list items
+ * live in `items`, table cells in `header` and in `rows`, and `rows` is an
+ * array of arrays.
+ */
+const CHILD_KEYS = ['tokens', 'items', 'header', 'rows'] as const
 
-const inspectTokens = (tokens: AnyToken[], reasons: Set<UnsupportedReason>): void => {
-  for (const token of tokens) {
-    switch (token.type) {
-      case 'html':
-      case 'tag':
-        reasons.add('raw-html')
-        break
-      case 'list_item':
-        if ((token as Tokens.ListItem).task === true) reasons.add('task-list')
-        break
-      case 'link':
-      case 'image':
-        if (isUnsafeDestination((token as Tokens.Link).href)) reasons.add('unsafe-url')
-        break
-      case 'text':
-        inspectProseText((token as Tokens.Text).text, reasons)
-        break
-      default:
-        break
-    }
-    collectFromChildren(token, (child) => inspectTokens([child], reasons))
+/**
+ * Walk the token tree by shape rather than by `type`.
+ *
+ * A table *cell* is a token-shaped object with `tokens` but no `type` field, so
+ * requiring `type` skipped every cell: a table row could carry raw HTML, an
+ * unsafe URL or a `data:` image straight into the visual editor with no
+ * warning. Arrays are flattened at any depth for the same reason.
+ *
+ * Classification stays type-based, so `code` and `codespan` payloads (which have
+ * no child arrays) are never inspected as prose — HTML inside a fence remains
+ * supported.
+ */
+const inspectNode = (node: unknown, reasons: Set<UnsupportedReason>): void => {
+  if (Array.isArray(node)) {
+    for (const child of node) inspectNode(child, reasons)
+    return
+  }
+  if (!node || typeof node !== 'object') return
+
+  const record = node as Record<string, unknown>
+  switch (typeof record.type === 'string' ? record.type : '') {
+    case 'html':
+    case 'tag':
+      reasons.add('raw-html')
+      break
+    case 'list_item':
+      if (record.task === true) reasons.add('task-list')
+      break
+    case 'link':
+    case 'image':
+      if (isUnsafeDestination(record.href)) reasons.add('unsafe-url')
+      break
+    case 'text':
+      if (typeof record.text === 'string') inspectProseText(record.text, reasons)
+      break
+    default:
+      break
+  }
+
+  for (const key of CHILD_KEYS) {
+    const child = record[key]
+    if (Array.isArray(child)) inspectNode(child, reasons)
   }
 }
 
@@ -159,7 +217,7 @@ export function inspectMarkdownSupport(source: string): MarkdownSupportReport {
     return { supported: true, reasons: [] }
   }
 
-  inspectTokens(lexer.lexer(source) as AnyToken[], reasons)
+  inspectNode(lexer.lexer(source), reasons)
 
   const ordered = REASON_ORDER.filter((reason) => reasons.has(reason))
   return { supported: ordered.length === 0, reasons: ordered }

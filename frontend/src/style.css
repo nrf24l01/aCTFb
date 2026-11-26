@@ -57,6 +57,19 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+
+  /*
+   * Status tones as utilities. The `--status-*` variables are plain custom
+   * properties on `:root`, so without these mappings `text-status-error-ink`
+   * and friends generate no CSS at all: the editor's warnings and over-limit
+   * message rendered as ordinary body text. Only the tones the editor uses are
+   * exposed, so nothing else changes.
+   */
+  --color-status-attention-ink: var(--status-attention-ink);
+  --color-status-attention-surface: var(--status-attention-surface);
+  --color-status-attention-border: var(--status-attention-border);
+  --color-status-error-ink: var(--status-error-ink);
+
   --radius-sm: 0px;
   --radius-md: 0px;
   --radius-lg: 0px;

@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import { Editor, EditorContent } from '@tiptap/vue-3'
 import { lowlight } from '@/shared/lib/highlight'
+import { createMarkdownExtensions } from '@/shared/lib/markdownDocument'
 import MarkdownEditor from './MarkdownEditor.vue'
 
 const mountEditor = (modelValue: string, maxLength?: number) =>
@@ -354,5 +355,208 @@ describe('teardown', () => {
     wrapper.unmount()
     expect(destroy).toHaveBeenCalled()
     expect(document.querySelector('.ProseMirror')).toBeNull()
+  })
+})
+
+describe('source mode trust and notice lifecycle', () => {
+  it('keeps visual edits when the parent withholds the echo', async () => {
+    const wrapper = mountEditor('plain')
+    await flushPromises()
+
+    const editor = wrapper.findComponent(EditorContent).props('editor') as Editor
+    editor.chain().focus('end').insertContent(' tail').run()
+    await flushPromises()
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['plain tail'])
+
+    // A validating parent does not echo the new value back.
+    await wrapper.get('[aria-label="Source mode"]').trigger('click')
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('plain tail')
+
+    wrapper.unmount()
+  })
+
+  it('shows the warning again when returning to source after an override', async () => {
+    const wrapper = mountEditor('<div>legacy</div>')
+    await flushPromises()
+
+    Array.from(document.querySelectorAll('button'))
+      .find((button) => button.textContent?.includes('Edit visually anyway'))!
+      .click()
+    await flushPromises()
+    Array.from(document.querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === 'Edit visually')!
+      .click()
+    await flushPromises()
+    expect(wrapper.find('.ProseMirror').exists()).toBe(true)
+
+    await wrapper.get('[aria-label="Source mode"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.ProseMirror').exists()).toBe(false)
+    expect(document.body.textContent).toMatch(/raw HTML/i)
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('<div>legacy</div>')
+
+    wrapper.unmount()
+  })
+
+  it('marks the lossy conversion as destructive', async () => {
+    const wrapper = mountEditor('<div>legacy</div>')
+    await flushPromises()
+
+    Array.from(document.querySelectorAll('button'))
+      .find((button) => button.textContent?.includes('Edit visually anyway'))!
+      .click()
+    await flushPromises()
+
+    const confirm = Array.from(document.querySelectorAll('button'))
+      .find((button) => button.textContent?.trim() === 'Edit visually')!
+    expect(confirm.getAttribute('data-variant')).toBe('destructive')
+
+    wrapper.unmount()
+  })
+})
+
+describe('default cancel', () => {
+  /**
+   * The confirm is the only path that can drop markup, so the *default* action
+   * must be Cancel. `ConfirmDialog` renders Cancel first, as a ghost button, and
+   * nothing autofocuses the destructive action; Escape and the close button both
+   * map to cancel too. reka-ui's Escape handling needs a real focus trap, which
+   * happy-dom does not provide, so the Escape path is verified in Chromium
+   * (Task 3) and is not claimed here.
+   */
+  it('offers Cancel first and the destructive action second', async () => {
+    const wrapper = mountEditor('<div>legacy</div>')
+    await flushPromises()
+
+    const textarea = wrapper.get('textarea').element as HTMLTextAreaElement
+    textarea.value = '<div>legacy</div>\n\nedited'
+    await wrapper.get('textarea').trigger('input')
+    await flushPromises()
+
+    await wrapper.get('[aria-label="Visual mode"]').trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toMatch(/Edit visually anyway\?/i)
+
+    const dialog = document.querySelector('[role="dialog"]')!
+    const actions = Array.from(dialog.querySelectorAll('button'))
+      .filter((button) => button.textContent?.trim() === 'Cancel'
+        || button.textContent?.trim() === 'Edit visually')
+
+    expect(actions.map((button) => button.textContent?.trim())).toEqual(['Cancel', 'Edit visually'])
+    expect((actions[0] as HTMLButtonElement).disabled).toBe(false)
+    expect(actions[0].getAttribute('data-variant')).toBe('ghost')
+
+    ;(actions[0] as HTMLButtonElement).click()
+    await flushPromises()
+
+    expect(wrapper.find('.ProseMirror').exists()).toBe(false)
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value)
+      .toBe('<div>legacy</div>\n\nedited')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['<div>legacy</div>\n\nedited'])
+
+    wrapper.unmount()
+  })
+})
+
+describe('concurrent editors', () => {
+  it('keeps two mounted editors independent', async () => {
+    const first = mountEditor('first **one**')
+    const second = mountEditor('second *two*')
+    await flushPromises()
+
+    const firstEditor = first.findComponent(EditorContent).props('editor') as Editor
+    const secondEditor = second.findComponent(EditorContent).props('editor') as Editor
+
+    firstEditor.chain().focus('end').insertContent(' edited').run()
+    await flushPromises()
+
+    expect(first.emitted('update:modelValue')?.at(-1)?.[0]).toContain('edited')
+    expect(second.emitted('update:modelValue')).toBeUndefined()
+    expect(secondEditor.getMarkdown()).toBe('second *two*')
+
+    first.unmount()
+    second.unmount()
+  })
+
+  it('gives each editor its own extension instances', () => {
+    const left = createMarkdownExtensions()
+    const right = createMarkdownExtensions()
+    expect(left).not.toBe(right)
+    left.forEach((extension, index) => {
+      expect(extension).not.toBe(right[index])
+    })
+  })
+})
+
+describe('blockquote shortcut', () => {
+  it('binds Mod-Shift-. in addition to the upstream Mod-Shift-b', async () => {
+    const wrapper = mountEditor('quoted text')
+    await flushPromises()
+
+    const surface = wrapper.get('.ProseMirror').element
+    surface.dispatchEvent(new KeyboardEvent('keydown', {
+      key: '.',
+      code: 'Period',
+      ctrlKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    }))
+    await flushPromises()
+
+    const editor = wrapper.findComponent(EditorContent).props('editor') as Editor
+    expect(editor.isActive('blockquote')).toBe(true)
+
+    wrapper.unmount()
+  })
+})
+
+describe('visual echo does not reset the document', () => {
+  it('keeps the selection and emits nothing when the parent echoes the value', async () => {
+    const wrapper = mountEditor('one two three')
+    await flushPromises()
+
+    const editor = wrapper.findComponent(EditorContent).props('editor') as Editor
+    editor.chain().focus('end').insertContent(' four').run()
+    await flushPromises()
+
+    const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as string
+    expect(emitted).toBe('one two three four')
+    const before = { from: editor.state.selection.from, to: editor.state.selection.to }
+    const html = editor.getHTML()
+
+    await wrapper.setProps({ modelValue: emitted })
+    await flushPromises()
+
+    // A parent echo must not be treated as an external replacement.
+    expect(wrapper.emitted('update:modelValue')).toHaveLength(1)
+    expect(editor.getHTML()).toBe(html)
+    expect({ from: editor.state.selection.from, to: editor.state.selection.to }).toEqual(before)
+
+    wrapper.unmount()
+  })
+})
+
+describe('notice styling hooks', () => {
+  /**
+   * happy-dom cannot evaluate computed colour, so these assertions only pin the
+   * class hooks that the Task 3 Chromium gate checks for real contrast. They
+   * exist because the `text-status-*`/`bg-status-*`/`border-status-*` utilities
+   * previously generated no CSS at all and the warning looked like body text.
+   */
+  it('uses the status tokens for the notice and the limit message', async () => {
+    const wrapper = mountEditor('<div>legacy</div>', 2)
+    await flushPromises()
+
+    const notice = document.querySelector<HTMLElement>('[data-slot="markdown-editor-notice"]')!
+    expect(notice.getAttribute('class') ?? '').toContain('text-status-attention-ink')
+    expect(notice.getAttribute('class') ?? '').toContain('bg-status-attention-surface')
+    expect(notice.getAttribute('class') ?? '').toContain('border-status-attention-border')
+
+    const limit = wrapper.get('[role="alert"]')
+    expect(limit.attributes('class')).toContain('text-status-error-ink')
+
+    wrapper.unmount()
   })
 })
