@@ -41,6 +41,12 @@ func seedDockerFixture(t *testing.T, db *postgres.DB, image string) seedIDs {
 	exec(`INSERT INTO boards (id, slug, name, participation_mode, registration_mode, visibility, status, starts_at, ends_at, created_by)
 	      VALUES ($1,$2,'Board','INDIVIDUAL','OPEN','PUBLIC','ACTIVE',$3,$4,$5)`,
 		ids.BoardID, "b-"+ids.BoardID.String()[:8], now.Add(-time.Hour), now.Add(24*time.Hour), ids.UserID)
+	// StartTask is a participant-own action, so the acting user must really be a
+	// board participant: the live ABAC policy checks board_participants and the
+	// core matrix grants instance.start_own only from that membership. Seeding
+	// the membership is the fixture condition; production authorization is not
+	// relaxed anywhere.
+	exec(`INSERT INTO board_participants (board_id, user_id) VALUES ($1,$2)`, ids.BoardID, ids.UserID)
 	exec(`INSERT INTO modules (id, board_id, name, type, allowed_task_types, created_by)
 	      VALUES ($1,$2,'Tasks','TASKS',ARRAY['INSTANCE']::text[],$3)`,
 		ids.ModuleID, ids.BoardID, ids.UserID)

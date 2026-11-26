@@ -880,4 +880,14 @@ are recorded in the report; it is a pre-existing fixture/ABAC gap (no `board_par
 dependency, and it is not claimed green. M1–M5 (dependency detail, 503 on decrypt failure, frames-only stack,
 named audience dependencies, first-cause-wins) are fixed with tests.
 
-Status: **implemented locally; main re-review pending. No Markdown editor work included.**
+Review verdict: **APPROVED** (`docs/board-save-errors-review.md`, appended second verdict at `34829fe`), with
+deferred minors that do not block publishing.
+
+Authorized follow-up before publishing: the one failing gate was a real test-fixture gap, not a product defect.
+`seedDockerFixture` now inserts the `board_participants` row that a participant-own action requires, so
+`TestRealDockerExpiryCleanupAndExtend` runs its physical Docker start/extend/expire lifecycle with the real
+authorizer and the real access policy (no fake, no relaxed rule). RED `start: FORBIDDEN: access denied` →
+GREEN in 6.25 s with zero leaked containers; the full suite is now **50 packages ok, 0 failures** with the
+real DSN.
+
+Status: **implemented, reviewed and approved; publishing run pending.** No Markdown editor work included.

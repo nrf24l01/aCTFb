@@ -248,8 +248,50 @@ Actual cause, from the code and the run — **not** "Docker is unavailable":
   run; no container was ever created, so no Docker runtime work happened.
 
 Conclusion: a pre-existing fixture/ABAC gap in `internal/instances`, untouched by this range
-(`git diff --name-only cb056ff..HEAD` covers only `docs/`, `frontend/`, `internal/boards`, `internal/httpapi`).
-It is recorded, not fixed, and it is not claimed as green.
+(`git diff --name-only cb056ff..34829fe` covers only `docs/`, `frontend/`, `internal/boards`, `internal/httpapi`).
+
+### Follow-up: the fixture is now correct (separate commit, authorized by main)
+
+The gate that runs `./internal/instances/...` with a real DSN and a Docker daemon cannot be green while the
+fixture never makes its actor a participant, so the gap was fixed in the fixture — not in production
+authorization. Exactly one row was added in `seedDockerFixture`
+(`internal/instances/docker_lifetime_test.go`):
+
+```go
+exec(`INSERT INTO board_participants (board_id, user_id) VALUES ($1,$2)`, ids.BoardID, ids.UserID)
+```
+
+That is the real precondition for a participant-own action: the live policy
+(`access.CanAccessModuleAsParticipant`) requires the membership row and the core matrix grants
+`instance.start_own` only from it. The service is still constructed with the real authorizer and the real
+access policy (`NewService` defaults `access` to `access.NewService(db, auth)`); no fake, no `AllowAll`, and
+no production rule was relaxed. The board is `PUBLIC` with no access groups and no module audiences, so the
+membership row is the only missing condition.
+
+RED before the fixture change (same HEAD, same DSN, same flags, real Docker):
+
+```text
+docker ps -aq --filter 'label=actfb.instance' | wc -l   → 0
+go test ./internal/instances/ -run '^TestRealDockerExpiryCleanupAndExtend$' -count=1 -v
+=== RUN   TestRealDockerExpiryCleanupAndExtend
+    docker_lifetime_test.go:152: start: FORBIDDEN: access denied
+--- FAIL: TestRealDockerExpiryCleanupAndExtend (0.20s)
+```
+
+GREEN after, with the physical Docker lifecycle actually exercised (start → one owned container → extend by
+~15 min → expire → container and leases released → idempotent second pass):
+
+```text
+go test ./internal/instances/ -run '^TestRealDockerExpiryCleanupAndExtend$' -count=1 -v
+--- PASS: TestRealDockerExpiryCleanupAndExtend (6.25s)
+ok  	github.com/nrf24l01/actfb/internal/instances	6.252s
+docker ps -aq --filter 'label=actfb.instance' | wc -l   → 0
+```
+
+Only containers carrying this instance's own `actfb.instance` label were removed; no operator container,
+volume or network was touched, and no broad prune ran.
+
+The full suite is therefore **50 packages ok, 0 failures** with the real DSN, not "49 + 1 accepted".
 
 ## Verification actually run
 
@@ -259,18 +301,19 @@ Native PostgreSQL 18.7 cluster, own data directory, own database, own per-test s
 go build ./...                                                   ok
 go vet ./...                                                     ok
 gofmt -l internal cmd api                                        clean
-ACTFB_TEST_POSTGRES_DSN=… go test -p 1 ./...                     49 packages ok, 1 pre-existing failure
+ACTFB_TEST_POSTGRES_DSN=… go test -p 1 ./...                     50 packages ok, 0 failures
 ACTFB_TEST_POSTGRES_DSN=… go test -race ./internal/boards ./internal/boards/http ./internal/httpapi ./internal/authorization ./internal/access   ok
 cd frontend && bun run test --run                                35 files / 184 tests passed
 cd frontend && bun run typecheck                                 ok
 cd frontend && bun run build                                     ok
 ```
 
-The single failure is `TestRealDockerExpiryCleanupAndExtend` in `internal/instances`. Baseline evidence and the
-actual cause are recorded in the "Pre-existing baseline failure" section below.
+The previously failing `TestRealDockerExpiryCleanupAndExtend` (`internal/instances`) is fixed by the fixture
+commit described in the section above: RED was `start: FORBIDDEN: access denied`, GREEN is a real Docker
+start/extend/expire cycle with no leaked containers. The suite is green, not green-with-exceptions.
 
-No Docker/Podman image was built or claimed. Frontend verification for this slice: `bun run test --run`
-(35 files / 184 tests), `bun run typecheck`, `bun run build` — all green.
+Frontend verification for this slice: `bun run test --run` (35 files / 184 tests), `bun run typecheck`,
+`bun run build` — all green, plus the focused default-profile Chromium run for the new INVITE flow.
 
 ## Limits
 
