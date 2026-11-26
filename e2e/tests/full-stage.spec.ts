@@ -194,7 +194,7 @@ test('P1R TEAM manual text reload, clean file scan, and reviewer accept', async 
       await studentPage.getByLabel('Choose submission files').setInputFiles({
         name: 'clean.txt', mimeType: 'text/plain', buffer: Buffer.from('clean manual text file\n'),
       })
-      await expect(studentPage.getByText('READY', { exact: true }).first()).toBeVisible({ timeout: 30_000 })
+      await expect(studentPage.getByText('Ready', { exact: true }).first()).toBeVisible({ timeout: 30_000 })
       await studentPage.locator('#manual-submission-text').fill('durable manual answer')
       await studentPage.getByRole('button', { name: 'Submit for review' }).click()
       await expect(studentPage.getByText(/PENDING_REVIEW|Needs review/).first()).toBeVisible({ timeout: 20_000 })
@@ -431,7 +431,7 @@ lifecycle:
       await studentPage.getByRole('link', { name: 'Open Pentest lab' }).click()
       await expect(studentPage).toHaveURL(new RegExp(`/boards/${boardUuid}/modules/${pentestModuleUuid}/pentest$`))
       await studentPage.getByRole('button', { name: 'Start environment' }).click()
-      await expect(studentPage.getByText('RUNNING', { exact: true })).toBeVisible({ timeout: 90_000 })
+      await expect(studentPage.getByText('Running', { exact: true })).toBeVisible({ timeout: 90_000 })
       environmentStarted = true
       studentToken = await freshToken(studentPage)
       const environment = await api(studentPage, studentToken, 'GET',
@@ -441,7 +441,7 @@ lifecycle:
       await studentPage.getByLabel('Choose submission files').setInputFiles({
         name: 'pentest-report.txt', mimeType: 'text/plain', buffer: Buffer.from('durable pentest report file\n'),
       })
-      await expect(studentPage.getByText('READY', { exact: true }).first()).toBeVisible({ timeout: 30_000 })
+      await expect(studentPage.getByText('Ready', { exact: true }).first()).toBeVisible({ timeout: 30_000 })
       const reportText = `durable pentest report ${suffix}`
       await studentPage.locator('#pentest-report-text').fill(reportText)
       await studentPage.getByRole('button', { name: 'Submit report' }).click()
@@ -650,7 +650,7 @@ lifecycle:
       await expect(studentPage).toHaveURL(new RegExp(`/boards/${boardUuid}$`))
       await studentPage.goto(`/boards/${boardUuid}/modules/${moduleUuid}/tasks/${taskUuid}`)
       await studentPage.getByRole('button', { name: 'Start instance' }).click()
-      await expect(studentPage.getByText('RUNNING', { exact: true })).toBeVisible({ timeout: 90_000 })
+      await expect(studentPage.getByText('Running', { exact: true })).toBeVisible({ timeout: 90_000 })
 
       const instanceSection = studentPage.locator('section[aria-labelledby="instance-heading"]')
       const endpointText = await instanceSection.innerText()
@@ -780,7 +780,7 @@ lifecycle:
     await moduleDialog.getByRole('button', { name: 'Create module' }).click()
     await expect(moduleDialog).toBeHidden({ timeout: 20_000 })
     // The backend used to answer UNSUPPORTED here; assert the real values came back.
-    await expect(page.getByText('Module action failed')).toHaveCount(0)
+    await expect(page.getByText('Could not save module')).toHaveCount(0)
     const modules = await api(page, token, 'GET', `/api/v2/admin/boards/${boardUuid}/modules?limit=100&offset=0`)
     const module = (modules.items as Array<Record<string, unknown>>).find((item) => item.name === 'Lifetime Module')
     expect(module).toBeTruthy()
@@ -975,7 +975,7 @@ lifecycle:
       await expect(studentPage).toHaveURL(new RegExp(`/boards/${boardUuid}$`))
       await studentPage.goto(`/boards/${boardUuid}/modules/${moduleUuid}/tasks/${taskUuid}`)
       await studentPage.getByRole('button', { name: 'Start instance' }).click()
-      await expect(studentPage.getByText('RUNNING', { exact: true })).toBeVisible({ timeout: 90_000 })
+      await expect(studentPage.getByText('Running', { exact: true })).toBeVisible({ timeout: 90_000 })
 
       const started = await getInstance()
       expect(started?.status).toBe('RUNNING')
