@@ -541,7 +541,10 @@ test.describe('organizer UX acceptance', () => {
     await page.goto(`/boards/${privateInviteWithGroup}`)
     await expect(page.getByRole('button', { name: 'Enter board code' })).toBeVisible({ timeout: 15_000 })
     await page.goto(`/admin/boards/${privateInviteWithGroup}`)
-    await expect(page.getByRole('button', { name: 'Reveal current code' })).toBeVisible({ timeout: 15_000 })
+    // The legacy credential affordances live behind their own disclosure, which
+    // is a compatibility view for boards created before join codes existed.
+    await page.getByRole('button', { name: /Legacy invite code/ }).click()
+    await expect(page.getByRole('button', { name: 'Reveal legacy code' })).toBeVisible({ timeout: 15_000 })
     // The hybrid board is still reported as legacy, not silently reclassified.
     await expect(page.getByRole('alert').filter({ hasText: 'Legacy access' })).toBeVisible()
   })

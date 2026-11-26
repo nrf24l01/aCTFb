@@ -47,7 +47,9 @@ test.describe('full-stage acceptance', () => {
     await grant(page, me.uuid as string, boardUuid, 'plugin.example.hello.view')
     await grant(page, me.uuid as string, boardUuid, 'plugin.example.hello.manage')
     await page.getByRole('button', { name: 'Enable' }).click()
-    await expect(page.getByText('enabled', { exact: true }).first()).toBeVisible()
+    // The status column renders through the shared status badge, which maps the
+    // API value `enabled` to the label `Enabled`.
+    await expect(page.getByText('Enabled', { exact: true }).first()).toBeVisible()
 
     const visible = await api(page, token, 'GET', '/api/v2/plugins')
     const plugin = (visible.items as Array<Record<string, unknown>>).find((item) => item.id === 'example.hello') as
@@ -166,15 +168,23 @@ test('P1R TEAM manual text reload, clean file scan, and reviewer accept', async 
     const taskUuid = task.uuid as string
     await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/actions`, { action: 'PUBLISH' })
 
+    // Enrollment is code-only: even on a PUBLIC board, joining needs the code the
+    // organizer issues. There is no codeless self-join affordance.
+    const p1rJoinCode = String(
+      (await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/join-code`, {})).code,
+    )
+
     const studentContext = await browser.newContext({ viewport: { width: 390, height: 844 } })
     try {
       const studentPage = await studentContext.newPage()
       await signIn(studentPage, studentUser, studentPass)
-      // A visible but unjoined TEAM board must offer self-join on the board
+      // A visible but unjoined TEAM board must offer the code prompt on the board
       // page. Only after the real join may the team panel mount.
       await studentPage.goto(`/boards/${boardUuid}`)
-      await expect(studentPage.getByRole('button', { name: 'Join this board' })).toBeVisible()
-      await studentPage.getByRole('button', { name: 'Join this board' }).click()
+      await expect(studentPage.getByRole('button', { name: 'Enter board code' })).toBeVisible()
+      await studentPage.getByRole('button', { name: 'Enter board code' }).click()
+      await studentPage.locator('#join-board-code').fill(p1rJoinCode)
+      await studentPage.getByRole('button', { name: 'Join', exact: true }).click()
       await expect(studentPage.getByText('Joined: yes')).toBeVisible({ timeout: 15_000 })
       await studentPage.locator('#team-create-name').fill('E2E Team')
       await studentPage.getByRole('button', { name: 'Create team' }).click()
@@ -399,6 +409,12 @@ lifecycle:
     }, { timeout: 20_000 }).toBe(templateUuid)
     await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/actions`, { action: 'PUBLISH' })
 
+    // Enrollment is code-only, so the organizer issues the code the participant
+    // uses. There is no codeless self-join affordance.
+    const pentestJoinCode = String(
+      (await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/join-code`, {})).code,
+    )
+
     const studentContext = await browser.newContext({ viewport: { width: 1280, height: 900 } })
     let studentToken = ''
     let environmentStarted = false
@@ -406,7 +422,9 @@ lifecycle:
       const studentPage = await studentContext.newPage()
       await signIn(studentPage, studentUser, studentPass)
       await studentPage.goto(`/boards/${boardUuid}`)
-      await studentPage.getByRole('button', { name: 'Join this board' }).click()
+      await studentPage.getByRole('button', { name: 'Enter board code' }).click()
+      await studentPage.locator('#join-board-code').fill(pentestJoinCode)
+      await studentPage.getByRole('button', { name: 'Join', exact: true }).click()
       await expect(studentPage.getByText('Joined: yes')).toBeVisible({ timeout: 15_000 })
       await studentPage.getByRole('link', { name: /Pentest Lab Module/ }).click()
       await expect(studentPage.getByRole('link', { name: 'Open Pentest lab' })).toBeVisible()
