@@ -40,6 +40,9 @@ describe('AdminSitePage Markdown authoring', () => {
     expect(document.querySelectorAll('.ProseMirror')).toHaveLength(1)
     expect(document.querySelector('[aria-label="Bold"]')).not.toBeNull()
     expect(document.querySelector('#site-intro')).not.toBeNull()
+    // No live error means no dangling IDREF.
+    expect(document.getElementById('site-intro')!.hasAttribute('aria-describedby')).toBe(false)
+    expect(document.getElementById('site-intro')!.getAttribute('aria-invalid')).toBe('false')
 
     await (document.querySelector('[aria-label="Source mode"]') as HTMLButtonElement).click()
     await flushPromises()
