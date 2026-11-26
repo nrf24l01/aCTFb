@@ -65,6 +65,24 @@ describe('AdminSitePage Markdown authoring', () => {
 
     expect(update).not.toHaveBeenCalled()
     expect(document.body.textContent).toContain('at most 131,072 characters')
+
+    // Exactly one message owns the error, and it stays visible on Preview.
+    const alerts = Array.from(document.querySelectorAll('[role="alert"]'))
+      .filter((element) => element.textContent?.includes('at most 131,072 characters'))
+    expect(alerts).toHaveLength(1)
+    const field = document.getElementById('site-intro')!
+    expect(field.getAttribute('aria-invalid')).toBe('true')
+    const describedBy = field.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    expect(document.getElementById(describedBy!)?.textContent).toContain('at most 131,072 characters')
+
+    const previewTab = Array.from(document.querySelectorAll('[role="tab"]'))
+      .find((element) => element.textContent?.trim() === 'Preview') as HTMLElement
+    previewTab.click()
+    await flushPromises()
+    const previewAlerts = Array.from(document.querySelectorAll('[role="alert"]'))
+      .filter((element) => element.textContent?.includes('at most 131,072 characters'))
+    expect(previewAlerts).toHaveLength(1)
     wrapper.unmount()
   })
 })

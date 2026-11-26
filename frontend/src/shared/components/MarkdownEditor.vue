@@ -45,8 +45,25 @@ const props = withDefaults(
     id?: string
     maxLength?: number
     placeholder?: string
+    /**
+     * When the surrounding form owns the over-limit message (it must stay
+     * visible on the Preview tab too), set this to `false` so the control does
+     * not repeat the same sentence. The counter stays visible either way.
+     */
+    showLengthError?: boolean
+    /** Mirrors the form's live validity on the editable surface. */
+    invalid?: boolean
+    /** Id of the form-owned error message, for `aria-describedby`. */
+    describedBy?: string
   }>(),
-  { id: undefined, maxLength: undefined, placeholder: undefined },
+  {
+    id: undefined,
+    maxLength: undefined,
+    placeholder: undefined,
+    showLengthError: true,
+    invalid: false,
+    describedBy: undefined,
+  },
 )
 
 type Mode = 'visual' | 'source'
@@ -123,6 +140,8 @@ const createEditor = (content: string): void => {
         role: 'textbox',
         'aria-multiline': 'true',
         'aria-label': props.label,
+        'aria-invalid': props.invalid ? 'true' : 'false',
+        ...(props.describedBy ? { 'aria-describedby': props.describedBy } : {}),
       },
     },
     onUpdate: ({ editor: current }) => {
@@ -276,6 +295,22 @@ watch(mode, (next) => {
 })
 
 /**
+ * The editor DOM is created once; `editorProps.attributes` is not reactive. Keep
+ * the validity state in sync so a form-owned error is announced against the
+ * editable surface while the author types.
+ */
+watch(
+  () => [props.invalid, props.describedBy] as const,
+  () => {
+    const element = editor.value?.view.dom
+    if (!element) return
+    element.setAttribute('aria-invalid', props.invalid ? 'true' : 'false')
+    if (props.describedBy) element.setAttribute('aria-describedby', props.describedBy)
+    else element.removeAttribute('aria-describedby')
+  },
+)
+
+/**
  * Parent-driven updates. Our own emissions are ignored (that is the feedback
  * loop guard), so typing never resets the selection or the caret: in Source the
  * textarea keeps its own value unless the parent really changed it, and in
@@ -403,6 +438,8 @@ onBeforeUnmount(() => {
           :id="id"
           :value="sourceDraft"
           :aria-label="`${label} (Markdown source)`"
+          :aria-invalid="invalid ? 'true' : 'false'"
+          :aria-describedby="describedBy"
           spellcheck="false"
           class="markdown-editor-source min-h-40 w-full resize-y bg-transparent px-2.5 py-2 font-mono text-sm outline-none"
           @input="onSourceInput"
@@ -443,11 +480,15 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="flex flex-wrap items-center justify-between gap-1 text-xs">
-      <p v-if="limitMessage" role="alert" class="text-status-error-ink">
+      <p v-if="limitMessage && showLengthError" role="alert" class="text-status-error-ink">
         {{ limitMessage }}
       </p>
       <span v-else class="text-muted-foreground" />
-      <span v-if="maxLength !== undefined" class="tabular-nums text-muted-foreground">
+      <span
+        v-if="maxLength !== undefined"
+        class="tabular-nums"
+        :class="limitMessage ? 'text-status-error-ink' : 'text-muted-foreground'"
+      >
         {{ characterCount }} / {{ maxLength }}
       </span>
     </div>

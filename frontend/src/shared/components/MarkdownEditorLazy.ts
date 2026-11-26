@@ -1,4 +1,5 @@
 import { defineAsyncComponent } from 'vue'
+import MarkdownEditorError from './MarkdownEditorError.vue'
 import MarkdownEditorLoading from './MarkdownEditorLoading.vue'
 
 /**
@@ -8,10 +9,12 @@ import MarkdownEditorLoading from './MarkdownEditorLoading.vue'
  * is the only reader dependency. Every authoring surface imports this wrapper,
  * so the editor lives in its own chunk and is fetched only when an organizer
  * opens the Write tab. The small loading notice is not a text field, so a
- * keystroke cannot be typed into a control that is about to be replaced.
+ * keystroke cannot be typed into a control that is about to be replaced. A
+ * failed chunk fetch shows an explicit reload notice instead of an empty tab.
  */
 export const MarkdownEditorLazy = defineAsyncComponent({
   loader: () => import('./MarkdownEditor.vue'),
   loadingComponent: MarkdownEditorLoading,
+  errorComponent: MarkdownEditorError,
   delay: 0,
 })

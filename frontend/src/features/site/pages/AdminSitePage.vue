@@ -31,6 +31,11 @@ const problems = ref<Record<string, string | undefined>>({})
 const pending = ref(false)
 const saved = ref(false)
 const preview = computed(() => renderMarkdown(form.introMarkdown))
+// One live message, owned by the page form: it stays visible on both tabs, so
+// an over-limit save from Preview is never a silent no-op.
+const descriptionError = computed(() =>
+  validateDescriptionLength(form.introMarkdown, SITE_INTRO_MAX_CHARACTERS),
+)
 
 async function load() {
   if (!isAdmin.value) {
@@ -107,6 +112,14 @@ void load()
 
         <div class="space-y-2">
           <p class="text-sm font-medium">Introduction</p>
+          <p
+            v-if="descriptionError"
+            id="site-intro-error"
+            role="alert"
+            class="text-xs text-status-error-ink"
+          >
+            {{ descriptionError }}
+          </p>
           <Tabs default-value="write">
             <TabsList variant="line">
               <TabsTrigger value="write">Write</TabsTrigger>
@@ -119,10 +132,10 @@ void load()
                 label="Introduction Markdown"
                 :max-length="SITE_INTRO_MAX_CHARACTERS"
                 placeholder="# Welcome&#10;&#10;Write the CTF introduction in Markdown."
+                :show-length-error="false"
+                :invalid="Boolean(descriptionError)"
+                described-by="site-intro-error"
               />
-              <p v-if="problems.description" role="alert" class="mt-1 text-xs text-status-error-ink">
-                {{ problems.description }}
-              </p>
               <p class="mt-1 text-xs text-muted-foreground">
                 Markdown only. Raw HTML is escaped and links are limited to http, https, mailto and relative paths.
               </p>
@@ -150,22 +163,3 @@ void load()
     </template>
   </PageContainer>
 </template>
-
-<style scoped>
-.markdown-body :deep(h1),
-.markdown-body :deep(h2),
-.markdown-body :deep(h3) {
-  font-weight: 600;
-}
-
-.markdown-body :deep(ul),
-.markdown-body :deep(ol) {
-  padding-left: 1.25rem;
-  list-style: revert;
-}
-
-.markdown-body :deep(a) {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-</style>

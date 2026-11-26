@@ -72,8 +72,12 @@ describe('renderMarkdown table alignment', () => {
     expect(html).toContain('align="left"')
     expect(html).toContain('align="center"')
     expect(html).toContain('align="right"')
+    // Wide tables scroll inside a generated wrapper instead of widening the page.
+    expect(html).toContain('<div class="markdown-table-scroll">')
 
     const host = parseRendered(html)
+    const wrapper = host.querySelector('.markdown-table-scroll')
+    expect(wrapper?.querySelector('table')).not.toBeNull()
     const aligned = Array.from(host.querySelectorAll('[align]'))
     expect(aligned.length).toBe(6)
     for (const cell of aligned) {
@@ -181,8 +185,9 @@ describe('renderMarkdown syntax highlighting', () => {
       'TR',
       'TH',
       'TD',
+      'DIV',
     ])
-    const allowedAttributes = new Set(['class', 'href', 'title', 'alt', 'src', 'colspan', 'rowspan'])
+    const allowedAttributes = new Set(['class', 'href', 'title', 'alt', 'src', 'colspan', 'rowspan', 'align'])
     const elements = Array.from(host.querySelectorAll('*'))
     expect(elements.length).toBeGreaterThan(3)
     for (const element of elements) {
@@ -191,9 +196,17 @@ describe('renderMarkdown syntax highlighting', () => {
         expect(allowedAttributes.has(attribute)).toBe(true)
       }
       for (const className of element.classList) {
-        expect(className === 'language-python' || /^hljs-[a-z0-9_-]+$/.test(className)).toBe(true)
+        expect(
+          className === 'language-python'
+          || className === 'markdown-table-scroll'
+          || /^hljs-[a-z0-9_-]+$/.test(className),
+        ).toBe(true)
       }
     }
+    // The generated table wrapper is the only div and it carries only our class.
+    const wrapper = host.querySelector('div')
+    expect(wrapper?.getAttribute('class')).toBe('markdown-table-scroll')
+    expect(host.querySelectorAll('div')).toHaveLength(1)
     expect(host.querySelector('img')).toBeNull()
     expect(host.textContent).toContain('<img src=x onerror=alert(1)>')
   })

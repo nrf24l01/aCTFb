@@ -105,6 +105,11 @@ const extensionLabel = computed(
 )
 const isInstance = computed(() => form.format === 'INSTANCE')
 const preview = computed(() => renderMarkdown(form.description))
+// One live message, owned by the form: it stays visible on both tabs, so an
+// over-limit save from Preview is never a silent no-op.
+const descriptionError = computed(() =>
+  validateDescriptionLength(form.description, DESCRIPTION_MAX_CHARACTERS),
+)
 
 watch(
   () => [props.open, props.module] as const,
@@ -271,6 +276,14 @@ async function submit() {
 
           <div class="space-y-2">
             <p class="text-sm font-medium">Short description</p>
+            <p
+              v-if="descriptionError"
+              id="module-description-error"
+              role="alert"
+              class="text-xs text-status-error-ink"
+            >
+              {{ descriptionError }}
+            </p>
             <Tabs default-value="write">
               <TabsList variant="line">
                 <TabsTrigger value="write">Write</TabsTrigger>
@@ -282,15 +295,15 @@ async function submit() {
                   v-model="form.description"
                   label="Module description"
                   :max-length="DESCRIPTION_MAX_CHARACTERS"
+                  :show-length-error="false"
+                  :invalid="Boolean(descriptionError)"
+                  described-by="module-description-error"
                 />
-                <p v-if="problems.description" role="alert" class="mt-1 text-xs text-status-error-ink">
-                  {{ problems.description }}
-                </p>
               </TabsContent>
               <TabsContent value="preview">
                 <div class="min-h-20 border border-border px-3 py-2">
                   <!-- Sanitised by renderMarkdown. -->
-                  <article class="space-y-2 text-sm" v-html="preview" />
+                  <article class="markdown-body space-y-2 text-sm" v-html="preview" />
                   <p v-if="!form.description.trim()" class="text-sm text-muted-foreground">Nothing to preview yet.</p>
                 </div>
               </TabsContent>
