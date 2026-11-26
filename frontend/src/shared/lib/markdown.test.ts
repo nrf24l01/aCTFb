@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { renderMarkdown } from './markdown'
 
+/**
+ * These suites run in happy-dom, which does **not** exercise DOMPurify the way
+ * a browser does: its DOM implementation drops or reshapes nodes during
+ * sanitisation/serialisation. Assertions that only prove a class or attribute is
+ * absent can therefore pass without the sanitiser having done the work, and
+ * assertions about the shape of the output are written to tolerate that.
+ *
+ * Real sanitisation is verified in Chromium by the Task 3 browser gate, which
+ * must assert that forbidden classes/attributes are actually removed (not just
+ * that the surrounding element still exists). Do not treat a green run here as
+ * proof that the sanitiser works.
+ */
 describe('renderMarkdown', () => {
   it('renders basic markdown', () => {
     const html = renderMarkdown('# Title\n\nSome **bold** text and a [link](https://example.test).')

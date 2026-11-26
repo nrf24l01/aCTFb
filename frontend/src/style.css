@@ -268,11 +268,161 @@ body {
   line-height: 18px;
 }
 
+/*
+ * Markdown editor surface (visual mode).
+ *
+ * ProseMirror generates the content nodes, so they cannot carry utility
+ * classes; the typography is defined here with the same Rosé Pine variables
+ * the reader uses. Flat, no gradients, no animation. The app is dark-only, so
+ * no light-theme variant is needed.
+ */
+.markdown-editor {
+  min-height: 10rem;
+}
+
+.markdown-editor .ProseMirror {
+  min-height: 10rem;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 20px;
+  outline: none;
+  overflow-wrap: anywhere;
+}
+
+.markdown-editor .ProseMirror > * + * {
+  margin-top: 0.75em;
+}
+
+.markdown-editor .ProseMirror h1,
+.markdown-editor .ProseMirror h2,
+.markdown-editor .ProseMirror h3,
+.markdown-editor .ProseMirror h4,
+.markdown-editor .ProseMirror h5,
+.markdown-editor .ProseMirror h6 {
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.markdown-editor .ProseMirror h1 {
+  font-size: 1.5em;
+}
+
+.markdown-editor .ProseMirror h2 {
+  font-size: 1.3em;
+}
+
+.markdown-editor .ProseMirror h3 {
+  font-size: 1.15em;
+}
+
+.markdown-editor .ProseMirror h4,
+.markdown-editor .ProseMirror h5,
+.markdown-editor .ProseMirror h6 {
+  font-size: 1em;
+}
+
+.markdown-editor .ProseMirror ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+
+.markdown-editor .ProseMirror ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+}
+
+.markdown-editor .ProseMirror li > ul,
+.markdown-editor .ProseMirror li > ol {
+  margin-top: 0.25em;
+}
+
+.markdown-editor .ProseMirror blockquote {
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--hl-med);
+  color: var(--subtle);
+}
+
+.markdown-editor .ProseMirror a {
+  color: var(--foam);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.markdown-editor .ProseMirror code {
+  padding: 0 3px;
+  border: 1px solid var(--overlay);
+  background: var(--base);
+  font-size: 12px;
+}
+
+.markdown-editor .ProseMirror pre {
+  padding: 12px 14px;
+  overflow-x: auto;
+  border: 1px solid var(--overlay);
+  background: var(--base);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.markdown-editor .ProseMirror pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.markdown-editor .ProseMirror .tableWrapper {
+  overflow-x: auto;
+}
+
+.markdown-editor .ProseMirror table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.markdown-editor .ProseMirror th,
+.markdown-editor .ProseMirror td {
+  padding: 4px 8px;
+  border: 1px solid var(--overlay);
+  vertical-align: top;
+  text-align: left;
+}
+
+.markdown-editor .ProseMirror th {
+  background: var(--base);
+  font-weight: 600;
+}
+
+.markdown-editor .ProseMirror img {
+  max-width: 100%;
+  height: auto;
+}
+
+.markdown-editor .ProseMirror hr {
+  border: 0;
+  border-top: 1px solid var(--overlay);
+}
+
+.markdown-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--muted-ink);
+  pointer-events: none;
+}
+
+.markdown-editor-source {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 /* Touch targets: at phone width every control stays at least 44 px tall. */
 @media (max-width: 760px) {
   [data-slot="button"],
   [data-slot="input"],
   [data-slot="textarea"],
+  [data-slot="toggle"],
   [data-slot="select-trigger"],
   [data-slot="tabs-trigger"],
   [data-slot="dialog-close"],

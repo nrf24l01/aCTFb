@@ -342,7 +342,7 @@ git commit -m "feat(frontend): highlight fenced code in the shared Markdown rend
   `MarkdownEditorToolbar.vue`: props `{ editor: Editor; disabled?: boolean }`, emits
   `{ requestLink: [] }`.
 
-- [ ] **Step 1: Add the Tiptap cohort and bump marked**
+- [x] **Step 1: Add the Tiptap cohort and bump marked**
 
 ```bash
 cd frontend && bun add --exact @tiptap/core@3.35.0 @tiptap/pm@3.35.0 @tiptap/vue-3@3.35.0 \
@@ -353,7 +353,7 @@ cd frontend && bun add --exact @tiptap/core@3.35.0 @tiptap/pm@3.35.0 @tiptap/vue
 Expected: `bun.lock` has exactly one `marked@17.0.6`; `bun pm ls | grep -c tiptap` shows the cohort
 at one version.
 
-- [ ] **Step 2: Write the failing `text.ts` test**
+- [x] **Step 2: Write the failing `text.ts` test**
 
 `frontend/src/shared/lib/text.test.ts`:
 
@@ -376,13 +376,13 @@ it('accepts the limit and rejects one character over', () => {
 })
 ```
 
-- [ ] **Step 3: Run it to verify it fails, then implement `text.ts`**
+- [x] **Step 3: Run it to verify it fails, then implement `text.ts`**
 
 Run: `cd frontend && bun run test:unit src/shared/lib/text.test.ts` → FAIL (module missing).
 Implement with `Array.from(value).length` and a `toLocaleString('en-US')`-formatted message, then
 re-run → PASS.
 
-- [ ] **Step 4: Write the failing `markdownUnsupported.ts` test**
+- [x] **Step 4: Write the failing `markdownUnsupported.ts` test**
 
 `frontend/src/shared/lib/markdownUnsupported.test.ts`:
 
@@ -416,7 +416,7 @@ it('flags unsafe link and image URLs, including obfuscated ones', () => {
 })
 ```
 
-- [ ] **Step 5: Run it to verify it fails, then implement `markdownUnsupported.ts`**
+- [x] **Step 5: Run it to verify it fails, then implement `markdownUnsupported.ts`**
 
 Run: `cd frontend && bun run test:unit src/shared/lib/markdownUnsupported.test.ts` → FAIL.
 Implement with a dedicated `new Marked({ gfm: true, breaks: false })` and `.lexer(source)` (not the
@@ -424,7 +424,7 @@ shared renderer instance, whose `walkTokens` escapes HTML), then a recursive wal
 `tokens`/`items`/`header`/`rows` collecting the three reasons; `supported` is `reasons.length === 0`.
 Re-run → PASS.
 
-- [ ] **Step 6: Write the failing round-trip test**
+- [x] **Step 6: Write the failing round-trip test**
 
 `frontend/src/shared/lib/markdownDocument.test.ts`:
 
@@ -461,7 +461,7 @@ describe('markdown round-trip', () => {
 })
 ```
 
-- [ ] **Step 7: Run it to verify it fails, then implement `markdownDocument.ts`**
+- [x] **Step 7: Run it to verify it fails, then implement `markdownDocument.ts`**
 
 Run: `cd frontend && bun run test:unit src/shared/lib/markdownDocument.test.ts` → FAIL.
 Implement `markdownExtensions` (single source of truth) as: `StarterKit.configure({ codeBlock: false,
@@ -474,7 +474,7 @@ defaultLanguage: DEFAULT_CODE_LANGUAGE, enableTabIndentation: true, tabSize: 2 }
 markdownExtensions, markedOptions: { gfm: true } })`; `markdownSemanticsEqual` compares
 `JSON.stringify` of both parses. Re-run → PASS.
 
-- [ ] **Step 8: Add the `Toggle` and `Tooltip` primitives**
+- [x] **Step 8: Add the `Toggle` and `Tooltip` primitives**
 
 Create `src/components/ui/toggle/Toggle.vue` forwarding reka-ui `Toggle` (`modelValue` +
 `update:modelValue`, `data-slot="toggle"`, shadcn sizing classes, `variant`/`size` via `cva`
@@ -483,7 +483,7 @@ matching `Button`'s neutral palette) and the four tooltip wrappers over `Tooltip
 `bg-popover text-popover-foreground border border-border px-2 py-1 text-xs` styling. No animation
 class beyond the existing `tw-animate-css` defaults already used by dialogs.
 
-- [ ] **Step 9: Write the failing component test**
+- [x] **Step 9: Write the failing component test**
 
 `frontend/src/shared/components/MarkdownEditor.test.ts`:
 
@@ -532,7 +532,7 @@ it('shows the code-point counter and blocks over-limit content', async () => {
 })
 ```
 
-- [ ] **Step 10: Run it to verify it fails, then implement the editor**
+- [x] **Step 10: Run it to verify it fails, then implement the editor**
 
 Run: `cd frontend && bun run test:unit src/shared/components/MarkdownEditor.test.ts` → FAIL.
 Implement `MarkdownEditor.vue` with `defineModel<string>()`, `mode: 'visual' | 'source'`,
@@ -546,7 +546,7 @@ controls from the spec, with `Toggle` for bold/italic/inline code and the active
 `editor.chain().focus().updateAttributes('codeBlock', { language }).run()`.
 Re-run → PASS, then `bun run typecheck`.
 
-- [ ] **Step 11: Add editor surface styles, build, commit**
+- [x] **Step 11: Add editor surface styles, build, commit**
 
 Add `.markdown-editor` (border, min-height, padding, `:focus-within` ring) and
 `.markdown-editor .ProseMirror` (headings, lists, blockquote, `pre`, table borders, `code`) to
@@ -573,16 +573,30 @@ git commit -m "feat(frontend): add the Markdown rich-text editor with source fal
 - Modify: `frontend/src/features/admin/components/ModuleEditorDialog.vue`
 - Modify: `frontend/src/features/admin/components/TaskEditorDialog.vue`
 - Modify: `frontend/src/features/site/pages/AdminSitePage.vue`
+- Modify: `frontend/src/features/boards/pages/BoardPage.vue`
+- Modify: `frontend/src/features/boards/pages/ModulePage.vue`
+- Modify: `frontend/src/features/boards/pages/TaskPage.vue`
 - Modify: `frontend/src/features/admin/components/BoardSettingsDialog.test.ts`
 - Modify: `frontend/src/features/admin/components/ModuleEditorDialog.test.ts`
 - Modify: `frontend/src/features/admin/components/TaskEditorDialog.test.ts`
 - Create: `frontend/e2e/markdown-render.spec.ts`
 - Create: `frontend/e2e/rich-text-editor.spec.ts`
 - Modify: `docs/frontend.md`, `docs/implementation-plan.md`
+- Modify: `.github/workflows/*` (only if the browser step does not already run the authoring spec)
+
+> **Preflight ruling (main, 2026-11-26):** `BoardPage` and `ModulePage` currently print the stored
+> description as a plain `PageHeader` subtitle, so formatted text and highlighted code produced by
+> the new editor would be invisible after saving. Task 3 renders those two descriptions through
+> `renderMarkdown` in the same subtitle slot (description-only, no page redesign), and adds the
+> `markdown-body` class to `TaskPage`'s rendered description. The browser gate must assert that the
+> sanitiser actually removes forbidden classes/attributes (not merely that a wrapping element
+> exists), and the existing CI browser step must execute the authoring spec — a conditional skip is
+> not acceptance. No further approval is needed; the user approved this scope.
 
 **Interfaces:**
 - Consumes: `MarkdownEditor` (`v-model` Markdown string, `label`, `id`, `maxLength`),
-  `DESCRIPTION_MAX_CHARACTERS`, `SITE_INTRO_MAX_CHARACTERS`, `validateDescriptionLength`.
+  `DESCRIPTION_MAX_CHARACTERS`, `SITE_INTRO_MAX_CHARACTERS`, `validateDescriptionLength`,
+  `renderMarkdown`.
 - Produces: no new exported API; the dialogs keep their existing props, emits and payload shapes.
 
 - [ ] **Step 1: Write the failing dialog tests**
@@ -654,10 +668,30 @@ test('renders highlighted, escaped code in a real browser', async ({ page }) => 
   expect(html).toContain('class="language-python"')
   expect(html).toContain('hljs-keyword')
   expect(html).not.toContain('<script')
-  expect(html).not.toContain('hljs-</code>')
   await page.evaluate((markup) => { document.body.innerHTML = `<div class="markdown-body">${markup}</div>` }, html)
   const color = await page.locator('.hljs-keyword').first().evaluate((el) => getComputedStyle(el).color)
   expect(color).not.toBe('rgb(224, 222, 244)')
+})
+
+// happy-dom cannot exercise DOMPurify, so this is the only real proof that the
+// sanitiser removes what it claims to remove. Assert removals, not existence.
+test('sanitiser removes forbidden attributes and classes in Chromium', async ({ page }) => {
+  await page.goto('/')
+  const html = await page.evaluate(async () => {
+    const mod = await import('/src/shared/lib/markdown.ts')
+    return mod.renderMarkdown([
+      '<img src=x onerror="alert(1)">',
+      '<span class="hljs-evil" style="color:red" onclick="alert(1)">x</span>',
+      '```python" class="hljs-evil\ndef f():\n  return 1\n```',
+    ].join('\n\n'))
+  })
+  await page.evaluate((markup) => { document.body.innerHTML = `<div class="markdown-body">${markup}</div>` }, html)
+
+  expect(await page.locator('script, [onerror], [onclick], [style]').count()).toBe(0)
+  expect(await page.locator('.hljs-evil').count()).toBe(0)
+  expect(await page.locator('span[class]:not([class^="hljs-"])').count()).toBe(0)
+  // The legitimate highlighter class must survive the same pass.
+  expect(await page.locator('.hljs-keyword').count()).toBeGreaterThan(0)
 })
 ```
 
@@ -672,12 +706,24 @@ type into the rich editor, press `Mod-b` and assert a `<strong>` exists, insert 
 `.hljs-keyword` is rendered read-only. Also paste `<b style="color:red">x</b>` into the editor and
 assert the stored Markdown contains `**x**` and no `style=`.
 
+- [ ] **Step 6b: Render board and module descriptions as Markdown**
+
+`BoardPage.vue` and `ModulePage.vue` currently print the stored description as plain text in the
+`PageHeader` subtitle. Render it with `v-html="renderMarkdown(description)"` inside a
+`<div class="markdown-body markdown-body-inline">` in that same slot, and only when the description
+is non-empty. `TaskPage.vue` adds `markdown-body` to the container that already renders
+`renderMarkdown(description)`. No other layout, spacing or typography change.
+
+Add a unit assertion to the existing page tests: a description of ``**bold** and ```python`` renders
+`<strong>` / `.hljs-keyword` instead of literal asterisks, and a description of `<script>` renders
+escaped text.
+
 - [ ] **Step 7: Run the browser gates**
 
 ```bash
 cd frontend && bun run test:e2e -- markdown-render.spec.ts
 ```
-Expected: PASS in both configured projects (chromium, phone).
+Expected: PASS in both configured projects (chromium, phone), including the sanitiser-removal test.
 
 ```bash
 ACTFB_E2E=1 E2E_API_URL=http://127.0.0.1:8080/api/v2 E2E_ADMIN_USERNAME=… E2E_ADMIN_PASSWORD=… \
@@ -685,6 +731,10 @@ ACTFB_E2E=1 E2E_API_URL=http://127.0.0.1:8080/api/v2 E2E_ADMIN_USERNAME=… E2E_
 ```
 Expected: PASS when the local stack is available. If it is not, record "not executed" — never
 report it as passing.
+
+The authoring spec must also be wired into the existing CI browser step so it actually executes
+there. If that step runs without `ACTFB_E2E`/credentials, provide them (fixture or service
+container); do **not** leave a conditional `test.skip` as the acceptance evidence.
 
 - [ ] **Step 8: Update the docs and commit**
 
@@ -696,7 +746,8 @@ and the spec/plan paths.
 
 ```bash
 cd frontend && bun run test:unit && bun run typecheck && bun run build
-cd .. && git add frontend/src/features frontend/e2e docs/frontend.md docs/implementation-plan.md
+cd .. && git add frontend/src/features frontend/e2e docs/frontend.md docs/implementation-plan.md \
+  .github/workflows
 git commit -m "feat(frontend): use the rich-text editor for board, module, task and site text"
 ```
 

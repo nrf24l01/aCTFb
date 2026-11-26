@@ -3,7 +3,8 @@
 Date: 2026-11-26
 Base commit: `81cdbaa` (`main`, working tree clean)
 Status: approved by the user; main owns the UX/contract decisions. Task 1 (safe shared syntax
-highlighting) is implemented; Tasks 2–3 (Tiptap editor, integration/browser gates) remain missing.
+highlighting) and Task 2 (Tiptap editor, Markdown round-trip, protected content) are implemented;
+Task 3 (surface integration, browser gates, docs) remains missing.
 No database migration, `/api/v2`, `deploy/` or `config.yaml` change has been made.
 
 ## 1. Context
@@ -38,9 +39,11 @@ Out of scope (explicit):
 - No cloud editor service, no runtime network request, no API keys, no telemetry/analytics.
 - No auto-save, no `localStorage` draft persistence.
 - No global restyle, no gradients, no animation, no new font.
-- No change to board/module description rendering on `BoardPage`/`ModulePage` (those still print
-  the raw description as a `PageHeader` subtitle). Task description, landing page and all previews
-  gain highlighting automatically because they already call `renderMarkdown`.
+- No page redesign. Board and module descriptions are rendered as safe Markdown inside their
+  existing subtitle slot on `BoardPage`/`ModulePage` (description-only change, Task 3), and
+  `TaskPage`'s rendered description gets the `.markdown-body` class, so saved formatting and
+  highlighted code are actually visible. Task description, landing page and all previews already
+  call `renderMarkdown` and gain highlighting without further changes.
 
 ## 3. Data contract (unchanged)
 
@@ -208,9 +211,13 @@ through `reka-ui` 2.11.0. OSV queries for `highlight.js@11.11.2`, `lowlight@3.3.
 - `cd frontend && bun run test:unit` (existing 184 tests at base `81cdbaa` plus the new suites, all
   green).
 - `bun run typecheck` and `bun run build`.
-- `bun run test:e2e` renderer spec (real Chromium, no backend) green.
-- `ACTFB_E2E=1 … bun run test:e2e` dialog spec green when a local backend is available; until then
-  it is reported as not executed, never as passing.
+- `bun run test:e2e` renderer spec (real Chromium, no backend) green. happy-dom does not exercise
+  DOMPurify, so this spec is the only proof of sanitisation: it must assert that forbidden classes
+  and attributes are actually **removed** from the rendered DOM (not merely that a wrapping element
+  still exists).
+- `ACTFB_E2E=1 … bun run test:e2e` authoring spec green when a local backend is available. The
+  existing CI browser step must execute it; a spec that silently skips without `ACTFB_E2E` is not
+  acceptance. If the stack is unavailable, record "not executed" — never "passing".
 - No `docs/swagger.yaml`, migration, `deploy/` or `config.yaml` change in the whole slice.
 
 ## 12. Repository findings that shaped this spec
@@ -220,8 +227,10 @@ through `reka-ui` 2.11.0. OSV queries for `highlight.js@11.11.2`, `lowlight@3.3.
    shadcn-vue-style wrappers; no new dependency.
 2. `renderMarkdown` is the only HTML producer and the only DOMPurify consumer, so the sanitiser
    hook is local to one module.
-3. `BoardPage`/`ModulePage` print descriptions as plain subtitles — unchanged here to avoid a
-   layout change outside the approved scope.
+3. `BoardPage`/`ModulePage` print descriptions as plain subtitles. Ruling (preflight, Task 2/3
+   boundary): they must render through `renderMarkdown` in that same slot — otherwise formatting and
+   highlighted code that the new editor produces are invisible after saving. Description-only, no
+   page redesign.
 4. `frontend/package.json` currently pins `marked: ^15`, which conflicts with
    `@tiptap/markdown`'s `^17.0.1`; the bump to 17.0.6 is required for a single copy.
 5. Description length is validated server-side only; the frontend has no length helper today.
