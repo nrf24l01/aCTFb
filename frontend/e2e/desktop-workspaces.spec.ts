@@ -69,11 +69,23 @@ async function json<T>(
   return (await response.json()) as T
 }
 
-async function signIn(page: Page): Promise<void> {
-  await page.goto('/sign-in')
-  await page.locator('#sign-in-username').fill(adminUser)
-  await page.locator('#sign-in-password').fill(adminPass)
-  await page.getByRole('button', { name: 'Sign in' }).click()
+/**
+ * The production login limiter is 10/minute per IP, and the root default-profile
+ * suite that shares this owned backend has just signed several sessions in. Wait
+ * out one window instead of weakening the limiter, then sign in again.
+ */
+async function signIn(page: Page, username: string, password: string): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await page.goto('/sign-in')
+    await page.locator('#sign-in-username').fill(username)
+    await page.locator('#sign-in-password').fill(password)
+    await page.getByRole('button', { name: 'Sign in' }).click()
+    const signedIn = await expect(page).toHaveURL(/\/boards/, { timeout: 8_000 })
+      .then(() => true)
+      .catch(() => false)
+    if (signedIn) return
+    if (attempt === 0) await page.waitForTimeout(61_000)
+  }
   await expect(page).toHaveURL(/\/boards/)
 }
 
@@ -105,14 +117,6 @@ async function capture(page: Page, name: string): Promise<void> {
   await screenshot(page, name)
 }
 
-async function signInAs(page: Page, username: string, password: string): Promise<void> {
-  await page.goto('/sign-in')
-  await page.locator('#sign-in-username').fill(username)
-  await page.locator('#sign-in-password').fill(password)
-  await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page).toHaveURL(/\/boards/)
-}
-
 /**
  * Usable page width: the shared PageContainer is the last direct div in
  * `main`; its content box excludes the 24px desktop side padding. This is the
@@ -142,6 +146,104 @@ async function cardTracks(locator: Locator): Promise<{ columns: number; rows: nu
   return {
     columns: new Set(positions.map((position) => position.left)).size,
     rows: new Set(positions.map((position) => position.top)).size,
+  }
+}
+
+/**
+ * Real catalog fixtures through the documented authoring API. The catalog is
+ * always available on the default profile (runtime instances are the separate
+ * switch), so this needs no provider and no runtime credential.
+ *
+ * `ownTarget` is how many templates *this run* owns: the first call guarantees
+ * three, the second six. The catalog itself is shared with the root
+ * default-profile suite (which creates exactly one template on a fresh CI
+ * database), so the grid is always asserted against the real total and against
+ * the run's own record count, never against a hard-coded catalog size.
+ */
+async function createCatalogTemplates(
+  request: APIRequestContext,
+  token: string,
+  prefix: string,
+  ownTarget: number,
+): Promise<{ items: Array<{ uuid: string; name: string }>; created: number }> {
+  const list = async () => {
+    const page = await json<{ items: Array<{ uuid: string; name: string }> }>(
+      request,
+      'GET',
+      '/admin/deployment-templates?limit=100&offset=0',
+      undefined,
+      token,
+    )
+    return page.items
+  }
+
+  const ownCount = (catalog: Array<{ name: string }>) =>
+    catalog.filter((item) => item.name.startsWith(`${prefix} `)).length
+  let items = await list()
+  let created = 0
+  while (ownCount(items) < ownTarget) {
+    const index = ownCount(items) + 1
+    const slug = `${prefix.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${index}`
+    const manifestYaml = [
+      'apiVersion: actfb.dev/v1alpha1',
+      'kind: DeploymentTemplate',
+      'metadata:',
+      `  name: ${prefix} ${index}`,
+      `  slug: ${slug}`,
+      "  description: 'Browser-measured catalog fixture'",
+      'nodes: []',
+      '',
+    ].join('\n')
+    await json(request, 'POST', '/admin/deployment-templates', { manifestYaml, files: [] }, token)
+    created += 1
+    items = await list()
+  }
+  return { items, created }
+}
+
+/** Rows a three-column grid needs for `count` cards. */
+function gridRows(count: number, columns: number): number {
+  return Math.ceil(count / columns)
+}
+
+/** `getBoundingClientRect` is visually scaled under CSS `zoom`; undo that for layout geometry. */
+async function zoomedBox(locator: Locator, zoom: number): Promise<Box> {
+  const rect = await box(locator)
+  return {
+    x: rect.x / zoom,
+    y: rect.y / zoom,
+    width: rect.width / zoom,
+    height: rect.height / zoom,
+    top: rect.top / zoom,
+    left: rect.left / zoom,
+    right: rect.right / zoom,
+    bottom: rect.bottom / zoom,
+  }
+}
+
+/** CSS zoom is a layout surrogate for browser zoom; `vw` units are not adjusted by it. */
+async function setCssZoom(page: Page, zoom: number): Promise<void> {
+  await page.evaluate((value) => {
+    document.documentElement.style.zoom = value === 1 ? '' : String(value)
+  }, zoom)
+}
+
+/**
+ * The effective CSS viewport of a 200% browser zoom at 1920x1080: 960x540 CSS
+ * pixels at devicePixelRatio 2. This uses Chromium's real device-metrics
+ * emulation, not `setPageScaleFactor` (which only scales the visual viewport).
+ */
+async function emulateBrowserZoomLayout(page: Page): Promise<() => Promise<void>> {
+  const session = await page.context().newCDPSession(page)
+  await session.send('Emulation.setDeviceMetricsOverride', {
+    width: 960,
+    height: 540,
+    deviceScaleFactor: 2,
+    mobile: false,
+  })
+  return async () => {
+    await session.send('Emulation.clearDeviceMetricsOverride')
+    await session.detach()
   }
 }
 
@@ -179,6 +281,17 @@ async function closeDialog(page: Page, dialog: Locator): Promise<void> {
   const discard = page.getByRole('button', { name: 'Discard changes' })
   if (await discard.isVisible().catch(() => false)) await discard.click()
   await expect(dialog).toBeHidden()
+}
+
+/** Canonical code enrollment through the product UI, never a request mock. */
+async function joinBoard(page: Page, joinCode: string): Promise<void> {
+  const join = page.getByRole('button', { name: 'Enter board code' })
+  if (!(await join.isVisible().catch(() => false))) return
+  await join.click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Board code').fill(joinCode)
+  await dialog.getByRole('button', { name: 'Join', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Leave board' })).toBeVisible()
 }
 
 async function assertSingleScroller(dialog: Locator): Promise<Locator> {
@@ -237,6 +350,10 @@ test.describe('desktop authoring workspaces', () => {
   let adminPage: Page
   let participantContext: BrowserContext | undefined
   let participantPage: Page | undefined
+  /** API token for fixture setup and byte-exact payload reads. */
+  let adminToken: string
+  /** Unique catalog prefix, so the measured catalog is this run's own data. */
+  let catalogPrefix: string
 
   test.beforeAll(async ({ browser, request }) => {
     if (!adminUser || !adminPass) throw new Error('E2E_ADMIN_USERNAME and E2E_ADMIN_PASSWORD are required')
@@ -253,18 +370,24 @@ test.describe('desktop authoring workspaces', () => {
     }
     adminContext = await browser.newContext(contextOptions)
     adminPage = await adminContext.newPage()
-    await signIn(adminPage)
+    await signIn(adminPage, adminUser, adminPass)
     if (participantUser && participantPass) {
       participantContext = await browser.newContext(contextOptions)
       participantPage = await participantContext.newPage()
-      await signInAs(participantPage, participantUser, participantPass)
+      await signIn(participantPage, participantUser, participantPass)
     }
 
-    const login = await request.post(`${apiUrl}/auth/login`, {
-      data: { username: adminUser, password: adminPass },
+    // The UI already signed in, so the fixture token comes from the existing
+    // browser session through the app origin. That avoids a second password
+    // login against the production limiter.
+    const token = await adminPage.evaluate(async () => {
+      const response = await fetch('/api/v2/auth/refresh', {
+        method: 'POST',
+        headers: { Origin: window.location.origin },
+      })
+      if (!response.ok) throw new Error(`token refresh failed: ${response.status}`)
+      return ((await response.json()) as { accessToken: string }).accessToken
     })
-    if (!login.ok()) throw new Error(`admin login failed: ${login.status()} ${await login.text()}`)
-    const token = ((await login.json()) as { accessToken: string }).accessToken
 
     const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`
     const boardName = `Desktop workspace ${suffix}`
@@ -376,6 +499,8 @@ test.describe('desktop authoring workspaces', () => {
       firstTaskUuid: firstTask.uuid,
       joinCode,
     }
+    adminToken = token
+    catalogPrefix = `Workspace catalog ${suffix}`
   })
 
   test.afterAll(async () => {
@@ -430,6 +555,7 @@ test.describe('desktop authoring workspaces', () => {
     await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
 
     const taskDialog = await openTaskDialog(page, 'Workspace FLAG')
+    await expect(taskDialog.getByRole('tab')).toHaveCount(0)
     const dialogBox = await box(taskDialog)
     expect(Math.abs(dialogBox.width - 1360)).toBeLessThanOrEqual(1)
     expect(dialogBox.left).toBeGreaterThanOrEqual(24)
@@ -486,19 +612,27 @@ test.describe('desktop authoring workspaces', () => {
     const manualDialog = await openTaskDialog(page, 'Workspace MANUAL')
     await assertSingleScroller(manualDialog)
     await assertColumns(manualDialog, 320)
+    await expect(manualDialog.getByRole('tab')).toHaveCount(0)
     await expect(manualDialog.locator('[data-slot="authoring-main"] #task-description')).toBeVisible()
     await expect(manualDialog.locator('[data-slot="authoring-settings"] #task-choice')).toBeVisible()
     await expect(manualDialog.locator('[data-slot="authoring-settings"] #task-text-min')).toBeVisible()
     await screenshot(page, 'task-dialog-manual-1920')
     await closeDialog(page, manualDialog)
 
-    // The default profile disables deployment templates, so the approved
-    // template list errors honestly. The lifetime controls still render; this
-    // is a layout check, not provider execution.
+    // Runtime instances are the separate switch: the default profile disables
+    // `deployment.enabled`, so the approved-template binding endpoint is not
+    // registered and the dialog says so honestly. The authoring *catalog* stays
+    // available and is measured with real templates in the catalog test.
     const instanceDialog = await openTaskDialog(page, 'Workspace INSTANCE')
     await assertSingleScroller(instanceDialog)
     await assertColumns(instanceDialog, 320)
-    await expect(instanceDialog.locator('[data-slot="authoring-main"]')).toContainText(/template/i)
+    const instanceMain = instanceDialog.locator('[data-slot="authoring-main"]')
+    await expect(instanceMain).toContainText('Could not load approved templates')
+    await expect(instanceMain).not.toContainText('Template management is disabled')
+    const binding = await page.request.get(
+      `/api/v2/boards/${fixture.boardUuid}/modules/${fixture.instanceModuleUuid}/instance-templates`,
+    )
+    expect(binding.status()).toBe(404)
     await expect(instanceDialog.locator('[data-slot="authoring-settings"]').getByText('Lifetime', { exact: true })).toBeVisible()
     await instanceDialog.locator('[data-slot="authoring-settings"]').getByRole('button', { name: 'Custom' }).click()
     await expect(instanceDialog.locator('[data-slot="authoring-settings"] #task-lifetime-initial')).toBeVisible()
@@ -591,8 +725,33 @@ test.describe('desktop authoring workspaces', () => {
     expect(Math.abs((await box(taskDialog)).width - 375)).toBeLessThanOrEqual(1)
     await assertSingleScroller(taskDialog)
     await assertStacked(taskDialog, 343)
+    await expect(taskDialog.getByRole('tab')).toHaveCount(0)
+    // Visual/Source stay functional on the phone, in one editor surface.
+    await taskDialog.getByRole('button', { name: 'Source mode' }).click()
+    const phoneSource = taskDialog.locator('#task-description')
+    await expect(phoneSource).toBeVisible()
+    expect(await phoneSource.evaluate((element) => getComputedStyle(element).overflowY)).toBe('auto')
+    await taskDialog.getByRole('button', { name: 'Visual mode' }).click()
+    await expect(taskDialog.locator('.ProseMirror')).toHaveCount(1)
+    await expect(taskDialog.locator('[data-slot="dialog-footer"]').getByRole('button', { name: 'Cancel' }))
+      .toBeVisible()
+    expect((await box(taskDialog.locator('[data-slot="dialog-footer"]').getByRole('button', { name: 'Cancel' }))).height)
+      .toBeGreaterThanOrEqual(44)
     await screenshot(page, 'task-dialog-375')
     await closeDialog(page, taskDialog)
+
+    // The desktop sidebar becomes a Sheet drawer; its entries stay 44px tall
+    // and the page never widens past the phone viewport.
+    await page.goto('/boards')
+    await expect(page.getByRole('heading', { name: 'Boards', exact: true })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375)
+    await page.getByRole('button', { name: 'Open navigation' }).click()
+    const drawer = page.getByRole('dialog')
+    const boardsLink = drawer.getByRole('link', { name: 'Boards', exact: true })
+    await expect(boardsLink).toBeVisible()
+    expect((await box(boardsLink)).height).toBeGreaterThanOrEqual(44)
+    await page.keyboard.press('Escape')
+    await expect(drawer).toBeHidden()
 
     await page.goto('/admin/site')
     await expect(page.locator('.ProseMirror')).toBeVisible()
@@ -636,15 +795,24 @@ test.describe('desktop authoring workspaces', () => {
     expect((await box(table)).width).toBeGreaterThan(1200)
     await capture(page, 'admin-users-1920')
 
-    // Administration navigation cards use the same content-width tracks.
+    // Administration navigation cards use the same content-width tracks. The
+    // card count follows the seeded admin's roles, so rows are derived from the
+    // real number of rendered cards instead of a hard-coded total.
     await page.goto('/admin')
     await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible()
     const adminCards = page.locator('[data-slot="admin-cards"] .workspace-card-grid > *')
-    await expect(adminCards).toHaveCount(8)
-    expect(await cardTracks(adminCards)).toEqual({ columns: 3, rows: 3 })
+    const adminCardCount = await adminCards.count()
+    expect(adminCardCount).toBeGreaterThanOrEqual(6)
+    expect(await cardTracks(adminCards)).toEqual({
+      columns: 3,
+      rows: Math.ceil(adminCardCount / 3),
+    })
     await page.setViewportSize({ width: 1440, height: 900 })
     await expect.poll(() => pageContentWidth(page)).toBe(1180)
-    expect(await cardTracks(adminCards)).toEqual({ columns: 2, rows: 4 })
+    expect(await cardTracks(adminCards)).toEqual({
+      columns: 2,
+      rows: Math.ceil(adminCardCount / 2),
+    })
   })
 
   test('participant board uses a 320px rail and two module card columns at 1920', async () => {
@@ -656,11 +824,7 @@ test.describe('desktop authoring workspaces', () => {
     await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
 
     // Real canonical code enrollment through the UI, no request interception.
-    await page.getByRole('button', { name: 'Enter board code' }).click()
-    const dialog = page.getByRole('dialog')
-    await dialog.getByLabel('Board code').fill(fixture.joinCode)
-    await dialog.getByRole('button', { name: 'Join', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Leave board' })).toBeVisible()
+    await joinBoard(page, fixture.joinCode)
     await expect(page.getByRole('heading', { name: 'Your standing' })).toBeVisible()
 
     const workspace = page.locator('[data-slot="workspace"]')
@@ -707,14 +871,7 @@ test.describe('desktop authoring workspaces', () => {
     // test has not already enrolled this fixture account.
     await page.goto(`/boards/${fixture.boardUuid}`)
     await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
-    const join = page.getByRole('button', { name: 'Enter board code' })
-    if (await join.isVisible().catch(() => false)) {
-      await join.click()
-      const joinDialog = page.getByRole('dialog')
-      await joinDialog.getByLabel('Board code').fill(fixture.joinCode)
-      await joinDialog.getByRole('button', { name: 'Join', exact: true }).click()
-      await expect(page.getByRole('button', { name: 'Leave board' })).toBeVisible()
-    }
+    await joinBoard(page, fixture.joinCode)
     let historyRequests = 0
     page.on('request', (request) => {
       if (request.url().includes('/submissions/me')) historyRequests += 1
@@ -890,5 +1047,541 @@ test.describe('desktop authoring workspaces', () => {
     await expect(legacy).toHaveCSS('white-space', 'normal')
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375)
     await capture(page, 'admin-board-375')
+  })
+
+  test('deployment template catalog measures real three- and six-template grids', async () => {
+    const page = adminPage
+    test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
+    await page.setViewportSize({ width: 1920, height: 1080 })
+
+    // The authoring catalog is a separate switch from runtime instances and is
+    // always served, so real templates are created through the documented API
+    // and measured here. No provider, no runtime credential, no interception.
+    const ownCount = (items: Array<{ name: string }>) =>
+      items.filter((item) => item.name.startsWith(`${catalogPrefix} `)).length
+    const three = await createCatalogTemplates(page.request, adminToken, catalogPrefix, 3)
+    // Three real templates of this run's own, plus whatever the shared
+    // default-profile suite already created, are in the catalog.
+    expect(ownCount(three.items)).toBe(3)
+    expect(three.items.length).toBeGreaterThanOrEqual(3)
+    await page.goto('/admin/templates')
+    await expect(page.getByRole('heading', { name: 'Deployment templates' })).toBeVisible()
+    await expect(page.getByText('Template management is disabled')).toHaveCount(0)
+    await expect(page.getByText('Could not load deployment templates')).toHaveCount(0)
+
+    const cards = page.locator('[data-slot="admin-cards"] .workspace-card-grid > *')
+    await expect(cards).toHaveCount(three.items.length)
+    expect(await cardTracks(cards)).toEqual({ columns: 3, rows: gridRows(three.items.length, 3) })
+
+    // Every card is a real navigable link to its own template route, and the
+    // run's own three templates are real rendered records.
+    const links = page.locator('[data-slot="admin-cards"] a[href^="/admin/templates/"]')
+    await expect(links).toHaveCount(three.items.length)
+    expect(await links.first().getAttribute('href')).toMatch(/^\/admin\/templates\/[0-9a-f-]{36}$/)
+    const ownLinks = page.getByRole('link', { name: new RegExp(catalogPrefix) })
+    await expect(ownLinks).toHaveCount(3)
+    await capture(page, 'admin-templates-1920-3')
+
+    // 1440 -> 1180 usable, below the 1200px three-column threshold.
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect.poll(() => pageContentWidth(page)).toBe(1180)
+    expect(await cardTracks(cards)).toEqual({ columns: 2, rows: gridRows(three.items.length, 2) })
+    await capture(page, 'admin-templates-1440-3')
+
+    // 1024 -> 764 usable: two columns and no page overflow.
+    await page.setViewportSize({ width: 1024, height: 768 })
+    await expect.poll(() => pageContentWidth(page)).toBe(764)
+    expect(await cardTracks(cards)).toEqual({ columns: 2, rows: gridRows(three.items.length, 2) })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1024)
+
+    // Three more templates through the same API, then the product's own Refresh
+    // control: six of this run's records in a three-column grid at 1920.
+    const six = await createCatalogTemplates(page.request, adminToken, catalogPrefix, 6)
+    expect(ownCount(six.items)).toBe(6)
+    expect(six.items.length).toBeGreaterThanOrEqual(6)
+    expect(six.created).toBe(3)
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await expect(cards).toHaveCount(six.items.length)
+    expect(await cardTracks(cards)).toEqual({ columns: 3, rows: gridRows(six.items.length, 3) })
+    await expect(ownLinks).toHaveCount(6)
+    const listed = await json<{ items: Array<{ name: string }> }>(
+      page.request,
+      'GET',
+      '/admin/deployment-templates?limit=100&offset=0',
+      undefined,
+      adminToken,
+    )
+    expect(listed.items).toHaveLength(six.items.length)
+    expect(await cards.count()).toBe(listed.items.length)
+    await capture(page, 'admin-templates-1920-6')
+  })
+
+  test('workspace and card thresholds switch on the measured container width', async () => {
+    const admin = adminPage
+    const page = participantPage!
+    test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
+    test.skip(!participantUser || !participantPass, 'E2E_PARTICIPANT_USERNAME/PASSWORD are required')
+
+    // The 1100px usable-width threshold has 1px neighbours: 1360px viewport
+    // gives 1100px usable (split, 716px task main); 1359 gives 1099 (stacked).
+    await page.setViewportSize({ width: 1360, height: 900 })
+    await page.goto(`/boards/${fixture.boardUuid}/modules/${fixture.flagModuleUuid}/tasks/${fixture.firstTaskUuid}`)
+    await expect(page.getByRole('heading', { name: 'Workspace task 1' })).toBeVisible()
+    await expect.poll(() => pageContentWidth(page)).toBe(1100)
+    const taskMain = page.locator('[data-slot="workspace-main"]')
+    const taskAside = page.locator('[data-slot="workspace-aside"]')
+    expect(Math.abs((await box(taskMain)).width - 716)).toBeLessThanOrEqual(1)
+    expect(Math.abs((await box(taskAside)).width - 360)).toBeLessThanOrEqual(1)
+    expect(Math.abs((await box(taskAside)).left - (await box(taskMain)).right - 24)).toBeLessThanOrEqual(1)
+    await capture(page, 'task-participant-1360-threshold')
+
+    await page.setViewportSize({ width: 1359, height: 900 })
+    await expect.poll(() => pageContentWidth(page)).toBe(1099)
+    expect(Math.abs((await box(taskMain)).width - 1099)).toBeLessThanOrEqual(1)
+    expect(Math.abs((await box(taskAside)).width - 1099)).toBeLessThanOrEqual(1)
+    expect((await box(taskAside)).top).toBeGreaterThanOrEqual((await box(taskMain)).bottom - 1)
+
+    // Board modules switch at their own 760px main-column width: 1364px
+    // viewport gives 1104 usable -> 760 main (two columns); 1363 -> 759 (one).
+    await page.setViewportSize({ width: 1364, height: 900 })
+    await page.goto(`/boards/${fixture.boardUuid}`)
+    await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
+    await joinBoard(page, fixture.joinCode)
+    await expect.poll(() => pageContentWidth(page)).toBe(1104)
+    const boardMain = page.locator('[data-slot="workspace-main"]')
+    expect(Math.abs((await box(boardMain)).width - 760)).toBeLessThanOrEqual(1)
+    const boardCards = page.locator('[data-slot="board-modules"] .workspace-card-grid > *')
+    await expect(boardCards).toHaveCount(4)
+    expect(await cardTracks(boardCards)).toEqual({ columns: 2, rows: 2 })
+
+    await page.setViewportSize({ width: 1363, height: 900 })
+    await expect.poll(() => pageContentWidth(page)).toBe(1103)
+    expect(Math.abs((await box(boardMain)).width - 759)).toBeLessThanOrEqual(1)
+    expect(await cardTracks(boardCards)).toEqual({ columns: 1, rows: 4 })
+
+    // Module tasks switch at 1200px of their own width: 1460px viewport gives
+    // 1200 usable (three columns); 1459 -> 1199 (two).
+    await page.setViewportSize({ width: 1460, height: 900 })
+    await page.goto(`/boards/${fixture.boardUuid}/modules/${fixture.flagModuleUuid}`)
+    await expect(page.getByRole('heading', { name: 'Workspace FLAG' })).toBeVisible()
+    await expect.poll(() => pageContentWidth(page)).toBe(1200)
+    const taskCards = page.locator('[data-slot="module-tasks"] .workspace-card-grid > *')
+    await expect(taskCards).toHaveCount(6)
+    expect(await cardTracks(taskCards)).toEqual({ columns: 3, rows: 2 })
+
+    await page.setViewportSize({ width: 1459, height: 900 })
+    await expect.poll(() => pageContentWidth(page)).toBe(1199)
+    expect(await cardTracks(taskCards)).toEqual({ columns: 2, rows: 3 })
+
+    // Administration tracks: 720px for two columns, 1200px for three.
+    await admin.setViewportSize({ width: 980, height: 900 })
+    await admin.goto('/admin')
+    await expect(admin.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible()
+    await expect.poll(() => pageContentWidth(admin)).toBe(720)
+    const hubCards = admin.locator('[data-slot="admin-cards"] .workspace-card-grid > *')
+    const hubCount = await hubCards.count()
+    expect(await cardTracks(hubCards)).toEqual({ columns: 2, rows: Math.ceil(hubCount / 2) })
+
+    await admin.setViewportSize({ width: 979, height: 900 })
+    await expect.poll(() => pageContentWidth(admin)).toBe(719)
+    expect(await cardTracks(hubCards)).toEqual({ columns: 1, rows: hubCount })
+
+    // The same 1200px boundary on the real template catalog.
+    const catalog = await json<{ items: Array<{ uuid: string }> }>(
+      admin.request,
+      'GET',
+      '/admin/deployment-templates?limit=100&offset=0',
+      undefined,
+      adminToken,
+    )
+    expect(catalog.items.length).toBeGreaterThanOrEqual(6)
+    await admin.setViewportSize({ width: 1460, height: 900 })
+    await admin.goto('/admin/templates')
+    await expect(admin.getByRole('heading', { name: 'Deployment templates' })).toBeVisible()
+    await expect.poll(() => pageContentWidth(admin)).toBe(1200)
+    const templateCards = admin.locator('[data-slot="admin-cards"] .workspace-card-grid > *')
+    await expect(templateCards).toHaveCount(catalog.items.length)
+    expect(await cardTracks(templateCards)).toEqual({
+      columns: 3,
+      rows: gridRows(catalog.items.length, 3),
+    })
+
+    await admin.setViewportSize({ width: 1459, height: 900 })
+    await expect.poll(() => pageContentWidth(admin)).toBe(1199)
+    expect(await cardTracks(templateCards)).toEqual({
+      columns: 2,
+      rows: gridRows(catalog.items.length, 2),
+    })
+  })
+
+  test('200% CSS zoom reflows columns instead of shrinking controls', async () => {
+    const page = participantPage!
+    test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
+    test.skip(!participantUser || !participantPass, 'E2E_PARTICIPANT_USERNAME/PASSWORD are required')
+
+    // CSS `zoom` is an honest layout surrogate: the layout viewport becomes
+    // 1920 / 2 = 960 CSS px, so the persistent sidebar and the page padding
+    // leave the same 700px usable width a real 200% browser zoom produces. It is
+    // not OS zoom, and `vw` units are deliberately not adjusted by it; the
+    // dialog/`vw` behaviour of a real 200% zoom is covered by the device-metrics
+    // test below.
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto(`/boards/${fixture.boardUuid}/modules/${fixture.flagModuleUuid}/tasks/${fixture.firstTaskUuid}`)
+    await expect(page.getByRole('heading', { name: 'Workspace task 1' })).toBeVisible()
+    await joinBoard(page, fixture.joinCode)
+    await setCssZoom(page, 2)
+    await expect.poll(() => pageContentWidth(page)).toBe(700)
+
+    const taskMain = page.locator('[data-slot="workspace-main"]')
+    const taskAside = page.locator('[data-slot="workspace-aside"]')
+    const zoomMain = await zoomedBox(taskMain, 2)
+    const zoomAside = await zoomedBox(taskAside, 2)
+    expect(Math.abs(zoomMain.width - 700)).toBeLessThanOrEqual(1)
+    expect(Math.abs(zoomAside.width - 700)).toBeLessThanOrEqual(1)
+    expect(zoomAside.top).toBeGreaterThanOrEqual(zoomMain.bottom - 1)
+
+    // The submission control keeps its size and stays focusable; nothing is
+    // squeezed to fit a column that no longer exists.
+    const flag = page.getByRole('textbox', { name: 'Flag', exact: true })
+    await expect(flag).toHaveCount(1)
+    expect((await zoomedBox(flag, 2)).width).toBeLessThanOrEqual(700)
+    expect((await zoomedBox(flag, 2)).height).toBeGreaterThanOrEqual(32)
+    await flag.focus()
+    expect(await flag.evaluate((element) => document.activeElement === element)).toBe(true)
+
+    // No page-level horizontal scrolling: document scroll width is scaled by
+    // the same zoom factor.
+    const overflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+    }))
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.innerWidth * 2 + 1)
+    await capture(page, 'task-participant-200zoom')
+
+    // Module cards at an effective 700px: one column, never three squeezed
+    // columns.
+    await setCssZoom(page, 1)
+    await page.goto(`/boards/${fixture.boardUuid}/modules/${fixture.flagModuleUuid}`)
+    await expect(page.getByRole('heading', { name: 'Workspace FLAG' })).toBeVisible()
+    await setCssZoom(page, 2)
+    await expect.poll(() => pageContentWidth(page)).toBe(700)
+    const taskCards = page.locator('[data-slot="module-tasks"] .workspace-card-grid > *')
+    await expect(taskCards).toHaveCount(6)
+    expect(await cardTracks(taskCards)).toEqual({ columns: 1, rows: 6 })
+    expect((await zoomedBox(taskCards.first(), 2)).width).toBeGreaterThan(600)
+    await capture(page, 'module-participant-200zoom')
+
+    // The site form stacks at the same effective width and its save action
+    // stays reachable, not clipped. This is the organizer surface, so it uses
+    // the admin session rather than the participant one.
+    await setCssZoom(page, 1)
+    const admin = adminPage
+    await admin.setViewportSize({ width: 1920, height: 1080 })
+    await admin.goto('/admin/site')
+    await expect(admin.locator('.ProseMirror')).toBeVisible()
+    await setCssZoom(admin, 2)
+    await expect.poll(() => pageContentWidth(admin)).toBe(700)
+    const siteForm = admin.locator('form.authoring-home')
+    expect((await zoomedBox(siteForm, 2)).width).toBeLessThanOrEqual(700)
+    const save = siteForm.getByRole('button', { name: 'Save changes' })
+    await save.scrollIntoViewIfNeeded()
+    await expect(save).toBeInViewport()
+    await setCssZoom(admin, 1)
+  })
+
+  test('the effective 960px layout of a 200% browser zoom keeps dialogs and focus usable', async () => {
+    const page = adminPage
+    test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
+
+    // Real Chromium device metrics: a 1920x1080 screen at 200% zoom has a
+    // 960x540 CSS layout viewport at devicePixelRatio 2. Unlike
+    // `Emulation.setPageScaleFactor` (visual viewport only) and unlike CSS
+    // `zoom`, media/container queries and `vw` units really reflow here.
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    const restore = await emulateBrowserZoomLayout(page)
+    try {
+      expect(await page.evaluate(() => window.innerWidth)).toBe(960)
+      expect(await page.evaluate(() => window.devicePixelRatio)).toBe(2)
+
+      await page.goto(`/admin/boards/${fixture.boardUuid}`)
+      await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
+      await expect.poll(() => pageContentWidth(page)).toBe(700)
+      const main = page.locator('[data-slot="workspace-main"]')
+      const aside = page.locator('[data-slot="workspace-aside"]')
+      expect(Math.abs((await box(main)).width - 700)).toBeLessThanOrEqual(1)
+      expect(Math.abs((await box(aside)).width - 700)).toBeLessThanOrEqual(1)
+      expect((await box(aside)).top).toBeGreaterThanOrEqual((await box(main)).bottom - 1)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(960)
+
+      // The 1200px dialog is capped by the real viewport: 912px with 24px
+      // clearance on both sides, one scroller, stacked body.
+      const dialog = await openBoardDialog(page)
+      const dialogBox = await box(dialog)
+      expect(Math.abs(dialogBox.width - 912)).toBeLessThanOrEqual(1)
+      expect(dialogBox.left).toBeGreaterThanOrEqual(24)
+      expect(960 - dialogBox.right).toBeGreaterThanOrEqual(24)
+      await assertSingleScroller(dialog)
+      await assertStacked(dialog)
+
+      // The footer stays outside the scroller and inside the 540px viewport.
+      const footer = dialog.locator('[data-slot="dialog-footer"]')
+      expect((await box(footer)).bottom).toBeLessThanOrEqual(540)
+      const save = dialog.getByRole('button', { name: 'Save changes' })
+      await expect(save).toBeVisible()
+
+      // Source mode is the exact-bytes guard: it scrolls internally and the
+      // save action is still reachable by keyboard, never clipped.
+      await dialog.getByRole('button', { name: 'Source mode' }).click()
+      const source = dialog.locator('#board-description')
+      await source.fill(['Long source at 200% zoom', '', '```', 'x'.repeat(4000), '```'].join('\n'))
+      expect(await source.evaluate((element) => getComputedStyle(element).overflowY)).toBe('auto')
+      expect(await source.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
+      let reachedSave = false
+      for (let step = 0; step < 120; step += 1) {
+        await page.keyboard.press('Tab')
+        if (await save.evaluate((element) => document.activeElement === element)) {
+          reachedSave = true
+          break
+        }
+      }
+      expect(reachedSave).toBe(true)
+      await expect(save).toBeInViewport()
+      await screenshot(page, 'board-dialog-960-effective-200zoom')
+      await closeDialog(page, dialog)
+
+      // The organizer preview stacks at 700px as well; its rail keeps the
+      // explanation and still offers no participant form or own history.
+      await page.goto(`/boards/${fixture.boardUuid}/modules/${fixture.flagModuleUuid}/tasks/${fixture.firstTaskUuid}`)
+      await expect(page.getByRole('heading', { name: 'Workspace task 1' })).toBeVisible()
+      const taskMain = page.locator('[data-slot="workspace-main"]')
+      const taskAside = page.locator('[data-slot="workspace-aside"]')
+      expect(Math.abs((await box(taskMain)).width - 700)).toBeLessThanOrEqual(1)
+      expect(Math.abs((await box(taskAside)).width - 700)).toBeLessThanOrEqual(1)
+      expect((await box(taskAside)).top).toBeGreaterThanOrEqual((await box(taskMain)).bottom - 1)
+      await expect(page.getByText('Organizer preview')).toBeVisible()
+      await expect(page.getByRole('textbox', { name: 'Flag', exact: true })).toHaveCount(0)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(960)
+      await capture(page, 'task-preview-960-effective-200zoom')
+    } finally {
+      await restore()
+    }
+  })
+
+  test('board editor authors exact Unicode bytes, counts runes and saves once', async () => {
+    const page = adminPage
+    test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto(`/admin/boards/${fixture.boardUuid}`)
+    await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
+
+    const dialog = await openBoardDialog(page)
+    // Direct authoring: no outer Write/Preview tabs anywhere on this surface.
+    await expect(dialog.getByRole('tab')).toHaveCount(0)
+    const editor = dialog.locator('.ProseMirror')
+    await expect(editor).toHaveCount(1)
+    await editor.click()
+    await page.keyboard.press('Control+a')
+    await page.keyboard.type('Direct authoring')
+    await expect(editor).toContainText('Direct authoring')
+
+    // Source mode holds the exact bytes, including multi-byte characters.
+    const exact = [
+      '# Ünïcode 🎯',
+      '',
+      'Emoji: 🎯🎯 and combining é',
+      '',
+      '```python',
+      'print("héllo")',
+      '```',
+    ].join('\n')
+    await dialog.getByRole('button', { name: 'Source mode' }).click()
+    const source = dialog.locator('#board-description')
+    await source.fill(exact)
+    const runes = Array.from(exact).length
+    const utf16 = exact.length
+    expect(utf16).toBeGreaterThan(runes)
+    await expect(dialog.locator('.markdown-editor-shell')).toContainText(`${runes} / 50000`)
+
+    // 25,001 emoji are 50,002 UTF-16 units but only 25,001 Go runes, so the
+    // form is still valid: the counter must count code points.
+    await source.fill('🎯'.repeat(25_001))
+    await expect(dialog.locator('.markdown-editor-shell')).toContainText('25001 / 50000')
+    await expect(dialog.getByRole('alert')).toHaveCount(0)
+
+    // One more rune crosses the 50,000 limit; the form owns one message.
+    await source.fill('🎯'.repeat(50_001))
+    const alert = dialog.getByRole('alert').filter({ hasText: 'at most 50,000 characters' })
+    await expect(alert).toHaveCount(1)
+    await expect(dialog.locator('.markdown-editor-shell')).toContainText('50001 / 50000')
+    const describedBy = await source.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    await expect(dialog.locator(`#${describedBy}`)).toContainText('at most 50,000 characters')
+    expect(await source.getAttribute('aria-invalid')).toBe('true')
+
+    let patches = 0
+    page.on('request', (request) => {
+      if (request.method() === 'PATCH' && request.url().includes(`/admin/boards/${fixture.boardUuid}`)) {
+        patches += 1
+      }
+    })
+    await dialog.getByRole('button', { name: 'Save changes' }).click()
+    await expect(alert).toHaveCount(1)
+    await page.waitForTimeout(300)
+    expect(patches).toBe(0)
+
+    // A valid payload saves exactly once and stores the exact bytes.
+    await source.fill(exact)
+    await expect(alert).toHaveCount(0)
+    await dialog.getByRole('button', { name: 'Save changes' }).click()
+    await expect(dialog).toBeHidden()
+    expect(patches).toBe(1)
+    const stored = await json<{ description: string }>(
+      page.request,
+      'GET',
+      `/admin/boards/${fixture.boardUuid}`,
+      undefined,
+      adminToken,
+    )
+    expect(stored.description).toBe(exact)
+
+    // Reopening shows the same bytes; cancelling never rewrites them.
+    const reopened = await openBoardDialog(page)
+    await reopened.getByRole('button', { name: 'Source mode' }).click()
+    expect(await reopened.locator('#board-description').inputValue()).toBe(exact)
+    await reopened.getByRole('button', { name: 'Cancel' }).click()
+    await expect(reopened).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Discard changes' })).toHaveCount(0)
+  })
+
+  test('navigation and resizes add no duplicate editor, request or hidden form target', async () => {
+    const page = adminPage
+    test.skip(test.info().project.name !== 'chromium', 'Desktop geometry runs in the chromium project')
+    let boardGets = 0
+    page.on('request', (request) => {
+      if (
+        request.method() === 'GET'
+        && new RegExp(`/api/v2/admin/boards/${fixture.boardUuid}$`).test(request.url())
+      ) {
+        boardGets += 1
+      }
+    })
+
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await page.goto(`/admin/boards/${fixture.boardUuid}`)
+    await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
+    // No editor or form field is mounted outside a dialog.
+    await expect(page.locator('.ProseMirror')).toHaveCount(0)
+    await expect(page.locator('#board-name, #module-name, #task-title')).toHaveCount(0)
+    const afterLoad = boardGets
+
+    // Responsive resizes reflow only: no refetch, no second mount.
+    for (const [width, usable] of [[1440, 1180], [1024, 764], [1920, 1552]] as const) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect.poll(() => pageContentWidth(page)).toBe(usable)
+    }
+    expect(boardGets).toBe(afterLoad)
+    await expect(page.locator('.ProseMirror')).toHaveCount(0)
+
+    // Opening and closing a dialog leaves exactly one editor and no orphan
+    // focus target behind.
+    const moduleDialog = await openModuleDialog(page)
+    await expect(moduleDialog.locator('.ProseMirror')).toHaveCount(1)
+    await closeDialog(page, moduleDialog)
+    await expect(page.locator('.ProseMirror')).toHaveCount(0)
+    await expect(page.locator('[role="dialog"]')).toHaveCount(0)
+    await expect(page.locator('#module-name')).toHaveCount(0)
+
+    // SPA navigation away and back: one page form each time, no stale dialog.
+    await page.getByRole('link', { name: 'Boards', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Boards', exact: true })).toBeVisible()
+    await expect(page.locator('.ProseMirror')).toHaveCount(0)
+    await page.getByRole('link', { name: 'Admin', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible()
+    await expect(page.locator('.ProseMirror')).toHaveCount(0)
+    await expect(page.locator('[role="dialog"]')).toHaveCount(0)
+  })
+
+  test('phone catalog and admin hub use one card column at 375', async () => {
+    const page = adminPage
+    test.skip(test.info().project.name !== 'phone', 'Phone geometry runs in the 375px phone project')
+
+    await page.goto('/admin/templates')
+    await expect(page.getByRole('heading', { name: 'Deployment templates' })).toBeVisible()
+    const cards = page.locator('[data-slot="admin-cards"] .workspace-card-grid > *')
+    const count = await cards.count()
+    expect(count).toBeGreaterThanOrEqual(1)
+    expect(await cardTracks(cards)).toEqual({ columns: 1, rows: count })
+    expect((await box(cards.first())).width).toBeLessThanOrEqual(343)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375)
+    await capture(page, 'admin-templates-375')
+
+    await page.goto('/admin')
+    await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible()
+    const hubCards = page.locator('[data-slot="admin-cards"] .workspace-card-grid > *')
+    const hubCount = await hubCards.count()
+    expect(hubCount).toBeGreaterThanOrEqual(3)
+    expect(await cardTracks(hubCards)).toEqual({ columns: 1, rows: hubCount })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375)
+    await capture(page, 'admin-hub-375')
+  })
+
+  test('participant board and module cards fall back to one column at 375', async () => {
+    const page = participantPage!
+    test.skip(test.info().project.name !== 'phone', 'Phone geometry runs in the 375px phone project')
+    test.skip(!participantUser || !participantPass, 'E2E_PARTICIPANT_USERNAME/PASSWORD are required')
+
+    await page.goto(`/boards/${fixture.boardUuid}`)
+    await expect(page.getByRole('heading', { name: fixture.boardName })).toBeVisible()
+    await joinBoard(page, fixture.joinCode)
+
+    const main = page.locator('[data-slot="workspace-main"]')
+    const aside = page.locator('[data-slot="workspace-aside"]')
+    expect(Math.abs((await box(main)).width - 343)).toBeLessThanOrEqual(1)
+    expect(Math.abs((await box(aside)).width - 343)).toBeLessThanOrEqual(1)
+    expect((await box(aside)).top).toBeGreaterThanOrEqual((await box(main)).bottom - 1)
+    const boardCards = main.locator('[data-slot="board-modules"] .workspace-card-grid > *')
+    await expect(boardCards).toHaveCount(4)
+    expect(await cardTracks(boardCards)).toEqual({ columns: 1, rows: 4 })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375)
+    await capture(page, 'board-participant-375')
+
+    await page.goto(`/boards/${fixture.boardUuid}/modules/${fixture.flagModuleUuid}`)
+    await expect(page.getByRole('heading', { name: 'Workspace FLAG' })).toBeVisible()
+    const taskCards = page.locator('[data-slot="module-tasks"] .workspace-card-grid > *')
+    await expect(taskCards).toHaveCount(6)
+    expect(await cardTracks(taskCards)).toEqual({ columns: 1, rows: 6 })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375)
+    await capture(page, 'module-participant-375')
+  })
+
+  test('participant task stacks at 375 with one 44px form and a reachable footer', async () => {
+    const page = participantPage!
+    test.skip(test.info().project.name !== 'phone', 'Phone geometry runs in the 375px phone project')
+    test.skip(!participantUser || !participantPass, 'E2E_PARTICIPANT_USERNAME/PASSWORD are required')
+
+    await page.goto(`/boards/${fixture.boardUuid}/modules/${fixture.flagModuleUuid}/tasks/${fixture.firstTaskUuid}`)
+    await expect(page.getByRole('heading', { name: 'Workspace task 1' })).toBeVisible()
+    const main = page.locator('[data-slot="workspace-main"]')
+    const aside = page.locator('[data-slot="workspace-aside"]')
+    expect(Math.abs((await box(main)).width - 343)).toBeLessThanOrEqual(1)
+    expect(Math.abs((await box(aside)).width - 343)).toBeLessThanOrEqual(1)
+    expect((await box(aside)).top).toBeGreaterThanOrEqual((await box(main)).bottom - 1)
+
+    // Exactly one submission form, with phone-sized controls.
+    const flag = page.getByRole('textbox', { name: 'Flag', exact: true })
+    await expect(flag).toHaveCount(1)
+    expect((await box(flag)).height).toBeGreaterThanOrEqual(44)
+    const submit = page.getByRole('button', { name: 'Submit flag' })
+    await expect(submit).toHaveCount(1)
+    expect((await box(submit)).height).toBeGreaterThanOrEqual(44)
+
+    // The full-width history below the workspace stays reachable and the page
+    // never scrolls horizontally.
+    const history = page.getByRole('heading', { name: 'Your submissions' })
+    await history.scrollIntoViewIfNeeded()
+    await expect(history).toBeInViewport()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375)
+    await capture(page, 'task-participant-375')
   })
 })

@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 
 /**
  * Real authoring acceptance against the real backend and the real Vue app.
@@ -115,6 +115,35 @@ async function openModuleEditor(page: Page): Promise<void> {
   await expect(dialog.locator('.ProseMirror')).toBeVisible()
 }
 
+/**
+ * Choose a fenced-code language through the real toolbar.
+ *
+ * The language combobox is rendered only while the caret is inside a code
+ * block, so the observable precondition is the toolbar's own pressed state —
+ * not a timeout, a retry or a global `networkidle` wait. The popup is then
+ * awaited through its `aria-expanded` state before the option is clicked.
+ */
+async function selectCodeLanguage(dialog: Locator, label: string): Promise<void> {
+  const codeBlock = dialog.getByRole('button', { name: 'Code block' })
+  // `aria-pressed` is the toggle's own state; `data-state` belongs to the
+  // tooltip wrapper, so it is not the pressed condition.
+  await expect(codeBlock).toHaveAttribute('aria-pressed', 'true')
+  // While the listbox is open reka-ui hides the rest of the tree from the
+  // accessibility tree (the dialog's role stops resolving), so the trigger and
+  // the option are addressed at page level and by their stable attributes.
+  const page = dialog.page()
+  const combobox = page.locator('[data-slot="select-trigger"][aria-label="Code language"]')
+  await expect(combobox).toHaveCount(1)
+  await expect(combobox).toHaveAttribute('aria-expanded', 'false')
+  await combobox.click()
+  await expect(combobox).toHaveAttribute('aria-expanded', 'true')
+  const option = page.getByRole('option', { name: label, exact: true })
+  await expect(option).toBeVisible()
+  await option.click()
+  await expect(combobox).toHaveAttribute('aria-expanded', 'false')
+  await expect(combobox).toContainText(label)
+}
+
 test.describe('rich-text authoring acceptance', () => {
   test.skip(!enabled, 'Set ACTFB_E2E=1 with a real backend to run browser acceptance')
   test.describe.configure({ mode: 'serial' })
@@ -217,8 +246,7 @@ test.describe('rich-text authoring acceptance', () => {
     await page.keyboard.type('def f():')
     await page.keyboard.press('Enter')
     await page.keyboard.type('  return 1')
-    await moduleDialog.getByRole('combobox', { name: 'Code language' }).click()
-    await page.getByRole('option', { name: 'Python', exact: true }).click()
+    await selectCodeLanguage(moduleDialog, 'Python')
 
     // Add a heading and a GFM table through Source mode; both are supported
     // Markdown, so returning to Visual keeps them.
@@ -299,8 +327,7 @@ test.describe('rich-text authoring acceptance', () => {
     await page.keyboard.type('def g():')
     await page.keyboard.press('Enter')
     await page.keyboard.type('  return 2')
-    await taskDialog.getByRole('combobox', { name: 'Code language' }).click()
-    await page.getByRole('option', { name: 'Python', exact: true }).click()
+    await selectCodeLanguage(taskDialog, 'Python')
     await taskDialog.getByRole('checkbox', { name: 'Visible to participants' }).click()
     await taskDialog.getByRole('button', { name: 'Save draft' }).click()
     await expect(taskDialog).toBeHidden()
