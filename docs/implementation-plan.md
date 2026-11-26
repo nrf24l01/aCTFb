@@ -908,30 +908,53 @@ Known limitations unchanged and restated: only the board adapter records a reque
 the single-line log and the 5xx `ERROR` level but not a cause); the admin legacy invite panel is an explicit
 advanced action rather than capability-gated, because legacy credential presence is not in any DTO.
 
-**Rich-text Markdown editor + syntax highlighting (2026-11-26):** status **partial** —
-Task 1 (safe shared syntax highlighting) and Task 2 (Tiptap editor, Markdown round-trip, protected
-content) are implemented and unit/build verified; Task 3 (the four authoring surfaces, reader
-surfaces, browser gates and docs) is **missing**. The overall feature is therefore not complete.
+**Rich-text Markdown editor + syntax highlighting (2026-11-26):** status **implemented** —
+all three tasks are complete: the safe shared highlighter, the Tiptap editor with Markdown
+round-trip and Source fallback, and the four authoring surfaces with reader rendering, browser
+gates and CI wiring.
 
 - Spec: `docs/superpowers/specs/2026-11-26-rich-text-editor-design.md`.
-- Plan: `docs/superpowers/plans/2026-11-26-rich-text-editor.md` (three tasks: safe highlighting in
-  the shared renderer; Tiptap editor with Markdown round-trip and Source fallback; integration of
-  board/module/task/site-intro authoring plus browser verification).
-- Contract: descriptions stay Markdown strings; `/api/v2`, migrations and `deploy/` are unchanged.
+- Plan: `docs/superpowers/plans/2026-11-26-rich-text-editor.md`.
+- Contract: descriptions stay Markdown strings; `/api/v2`, migrations, `deploy/` and
+  `config.yaml` are unchanged.
 - Dependencies: `lowlight` 3.3.0, `highlight.js` 11.11.2, the `@tiptap/*` cohort 3.35.0 and
-  `marked` **17.0.6** (bumped from `^15` for a single copy with `@tiptap/markdown`);
-  `@types/hast` 3.0.5 is a dev-only type dependency. No other package moved.
-- Task 1 evidence: `bun run test:unit` 36 files / 202 tests, `bun run typecheck` and
-  `bun run build` pass; the `markdown` chunk is 150.81 kB (50.52 kB gzip).
-- Task 2 evidence: `bun run test:unit -- --maxWorkers=1` 40 files / 295 tests,
-  `bun run typecheck` and `bun run build` pass; the `markdown` chunk is unchanged at 51.02 kB gzip.
-  The editor's own incremental cost, measured with a throwaway lib build, is **177.74 kB gzip**
-  (~28 kB over the ~150 kB gate), so Task 3 must lazy-load the editor. The 16-language highlighting
-  registry was not reduced.
-- Known gaps after Task 2: the reader allowlist drops table `align`; the visual editor is not yet
-  mounted in any page; sanitisation and selection behaviour are only provable in Chromium, so the
-  Task 3 browser gate must assert attribute/class **removal** and repeat the round-trip fidelity
-  checks.
-- Known blockers to acceptance: the Tiptap Markdown extension is documented as an early release, so
-  the semantic round-trip corpus and the Source fallback for raw HTML, task lists and unsafe URLs are
-  mandatory gates, not optional hardening.
+  `marked` **17.0.6** (single copy with `@tiptap/markdown`); `@types/hast` 3.0.5 is dev-only.
+  `@tiptap/extension-paragraph` **3.35.0** is now a direct pinned dependency because
+  `markdownDocument.ts` imports it directly. No other package moved.
+- Authoring surfaces: `BoardSettingsDialog`, `ModuleEditorDialog`, `TaskEditorDialog` and
+  `AdminSitePage` use `MarkdownEditorLazy` (`defineAsyncComponent`) in their existing Write tab.
+  The existing ids, props, emits, payloads, Write/Preview tabs and previews are unchanged. Each
+  submit guard uses `validateDescriptionLength` with 50,000 runes (board/module/task) or 131,072
+  runes (site intro) and blocks before the API call.
+- Reader surfaces: `BoardPage` and `ModulePage` render the stored description through
+  `renderMarkdown` inside the existing `PageHeader` subtitle slot; `TaskPage`'s description
+  container now carries `.markdown-body`. GFM table `align` is allowed only on `th`/`td` for
+  `left`/`center`/`right`; arbitrary `style`, `class` and event handlers remain blocked.
+- Lazy loading and bundle: public readers import only `renderMarkdown`; the editor chunk is
+  fetched on Write-tab use. Built chunks: `MarkdownEditor-*.js` 503.17 kB / **158.89 kB gzip**,
+  the async wrapper `MarkdownEditorLazy-*.js` 9.55 kB / 3.27 kB gzip, and the shared reader
+  `markdown-*.js` 154.27 kB / 51.29 kB gzip. The 17-id highlighting registry and all editor
+  features were kept; the editor chunk remains above the ~150 kB gzip guide and is accepted
+  because it is lazy and not on the public path.
+- Task 1 evidence: 36 files / 202 tests; `bun run typecheck` and `bun run build` pass; the
+  `markdown` chunk was 150.81 kB / 50.52 kB gzip.
+- Task 2 evidence: the earlier 295-test snapshot and the 374-test review round are superseded by
+  the final combined count below; `bun run typecheck` and `bun run build` pass.
+- Task 3 / final evidence (2026-11-26):
+  - `cd frontend && bun run test:unit -- --maxWorkers=1` — **42 files / 390 tests passed**.
+  - `bun run typecheck` — clean; `bun run build` — passed with the chunks above.
+  - `bun run test:e2e -- markdown-render.spec.ts` — **16 tests passed in each project**
+    (`chromium` and a 375 px Chromium `phone` project), covering highlighted/escaped code,
+    DOMPurify attribute/class removal, 4.5:1 highlighter contrast, GFM table alignment,
+    crafted invalid align, paste filtering, source fallback, the visual-override Cancel/Escape
+    path, `Mod-k`, code-point limits and toolbar wrapping without document overflow.
+  - `e2e/run-default-profile-e2e.sh` — default-profile suite **5 passed**, then
+    `rich-text-editor.spec.ts` **2 passed** (chromium + phone) against the real native
+    PostgreSQL, real Go backend and real Vite app. The runner sets `ACTFB_E2E=1`, so the
+    authoring spec executes rather than skipping. The spec authors board/module/task/site
+    content through the real dialogs, verifies exact stored Markdown on reopen, blocks an
+    over-limit save, and reads the highlighted content as a participant.
+- Remaining limitations: `@tiptap/markdown` is still documented as an early release, so the
+  round-trip corpus and Source fallback remain mandatory; sanitisation and selection are proved
+  in Chromium (happy-dom cannot exercise DOMPurify/ProseMirror selection); the authoring browser
+  gate requires the real backend/PG stack and is not part of the frontend-only job.

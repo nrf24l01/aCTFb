@@ -120,6 +120,82 @@ not edited here) passes 12.1 s test / 12.6 s total in the Docker profile with no
 task through the real UI; the one-off intercepted capture above was an intermediate check, not the acceptance
 gate.
 
+## Markdown authoring
+
+Board, module and task descriptions and the site introduction are authored with the shared
+`src/shared/components/MarkdownEditor.vue`; the stored value stays a Markdown string, so `/api/v2`,
+migrations and `deploy/` are unchanged.
+
+- **Write | Preview tabs stay.** The existing dialog layout is unchanged; only the Write body is the
+  editor. Preview still calls `renderMarkdown`.
+- **Visual mode** supports paragraphs and hard breaks, bold/italic/strikethrough, headings 1–6,
+  bullet/ordered lists, blockquote, inline code, fenced code blocks with a language, links, images,
+  GFM tables and horizontal rules. Toolbar controls are named buttons (toolbar buttons are
+  `type="button"`, so they never submit the dialog form) and mirror the keyboard shortcuts
+  (`Mod-b`, `Mod-i`, `Mod-e`, `Mod-Alt-1..6`, list/blockquote/code-block shortcuts, `Mod-k`,
+  `Mod-z`/`Mod-Shift-z`). `Enter` inside the contenteditable stays a ProseMirror newline; the link
+  row applies on `Enter` and never submits the form.
+- **Source mode** holds the exact bytes. It opens automatically for legacy content the visual schema
+  cannot represent (raw HTML, GFM task-list items, unsafe link/image URLs) and shows a notice with an
+  explicit, confirmed "Edit visually anyway" override. Opening, focusing, switching modes or
+  cancelling never emits, so an untouched description remains byte-identical; there is no autosave.
+  The visual override confirmation uses the shared `ConfirmDialog` (Cancel is the default focus;
+  Escape cancels).
+- **Paste is schema-filtered.** Styled HTML pasted into the editor becomes text plus supported marks;
+  `style`, arbitrary `class` and event-handler attributes are dropped, and `javascript:`/`data:` URLs
+  never become links or image sources. Source and Visual share one model, so switching modes does not
+  lose edits.
+- **Limits.** `DESCRIPTION_MAX_CHARACTERS` is 50,000 and `SITE_INTRO_MAX_CHARACTERS` is 131,072,
+  matching the Go rune limits. The counter uses code points (`Array.from`), not UTF-16 units, and each
+  dialog blocks submit with the stable "at most 50,000 characters" / "at most 131,072 characters"
+  message instead of truncating.
+- **Lazy loading.** Authoring surfaces import `MarkdownEditorLazy` (`defineAsyncComponent`), whose
+  loading state is a small non-editable "Loading editor…" notice. The Tiptap bundle is fetched only
+  when an organizer opens a Write tab; public readers import only `renderMarkdown`. The built editor
+  chunk is `MarkdownEditor-*.js` at 503.17 kB / **158.89 kB gzip**; the async wrapper is 9.55 kB /
+  3.27 kB gzip, and the shared reader `markdown-*.js` stays 154.27 kB / 51.29 kB gzip. The
+  highlighter registry and editor features were kept rather than reduced.
+- **Reader rendering.** `BoardPage` and `ModulePage` render their description through
+  `renderMarkdown` inside the existing `PageHeader` subtitle slot (`.markdown-body.markdown-body-inline`,
+  compact spacing, no page redesign). `TaskPage`, `LandingPage`, the site preview and every dialog
+  preview use `.markdown-body`. Raw HTML is escaped; DOMPurify keeps only the allowlisted tags and
+  attributes. GFM table `align` is allowed only on `th`/`td` and only for `left`, `center` or `right`;
+  `style`, arbitrary `class` and event handlers stay blocked. Unknown fence languages render as
+  escaped plain text and are never auto-detected.
+
+### Syntax highlighting registry
+
+`src/shared/lib/highlight.ts` statically imports every grammar (no runtime fetch) and exposes
+`HIGHLIGHT_LANGUAGES` / `DEFAULT_CODE_LANGUAGE` (`plaintext`). Registered ids: `plaintext`, `python`,
+`javascript`, `typescript`, `go`, `bash`, `json`, `yaml`, `xml` (HTML/XML), `css`, `sql`, `c`, `cpp`,
+`java`, `rust`, `dockerfile`, `http`. Common aliases (`py`, `js`, `ts`, `sh`, `yml`, `html`, `c++`,
+`docker`, `plain`, …) normalize to those ids; an unknown but syntactically safe id is preserved so the
+fence keeps its `language-*` class and renders as escaped plain text. To add a language:
+
+1. add `import lang from 'highlight.js/lib/languages/<id>'` and an entry in `LANGUAGE_DEFINITIONS`
+   (id + label) and `GRAMMARS`;
+2. add aliases to `LANGUAGE_ALIASES` if needed;
+3. map any new token classes in `src/style.css` (unknown `hljs-*` classes inherit the text colour);
+4. extend `highlight.test.ts` and the Chromium renderer spec.
+
+Highlighted output is generated from lowlight's HAST by our own serialiser, which emits only
+`<span class="hljs-…">` and escapes every text node; `highlightAuto` is never called. The editor uses
+the same registry through `safeLowlight`, so an unknown language stays plain in both views.
+
+### Gates
+
+- `cd frontend && bun run test:unit -- --maxWorkers=1` — 42 files / 390 tests.
+- `bun run typecheck`, `bun run build` — clean; chunk sizes above.
+- `bun run test:e2e -- markdown-render.spec.ts` — 16 tests per project in real Chromium (`chromium`
+  and a 375 px Chromium `phone` project): highlighting/contrast, DOMPurify removal, table alignment,
+  paste filtering, source fallback, link row, limits and toolbar wrapping.
+- The CI default-profile runner (`e2e/run-default-profile-e2e.sh`) sets `ACTFB_E2E=1` and executes
+  `rich-text-editor.spec.ts` against the real backend and Vite app; it is not left as a conditional
+  skip. The spec authors all four surfaces through the real dialogs, asserts exact Markdown
+  round-trips, blocks an over-limit save, and reads the saved content as a participant.
+
+
+
 ## Scoped authority in the UI
 
 - Board staff surfaces are gated by `GET /boards/{boardUuid}/me/permissions`, not by guessing from global roles.

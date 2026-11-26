@@ -295,3 +295,17 @@ phase "run playwright"
 cd "$ROOT/e2e"
 # E2E_GREP narrows a local run to one test; CI runs the whole file.
 bunx playwright test tests/default-profile.spec.ts ${E2E_GREP:+--grep "$E2E_GREP"}
+
+# The frontend-local renderer and authoring specs run against the same real
+# backend and Vite instance. They are not skipped: ACTFB_E2E is set here, and
+# this is the CI acceptance step for Markdown authoring and highlighting.
+phase "run frontend Markdown renderer and authoring browser specs"
+cd "$ROOT/frontend"
+ACTFB_E2E=1 \
+E2E_BASE_URL="http://127.0.0.1:${FRONTEND_PORT}" \
+E2E_API_URL="http://127.0.0.1:${APP_PORT}/api/v2" \
+E2E_ADMIN_USERNAME="$ADMIN" \
+E2E_ADMIN_PASSWORD="$PASSWORD" \
+E2E_PARTICIPANT_USERNAME="$PARTICIPANT_ONE" \
+E2E_PARTICIPANT_PASSWORD="$PARTICIPANT_PASSWORD" \
+bunx playwright test e2e/markdown-render.spec.ts e2e/rich-text-editor.spec.ts ${E2E_FRONTEND_GREP:+--grep "$E2E_FRONTEND_GREP"}
