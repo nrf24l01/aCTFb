@@ -304,6 +304,20 @@ describe('ModuleEditorDialog Markdown authoring', () => {
     wrapper.unmount()
   })
 
+  it('does not point aria-describedby at a missing error element', async () => {
+    const wrapper = mount(ModuleEditorDialog, {
+      props: { open: true, boardUuid, audiences: [], module: moduleWithDescription('short') },
+      attachTo: document.body,
+    })
+    await waitForEditor()
+
+    expect(document.getElementById('module-description-error')).toBeNull()
+    const field = document.getElementById('module-description')!
+    expect(field.hasAttribute('aria-describedby')).toBe(false)
+    expect(field.getAttribute('aria-invalid')).toBe('false')
+    wrapper.unmount()
+  })
+
   it('blocks submit when the description exceeds the server limit', async () => {
     const wrapper = mount(ModuleEditorDialog, {
       props: {

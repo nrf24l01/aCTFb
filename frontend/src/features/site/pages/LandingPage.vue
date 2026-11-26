@@ -52,7 +52,7 @@ void load()
       </div>
 
       <!-- Sanitised by renderMarkdown (raw HTML disabled, URL protocols allowlisted). -->
-      <article class="markdown-body mt-6 space-y-4 text-sm leading-relaxed" v-html="intro" />
+      <article class="markdown-body mt-6 space-y-4 text-sm" v-html="intro" />
 
       <div class="mt-10 flex flex-wrap gap-2 border-t border-border pt-6">
         <Button as-child>

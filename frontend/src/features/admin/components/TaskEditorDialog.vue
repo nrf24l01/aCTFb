@@ -531,7 +531,7 @@ async function submit() {
                   :max-length="DESCRIPTION_MAX_CHARACTERS"
                   :show-length-error="false"
                   :invalid="Boolean(descriptionError)"
-                  described-by="task-description-error"
+                  :described-by="descriptionError ? 'task-description-error' : undefined"
                 />
               </TabsContent>
               <TabsContent value="preview">

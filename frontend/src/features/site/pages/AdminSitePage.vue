@@ -134,7 +134,7 @@ void load()
                 placeholder="# Welcome&#10;&#10;Write the CTF introduction in Markdown."
                 :show-length-error="false"
                 :invalid="Boolean(descriptionError)"
-                described-by="site-intro-error"
+                :described-by="descriptionError ? 'site-intro-error' : undefined"
               />
               <p class="mt-1 text-xs text-muted-foreground">
                 Markdown only. Raw HTML is escaped and links are limited to http, https, mailto and relative paths.
@@ -143,7 +143,7 @@ void load()
             <TabsContent value="preview">
               <div class="min-h-40 border border-border px-4 py-3">
                 <!-- Sanitised by renderMarkdown. -->
-                <article class="markdown-body space-y-3 text-sm leading-relaxed" v-html="preview" />
+                <article class="markdown-body space-y-3 text-sm" v-html="preview" />
                 <p v-if="!form.introMarkdown.trim()" class="text-sm text-muted-foreground">Nothing to preview yet.</p>
               </div>
             </TabsContent>

@@ -342,9 +342,105 @@ test.describe('shared Markdown renderer', () => {
     })
   })
 
+  test('wraps an ordinary prose cell instead of scrolling the table', async ({ page }) => {
+    const sentence = `${'word '.repeat(60)}end`
+    const twoColumn = [
+      'Intro',
+      '',
+      '| field | description |',
+      '| :-- | :-- |',
+      `| name | ${sentence} |`,
+      '| result | ok |',
+    ].join('\n')
+    await openReader(page, twoColumn)
+
+    const wrapper = page.locator('#fixture-reader .markdown-table-scroll').first()
+    const metrics = await wrapper.evaluate((element) => {
+      const table = element.querySelector('table')!
+      const cells = Array.from(table.querySelectorAll('tbody td'))
+      return {
+        scrollWidth: element.scrollWidth,
+        clientWidth: element.clientWidth,
+        tableWidth: table.getBoundingClientRect().width,
+        containerWidth: element.getBoundingClientRect().width,
+        cellHeights: cells.map((cell) => cell.getBoundingClientRect().height),
+        cellFontSize: Number.parseFloat(getComputedStyle(cells[1]).fontSize),
+        thAlign: getComputedStyle(table.querySelector('thead th')!).textAlign.replace(/^-webkit-/, ''),
+        tdAlign: getComputedStyle(cells[0]).textAlign.replace(/^-webkit-/, ''),
+      }
+    })
+
+    // Evidence for the ruling: the prose cell wraps onto several lines and the
+    // table fits its container without a horizontal scroll.
+    expect(metrics.cellHeights[1]).toBeGreaterThan(metrics.cellFontSize * 2)
+    expect(metrics.tableWidth).toBeLessThanOrEqual(metrics.containerWidth + 1)
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
+    // Unaligned cells are left on both header and body, matching the editor.
+    expect(metrics.thAlign).toBe('left')
+    expect(metrics.tdAlign).toBe('left')
+
+    // The same holds for an ordinary three-column table.
+    await openReader(page, [
+      'Intro',
+      '',
+      '| name | description | result |',
+      '| :-- | :-- | :-- |',
+      `| task | ${sentence} | ok |`,
+    ].join('\n'))
+    const three = await wrapper.evaluate((element) => ({
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    }))
+    expect(three.scrollWidth).toBeLessThanOrEqual(three.clientWidth + 1)
+  })
+
+  test('keeps explicit GFM alignment while unaligned cells stay left', async ({ page }) => {
+    await openReader(page, [
+      'Intro',
+      '',
+      '| plain | centered | right |',
+      '| :-- | :-: | --: |',
+      '| a | b | c |',
+    ].join('\n'))
+
+    const alignment = await page.locator('#fixture-reader table').first().evaluate((table) => {
+      const header = Array.from(table.querySelectorAll('thead th')).map((cell) =>
+        getComputedStyle(cell).textAlign.replace(/^-webkit-/, ''))
+      const body = Array.from(table.querySelectorAll('tbody td')).map((cell) =>
+        getComputedStyle(cell).textAlign.replace(/^-webkit-/, ''))
+      return { header, body }
+    })
+    expect(alignment.header).toEqual(['left', 'center', 'right'])
+    expect(alignment.body).toEqual(['left', 'center', 'right'])
+  })
+
+  test('keeps unbroken code and URLs from widening an ordinary table', async ({ page }) => {
+    const longCode = `https://example.test/${'a'.repeat(120)}`
+    await openReader(page, [
+      'Intro',
+      '',
+      '| field | description |',
+      '| :-- | :-- |',
+      `| url | ${longCode} |`,
+      '| code | `' + 'x'.repeat(120) + '` |',
+    ].join('\n'))
+
+    const wrapper = page.locator('#fixture-reader .markdown-table-scroll').first()
+    const metrics = await wrapper.evaluate((element) => ({
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+      tableWidth: element.querySelector('table')!.getBoundingClientRect().width,
+      containerWidth: element.getBoundingClientRect().width,
+    }))
+    expect(metrics.tableWidth).toBeLessThanOrEqual(metrics.containerWidth + 1)
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
+  })
+
   test('scrolls a wide table locally instead of widening the page', async ({ page }) => {
-    // Many columns: `overflow-wrap` prevents one long word from widening the
-    // table, so the width has to come from real column content.
+    // Many short columns: the `8em` cell floor keeps each column readable, so
+    // the table exceeds the container and must scroll inside its wrapper.
     const columns = Array.from({ length: 16 }, (_, index) => `column-${index}`)
     const wide = [
       'Intro',

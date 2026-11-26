@@ -932,9 +932,12 @@ gates and CI wiring.
   typography block in `src/style.css` restores headings, list markers, blockquote, links, inline
   code, fenced blocks and table borders/padding for both `.markdown-body` and the visual editor;
   the duplicated `LandingPage`/`AdminSitePage` scoped rules were removed. GFM tables are wrapped in
-  a generated `.markdown-table-scroll` box so a wide table scrolls locally, never widening the page.
-  Cell `align` is allowed only on `th`/`td` for `left`/`center`/`right`; arbitrary `style`, `class`
-  and event handlers remain blocked.
+  a generated `.markdown-table-scroll` box. The table is `width: max-content; max-width: 100%` with
+  normal word wrapping and an `8em` column floor, so an ordinary prose table wraps inside the
+  container while a many-column table keeps its column widths and scrolls locally; links and inline
+  code break anywhere. Cell `align` is allowed only on `th`/`td` for `left`/`center`/`right`;
+  unaligned `th`/`td` are left, matching the editor. Arbitrary `style`, `class` and event handlers
+  remain blocked.
 - Validation ownership: each dialog renders exactly one live over-limit message outside the
   Write/Preview tabs (visible on both), passes `show-length-error="false"` to the editor to avoid a
   duplicate alert, and mirrors validity with `aria-invalid`/`aria-describedby`.
@@ -949,26 +952,32 @@ gates and CI wiring.
 - Task 2 evidence: the earlier 295-test snapshot and the 374-test review round are superseded by
   the final combined count below; `bun run typecheck` and `bun run build` pass.
 - Task 3 / final evidence (2026-11-26):
-  - `cd frontend && bun run test:unit -- --maxWorkers=1` — **42 files / 390 tests passed**.
+  - `cd frontend && bun run test:unit -- --maxWorkers=1` — **42 files / 391 tests passed**.
   - `bun run typecheck` — clean; `bun run build` — passed with the chunks above.
-  - `bun run test:e2e -- markdown-render.spec.ts` — **20 tests passed in each project**
+  - `bun run test:e2e -- markdown-render.spec.ts` — **23 tests passed in each project**
     (`chromium` and a 375 px Chromium `phone` project), covering highlighted/escaped code,
     DOMPurify attribute/class removal and a direct sanitiser-hook test, computed reader typography
     (heading size/weight, list markers, blockquote, links, inline code, block spacing), table cell
-    borders/padding and column alignment, local wide-table scrolling with no page overflow, paste
+    borders/padding and column alignment, prose-cell wrapping without a scroll (two and three
+    columns) plus long-URL wrapping, local wide-table scrolling with no page overflow, paste
     filtering, source fallback, the visual-override Cancel/Escape path, `Mod-k`, code-point limits
     and toolbar wrapping.
   - `e2e/run-default-profile-e2e.sh` — default-profile suite **5 passed**, then the frontend
-    renderer and authoring specs **42 passed** (20 renderer tests × 2 projects + 2 authoring
+    renderer and authoring specs **48 passed** (23 renderer tests × 2 projects + 2 authoring
     projects) against the real native PostgreSQL, real Go backend and real Vite app. The runner sets `ACTFB_E2E=1`, so the
     authoring spec executes rather than skipping. The spec authors board/module/task/site
     content through the real dialogs, verifies exact stored Markdown on reopen, blocks an
     over-limit save, and reads the highlighted content as a participant.
 - Review round 1 (`cc73480..2eb68c8`) required changes: the reader `.markdown-body` had no block
   typography, the three dialog Preview tabs lacked the class, no gate measured computed styles, and
-  the over-limit message was hidden on Preview and duplicated on Write. All four were fixed and the
-  gates above re-ran green. Status remains **implemented, pending independent re-review**; the
-  feature is not called fully done until that review is clean.
+  the over-limit message was hidden on Preview and duplicated on Write. All four were fixed
+  (`dcfa585`, `21956f9`) and closed by review round 2.
+- Review round 2 added I4: reader tables used `width: max-content` without a bound, so an ordinary
+  prose cell forced a horizontal scroll (measured 2445 px table in a 1248 px container) while the
+  editor wrapped it. Fixed with `max-width: 100%`, normal cell wrapping and an `8em` column floor, so
+  prose wraps and only a genuinely over-wide table scrolls (16 columns: 1665 px → local scroll,
+  104 px columns). New Chromium gates cover two/three-column prose, long URLs, unaligned `th`/`td`
+  and explicit alignment. Status remains **implemented, pending re-review of the I4 diff**.
 - Remaining limitations: `@tiptap/markdown` is still documented as an early release, so the
   round-trip corpus and Source fallback remain mandatory; sanitisation and selection are proved
   in Chromium (happy-dom cannot exercise DOMPurify/ProseMirror selection); the authoring browser

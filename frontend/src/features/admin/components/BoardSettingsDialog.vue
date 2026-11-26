@@ -314,7 +314,7 @@ async function save(window: { startsAt: string | null; endsAt: string | null }) 
                   :max-length="DESCRIPTION_MAX_CHARACTERS"
                   :show-length-error="false"
                   :invalid="Boolean(descriptionError)"
-                  described-by="board-description-error"
+                  :described-by="descriptionError ? 'board-description-error' : undefined"
                 />
               </TabsContent>
               <TabsContent value="preview">

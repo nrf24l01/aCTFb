@@ -411,11 +411,17 @@ body {
 }
 
 /*
- * Reader tables keep their intrinsic width and scroll inside their own
- * generated box (`.markdown-table-scroll`, emitted by the renderer), so a wide
- * GFM table never widens the page. Cell `text-align` is deliberately not set
- * here: the validated GFM `align` attribute must keep providing
- * left/center/right.
+ * Reader tables keep their intrinsic width when they can and wrap when they
+ * cannot, then scroll inside their own generated box (`.markdown-table-scroll`,
+ * emitted by the renderer). `max-width: 100%` is what makes an ordinary
+ * `| field | description |` table wrap prose inside the container; the
+ * `max-content` width still wins for a table whose cells cannot shrink below
+ * their min-content (many columns), which is the only case that scrolls.
+ * `table-layout` stays `auto` so those columns keep their real widths instead
+ * of being squeezed into an unreadable fixed layout. Cell `text-align` is
+ * deliberately not set here: the validated GFM `align` attribute must keep
+ * providing left/center/right; unaligned cells default to left for both `th`
+ * and `td`, matching the editor.
  */
 .markdown-table-scroll {
   max-width: 100%;
@@ -424,7 +430,34 @@ body {
 
 .markdown-body table {
   width: max-content;
+  max-width: 100%;
   border-collapse: collapse;
+}
+
+/*
+ * Inside a table, `overflow-wrap: anywhere` would collapse the min-content
+ * width to a single character, letting `max-width: 100%` squeeze a many-column
+ * table into unreadable slivers instead of scrolling it. Normal wrapping keeps
+ * min-content at the longest word, and the cell floor below keeps a column
+ * readable, so an ordinary prose table still fits and wraps while a table that
+ * genuinely cannot fit keeps its column widths and scrolls. Links and inline
+ * code keep `anywhere` so a long URL or token breaks inside its cell.
+ */
+.markdown-body th,
+.markdown-body td {
+  overflow-wrap: normal;
+  min-width: 8em;
+}
+
+.markdown-body th a,
+.markdown-body td a,
+.markdown-body th code,
+.markdown-body td code {
+  overflow-wrap: anywhere;
+}
+
+.markdown-body th:not([align]) {
+  text-align: left;
 }
 
 .markdown-body th,

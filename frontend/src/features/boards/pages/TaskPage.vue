@@ -218,7 +218,7 @@ void load()
               </h2>
             </div>
             <!-- Sanitised by renderMarkdown. -->
-            <article class="markdown-body space-y-3 px-4 py-4 text-sm leading-relaxed" v-html="description" />
+            <article class="markdown-body space-y-3 px-4 py-4 text-sm" v-html="description" />
             <p v-if="!task.description" class="px-4 pb-4 text-sm text-muted-foreground">No description.</p>
           </section>
 

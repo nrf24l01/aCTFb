@@ -173,12 +173,23 @@ migrations and `deploy/` are unchanged.
   therefore restored only inside the Markdown containers; no global element rules are added. The
   `LandingPage`/`AdminSitePage` scoped duplicates were removed in favour of this single definition.
 - **Wide tables.** The renderer wraps every GFM table in `<div class="markdown-table-scroll">`
-  (`max-width: 100%`, `overflow-x: auto`), and the table keeps its intrinsic `max-content` width, so
-  a wide table scrolls inside its own box instead of widening the page. Header and body cells remain
-  one table, so columns stay aligned. The sanitiser keeps the wrapper class only on a generated
-  `div` and keeps no other `div` class; cell `align` is allowed only on `th`/`td` and only for
-  `left`, `center` or `right`. Raw HTML is escaped, `style`/event handlers stay blocked, and unknown
-  fence languages render as escaped plain text and are never auto-detected.
+  (`max-width: 100%`, `overflow-x: auto`). The table is `width: max-content; max-width: 100%`, so it
+  wraps when it can and scrolls only when it cannot: an ordinary `| field | description |` table
+  wraps a long prose sentence inside the container, while a many-column table keeps its real column
+  widths and scrolls locally instead of widening the page. `table-layout` stays `auto` (a fixed
+  layout would squeeze 16 columns into unreadable slivers). Cells use normal word wrapping with an
+  `8em` minimum column width, so prose wraps at spaces and a many-column table still exceeds the
+  container; links and inline `code` keep `overflow-wrap: anywhere`, so a long URL or token breaks
+  inside its cell. Header and body cells remain one table, so columns stay aligned. Unaligned cells
+  are `text-align: left` for both `th` and `td` (matching the editor); the validated GFM `align`
+  attribute still supplies `left`/`center`/`right`. The sanitiser keeps the wrapper class only on a
+  generated `div`; `style`/event handlers stay blocked, and unknown fence languages render as
+  escaped plain text and are never auto-detected.
+- **Rulings recorded.** `.markdown-body-inline` deliberately uses `color: var(--text)` instead of the
+  muted `PageHeader` subtitle tone: it is rich content, not metadata, and body text must stay at
+  ≥ 4.5:1. A fenced code block in a board/module header subtitle is compact but unusual — accepted,
+  documented, not redesigned. Reader tables are not given `tabindex`: keyboard users get the
+  browser's native scrollable-region focus, and no wrapper attributes are invented for it.
 
 ### Syntax highlighting registry
 
@@ -201,14 +212,15 @@ the same registry through `safeLowlight`, so an unknown language stays plain in 
 
 ### Gates
 
-- `cd frontend && bun run test:unit -- --maxWorkers=1` — 42 files / 390 tests.
+- `cd frontend && bun run test:unit -- --maxWorkers=1` — 42 files / 391 tests.
 - `bun run typecheck`, `bun run build` — clean; chunk sizes above.
-- `bun run test:e2e -- markdown-render.spec.ts` — 20 tests per project in real Chromium (`chromium`
+- `bun run test:e2e -- markdown-render.spec.ts` — 23 tests per project in real Chromium (`chromium`
   and a 375 px Chromium `phone` project): highlighting/contrast, DOMPurify removal and a direct
   sanitiser-hook test, computed reader typography (heading size/weight, list markers, blockquote
   rule, link underline/colour, inline-code surface, block spacing), table cell borders/padding and
-  column alignment, local wide-table scrolling without page overflow, paste filtering, source
-  fallback, link row, limits and toolbar wrapping.
+  column alignment, prose-cell wrapping without a scroll (two- and three-column), unbroken
+  URL/inline-code wrapping, local wide-table scrolling without page overflow, paste filtering,
+  source fallback, link row, limits and toolbar wrapping.
 - The CI default-profile runner (`e2e/run-default-profile-e2e.sh`) sets `ACTFB_E2E=1` and executes
   `rich-text-editor.spec.ts` against the real backend and Vite app; it is not left as a conditional
   skip. The spec authors all four surfaces through the real dialogs, asserts computed formatting in
