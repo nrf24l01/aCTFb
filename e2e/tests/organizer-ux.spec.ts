@@ -47,6 +47,10 @@ test.describe('organizer UX acceptance', () => {
       '<img src=x onerror="window.__actfbXss = true">',
     ].join('\n')
     await page.locator('#site-title').fill(title)
+    // The introduction is raw Markdown (including the HTML-escaping payload), so
+    // it is authored in the editor's Source mode. The visual editor parses
+    // formatting; it does not accept Markdown syntax typed as plain text.
+    await page.getByRole('button', { name: 'Source mode' }).click()
     await page.locator('#site-intro').fill(intro)
 
     // Preview tab: real sanitised DOM elements inside the preview panel.
@@ -343,6 +347,9 @@ test.describe('organizer UX acceptance', () => {
     await dialog.locator('#task-title').fill('Markdown flag')
     await dialog.locator('#task-category').fill('web')
     await dialog.locator('#task-points').fill('40')
+    // Source mode is the documented path for authoring raw Markdown; typing
+    // `##`/`**` into the visual editor is plain text by design.
+    await dialog.getByRole('button', { name: 'Source mode' }).click()
     await dialog.locator('#task-description').fill('## Mission brief\n\nFind the **flag** in the lab.')
     await dialog.getByRole('tab', { name: 'Preview' }).click()
     await expect(dialog.getByRole('heading', { name: 'Mission brief' })).toBeVisible()

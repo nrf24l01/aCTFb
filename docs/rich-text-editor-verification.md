@@ -4,6 +4,33 @@ Task 3 of `docs/superpowers/plans/2026-11-26-rich-text-editor.md`, on the approv
 `cc73480`. This record contains only commands that were run and results that were observed. Nothing
 here claims a provider, migration or deployment change: the slice is frontend-only.
 
+Whole-slice review: `docs/rich-text-editor-review.md` (**APPROVED**, scope `81cdbaa..22f4fd4`).
+
+## Main rulings worth keeping after this workspace is gone
+
+These decisions are not obvious from the code alone, so they are recorded here:
+
+1. **Board/module descriptions render as Markdown.** They previously printed stored text as a plain
+   `PageHeader` subtitle, which would have hidden every formatting feature the editor produces. The
+   minimal fix renders them through `renderMarkdown` in that same slot; no page redesign.
+2. **The escaper lives in its own module** (`shared/lib/html.ts`). `markdown.ts` needs escaping and
+   `highlight.ts` needed the same function, so keeping it in `markdown.ts` would have created a
+   cycle (`markdown → highlight → markdown`). One small independent module removes it.
+3. **The round-trip corpus never relies on a self-comparison.** Comparing two parses of the same
+   lossy parser proves nothing, so every corpus item asserts document equality, rendered-HTML
+   equality **and** hand-written expected nodes (hard break, link title, per-column table `align`,
+   ordered `start`, unknown fence language).
+4. **No browser gate may skip.** The renderer/authoring specs are wired into the existing
+   default-profile CI step with `ACTFB_E2E=1` and real credentials; a conditional `test.skip` is not
+   acceptance. If the stack is unavailable the honest report is "not executed".
+5. **Escaped block markers keep their meaning.** A paragraph whose literal text starts with `#`, `>`,
+   `-`, `+`, `1.`, `|` or a `---`/`===` run is escaped contextually in the paragraph serialiser, so
+   ordinary escaped prose round-trips instead of silently becoming a heading, list or rule. Fence and
+   inline-code bodies are never touched.
+6. **The 159.06 kB gzip editor chunk is an accepted cost.** Lazy loading keeps it off every public
+   reader, so the spec's "drop to 8 languages above ~150 kB" fallback is superseded: all 16
+   highlighted languages plus `plaintext` are retained. The reader chunk stays 51.39 kB gzip.
+
 ## Scope delivered
 
 - The shared `MarkdownEditor` is integrated in the existing Write tab of `BoardSettingsDialog`,
@@ -152,8 +179,12 @@ ignored by git.
 - Reka `TabsContent` unmounts the inactive tab, so Write→Preview→Write recreates Tiptap and loses
   undo history and the caret (content is preserved through `v-model`). Recorded as a deferred UX
   minor; it needs no contract change.
-- Reader tables are not focusable via an invented `tabindex`: keyboard users rely on the browser's
-  native scrollable-region focus, verified only in Chromium. No wrapper attributes were added.
+- Reader tables are not focusable via an invented `tabindex`: no wrapper attributes were added.
+  Chromium (132+) makes an overflowing scroll container keyboard-focusable and scrollable natively,
+  which is what the gate exercises; other engines are not claimed.
+- Deferred polish, recorded so it is not lost: a roving tabindex across the toolbar and tooltips on
+  the two `Select` controls (heading, code language). Every control is already Tab-reachable and
+  named, so this is polish, not a defect.
 - A fenced code block inside the board/module `PageHeader` subtitle is rendered compactly but is
   still unusual in a header; recorded as a follow-up decision, not a blocker.
 - happy-dom cannot exercise DOMPurify or ProseMirror selection, so sanitisation and selection are

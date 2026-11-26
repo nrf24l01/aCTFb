@@ -179,17 +179,25 @@ migrations and `deploy/` are unchanged.
   widths and scrolls locally instead of widening the page. `table-layout` stays `auto` (a fixed
   layout would squeeze 16 columns into unreadable slivers). Cells use normal word wrapping with an
   `8em` minimum column width, so prose wraps at spaces and a many-column table still exceeds the
-  container; links and inline `code` keep `overflow-wrap: anywhere`, so a long URL or token breaks
-  inside its cell. Header and body cells remain one table, so columns stay aligned. Unaligned cells
-  are `text-align: left` for both `th` and `td` (matching the editor); the validated GFM `align`
-  attribute still supplies `left`/`center`/`right`. The sanitiser keeps the wrapper class only on a
-  generated `div`; `style`/event handlers stay blocked, and unknown fence languages render as
-  escaped plain text and are never auto-detected.
+  container. Links and inline `code` keep `overflow-wrap: anywhere`, so a long URL or inline code
+  breaks inside its cell. A bare long token in prose (a `flag{…}`, base64 or hex blob) is
+  deliberately **not** broken: it widens its column and the table scrolls locally, so a copied
+  value is never split mid-token. Header and body cells remain one table, so columns stay aligned.
+  Unaligned cells are `text-align: left` for both `th` and `td` (matching the editor); the validated
+  GFM `align` attribute still supplies `left`/`center`/`right`. The sanitiser keeps the wrapper class
+  only on a generated `div`; `style`/event handlers stay blocked, and unknown fence languages render
+  as escaped plain text and are never auto-detected.
 - **Rulings recorded.** `.markdown-body-inline` deliberately uses `color: var(--text)` instead of the
   muted `PageHeader` subtitle tone: it is rich content, not metadata, and body text must stay at
   ≥ 4.5:1. A fenced code block in a board/module header subtitle is compact but unusual — accepted,
-  documented, not redesigned. Reader tables are not given `tabindex`: keyboard users get the
-  browser's native scrollable-region focus, and no wrapper attributes are invented for it.
+  documented, not redesigned. Reader tables are not given `tabindex`: no wrapper attributes are
+  invented for it. Chromium (132+) makes an overflowing scroll container keyboard-focusable and
+  scrollable natively, which is what the Chromium gate exercises; other engines are not claimed.
+- **Deferred polish.** A roving tabindex across the toolbar and tooltips on the two `Select`
+  controls (heading, code language) are deferred: every control is already Tab-reachable and named.
+  Also deferred: Write→Preview→Write unmounts Tiptap and resets undo history and the caret (content
+  is preserved by `v-model`); a fenced block inside the board/module header subtitle; and DOMPurify
+  proof, which exists only in a real browser.
 
 ### Syntax highlighting registry
 

@@ -150,8 +150,12 @@ Shared module `frontend/src/shared/lib/highlight.ts`, used by both paths:
   built_in, literal, meta, type, symbol) mapped to the existing `--iris/--foam/--gold/--rose/--love`
   variables, plus `.markdown-body pre` spacing. Unknown `hljs-*` classes inherit the text colour.
 - Bundle: 16 grammars are accepted if the built chunk stays reasonable; measured at execution with
-  `bun run build`. If the editor chunk exceeds ~150 KB gzip, drop to `python, javascript,
-  typescript, go, bash, json, sql, html` and record the measurement.
+  `bun run build`. The original fallback ("if the editor chunk exceeds ~150 KB gzip, drop to
+  `python, javascript, typescript, go, bash, json, sql, html`") is **superseded** by the Task 3
+  ruling: the editor is lazy-loaded behind `defineAsyncComponent` so no public reader downloads it,
+  and the measured chunk (`MarkdownEditor-*.js`, **159.06 kB gzip**) is accepted as that one-time
+  authoring cost with all 16 highlighted languages plus `plaintext` retained. Dropping languages was
+  rejected because it would reduce the approved feature set without improving the reader path.
 
 ## 8. Security model
 
