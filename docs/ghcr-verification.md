@@ -1,10 +1,68 @@
 # GHCR publication verification
 
-Status: **published and verified from `main` at commit `332fdcb`** (accessible status badge colours).
-Ten separate images are publicly pullable without registry credentials, each with `latest` and an
-immutable `sha-<full-sha>` tag resolving to the same digest.
+Status: **published and verified from `main` at commit `7f8ada7`** (board save 503 fix, actionable server
+errors, admin join-code surface). Ten separate images are publicly pullable without registry credentials, each
+with `latest` and an immutable `sha-<full-sha>` tag resolving to the same digest.
 
-## Current publication (`332fdcb`)
+## Current publication (`7f8ada7`)
+
+| Field | Value |
+| --- | --- |
+| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/45794108851 |
+| Commit | `7f8ada7556616aa357e0b7e334160c27f876a8f6` |
+| Conclusion | success (Backend quality, Frontend quality, Integration, Publish images — 4/4) |
+| Immutable tag | `sha-7f8ada7556616aa357e0b7e334160c27f876a8f6` |
+| Platform | `linux/amd64` only (`os`/`architecture` read from each image config) |
+| Registry visibility | public, anonymous manifest + config-blob reads for all ten images |
+| `latest` vs `sha-*` | same manifest digest for every image |
+| Provenance attestations | none; single OCI image manifests |
+
+This publication ships three bounded changes: board create/update no longer mints the obsolete legacy
+encrypted invite (which is what returned `503` on a deployment without a credential key), the HTTP boundary
+logs one actionable cause per failed request, and the admin UI makes the canonical join code the only
+automatic code surface. There is **no migration, no `config.yaml` and no `.env` change** in this range: the
+`020_board_join_codes` schema shipped in an earlier publication, so operators only need
+`docker compose pull && docker compose up -d` in `deploy/`. A deployment still on an older image picks up
+`020` through the normal boot migration when it moves to this tag, exactly as before.
+
+| Image | Digest | Compressed |
+| --- | --- | --- |
+| `ghcr.io/nrf24l01/actfb-backend` | `sha256:bc0e9ad7fc6396d3b1c793fa89aee14882b619c7e366a1ec196b097816f7d5ad` | 20,454,126 B |
+| `ghcr.io/nrf24l01/actfb-frontend` | `sha256:8082b68ef5442b5636abdb9dc288a226cbeafac5090f2898edd1f3ba2491dd94` | 23,690,145 B |
+| `ghcr.io/nrf24l01/actfb-notification` | `sha256:016132b187c97d71706902a5421a22c5f003bfcb373dbbf8e82b367829e42ccb` | 12,342,732 B |
+| `ghcr.io/nrf24l01/actfb-retention` | `sha256:a207a7f29965cbc2bf9e0e9d8e219bde4a85f17c4478d2f18cafbdd9aafc9d96` | 10,940,563 B |
+| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `sha256:258221ec32c307766963d2a60033feeebb73acee4f74fc55cde9bef736138cf8` | 12,001,243 B |
+| `ghcr.io/nrf24l01/actfb-file-scanner` | `sha256:2f11ee2f9f4382da7a48a2ae0373963aa3371c41eb697248c1a45011b45754a0` | 13,359,289 B |
+| `ghcr.io/nrf24l01/actfb-storage-init` | `sha256:22f0fd6d10458ca71abec69640c3ec98e0749ce87db34d8f190c0f2d76482164` | 10,956,257 B |
+| `ghcr.io/nrf24l01/actfb-plugin-runner` | `sha256:d09655ba5836bd19be41b6242f5a4b194a076998a04742832fd9545ebc49269b` | 10,292,879 B |
+| `ghcr.io/nrf24l01/actfb-ad-worker` | `sha256:27de06e6a46c9a677d287d48c0b3dcacdd49d6033061539f67d1fd7c15a67f6d` | 27,023,889 B |
+| `ghcr.io/nrf24l01/actfb-instance-worker` | `sha256:c2f5c6ccd81e64aed95ed4cea2abe1eb099b92c905553bc713e615bc776a1ed2` | 13,932,167 B |
+
+Verified for this publication, anonymously and without registry credentials: each tag resolves to one
+manifest, `latest` and `sha-7f8ada7…` share that digest for all ten images, every config reports
+`linux/amd64`, and every `org.opencontainers.image.revision` label equals
+`7f8ada7556616aa357e0b7e334160c27f876a8f6`.
+
+### Published-image checks actually executed (`7f8ada7`)
+
+A Docker daemon (`29.10.0`) was available for this publication, so the published backend image was checked
+directly, in an ephemeral container with its own name, `--network none`, a read-only root filesystem and no
+mounted volume — no operator container, network or volume was touched, and nothing was pruned:
+
+```text
+docker run --rm --network none --read-only --entrypoint /app/backend \
+  ghcr.io/nrf24l01/actfb-backend:sha-7f8ada7556616aa357e0b7e334160c27f876a8f6 admin --help
+  → exit 0, lists create/list/promote/demote/reset-password
+
+docker run --rm --network none --read-only --entrypoint /bin/sh <same image> -c 'ls /app/migrations'
+  → includes 020_board_join_codes.sql
+```
+
+So the published binary really contains the admin CLI and the `020` migration without a database, a config
+file or a credential key. The local image was removed afterwards; zero `actfb.instance` containers and zero
+verification containers remained.
+
+## Previous publication (`332fdcb`)
 
 | Field | Value |
 | --- | --- |
@@ -108,7 +166,10 @@ ones in the first section.
 | `ghcr.io/nrf24l01/actfb-ad-worker` | `sha256:f74491577592f3b3abd4818c18ccae56fff5c97d620458c17383678e1425f5ad` | 27,022,953 B |
 | `ghcr.io/nrf24l01/actfb-instance-worker` | `sha256:75c9e2e8d504ef4920912a5b608a382f3f4865dc8c55a49aee96837588d8d086` | 13,932,157 B |
 
-## What was verified for this publication, and how
+## What was verified for `925e456`, and how
+
+Scope note: this section documents the `925e456` publication only. The current
+publication's evidence is in the `7f8ada7` section at the top.
 
 Verification is split by what each environment can actually prove. No claim below is
 inferred from a different commit.

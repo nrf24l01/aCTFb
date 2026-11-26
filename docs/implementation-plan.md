@@ -890,4 +890,21 @@ authorizer and the real access policy (no fake, no relaxed rule). RED `start: FO
 GREEN in 6.25 s with zero leaked containers; the full suite is now **50 packages ok, 0 failures** with the
 real DSN.
 
-Status: **implemented, reviewed and approved; publishing run pending.** No Markdown editor work included.
+Status: **implemented, reviewed, approved and published.**
+
+**Published 2026-11-26:** `main` at `7f8ada7556616aa357e0b7e334160c27f876a8f6`, CI run
+https://github.com/nrf24l01/aCTFb/actions/runs/45794108851 — Backend quality, Frontend quality, Integration and
+Publish images all green (4/4). Ten `linux/amd64` images carry `latest` plus `sha-7f8ada7…`; all ten verified
+anonymously with matching `latest`/immutable digests, `linux/amd64` configs and `org.opencontainers.image.revision`
+equal to the source commit. The published backend image was additionally checked in an ephemeral container with
+no network, read-only rootfs and no database: `admin --help` exits 0 and `/app/migrations` includes
+`020_board_join_codes.sql`. Digests, sizes and the exact evidence split are in `docs/ghcr-verification.md`.
+
+Operator action is `docker compose pull && docker compose up -d` in `deploy/`. No migration, `config.yaml` or
+`.env` change is required by this range; a deployment arriving from an older image picks up `020` through the
+normal boot migration, exactly as before.
+
+Known limitations unchanged and restated: only the board adapter records a request cause (other features keep
+the single-line log and the 5xx `ERROR` level but not a cause); the admin legacy invite panel is an explicit
+advanced action rather than capability-gated, because legacy credential presence is not in any DTO. The
+Markdown editor remains a separate decision and is not implemented.

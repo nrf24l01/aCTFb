@@ -1,9 +1,9 @@
 # Board save 503 and actionable server errors
 
-Status: **implemented locally, not pushed** (main review gate). No migration, no config change, no API envelope
-change, no frontend change.
+Status: **published and verified** from `main` at `7f8ada7`. No migration, no config change, no API envelope
+change. Frontend change is limited to the admin code surface (review I1).
 
-Base commit: `cb056ff`.
+Base commit: `cb056ff`; published range `cb056ff..7f8ada7`.
 
 ## Symptom
 
@@ -314,6 +314,32 @@ start/extend/expire cycle with no leaked containers. The suite is green, not gre
 
 Frontend verification for this slice: `bun run test --run` (35 files / 184 tests), `bun run typecheck`,
 `bun run build` — all green, plus the focused default-profile Chromium run for the new INVITE flow.
+
+## Publication (2026-11-26)
+
+| Field | Value |
+| --- | --- |
+| Commit | `7f8ada7556616aa357e0b7e334160c27f876a8f6` |
+| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/45794108851 |
+| Jobs | Backend quality, Frontend quality, Integration, Publish images — **4/4 success** |
+| Images | ten, `latest` + `sha-7f8ada7…`, `linux/amd64`, revision label matches |
+| Operator action | `docker compose pull && docker compose up -d` in `deploy/` |
+| Migration / config | none in this range |
+
+CI gates that ran for this commit include the full Go suite with the real PostgreSQL service (now 0
+failures), `go test -race ./...`, the migration backfill/down-up acceptance including the `020` subtest, both
+browser suites (the default-profile script runs the whole file, so the new INVITE test is included, 5 tests),
+the production packaging/runtime/auth-proxy Docker smokes, and the publish job.
+
+Registry verification was performed anonymously for all ten images: `latest` and the immutable tag resolve to
+one digest, every config is `linux/amd64`, and every `org.opencontainers.image.revision` equals `7f8ada7…`.
+Digests and sizes are in `docs/ghcr-verification.md`.
+
+Because a Docker daemon was available, the published backend image was also checked directly in an ephemeral
+container (own name, `--network none`, read-only rootfs, no volume): `admin --help` exits 0 and
+`/app/migrations` contains `020_board_join_codes.sql`. So the published binary carries the admin CLI and the
+schema without any database, config file or credential key. The local image was removed afterwards; no
+operator container, network or volume was touched and nothing was pruned.
 
 ## Limits
 
