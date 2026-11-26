@@ -6,6 +6,12 @@ here claims a provider, migration or deployment change: the slice is frontend-on
 
 Whole-slice review: `docs/rich-text-editor-review.md` (**APPROVED**, scope `81cdbaa..22f4fd4`).
 
+**Published 2026-11-26.** `main` at `034329bffd51123d4c5f7a89fa4852d337d1bdbe`; CI run
+https://github.com/nrf24l01/aCTFb/actions/runs/45840313641 — Backend quality, Frontend quality,
+Integration and Publish images all green (4/4). Ten `linux/amd64` images carry `latest` plus
+`sha-034329b…` with matching anonymous digests, and the published frontend assets were executed in
+Chromium to confirm the shipped renderer and highlighting. Details: `docs/ghcr-verification.md`.
+
 ## Main rulings worth keeping after this workspace is gone
 
 These decisions are not obvious from the code alone, so they are recorded here:
@@ -63,7 +69,23 @@ These decisions are not obvious from the code alone, so they are recorded here:
 
 ## Exact gates run
 
-### Unit, typecheck, build
+### CI results for the published commit
+
+Observed in run `45840313641` on `034329b` (not re-derived from local runs):
+
+| Job | Result |
+|---|---|
+| Backend quality | success — `go test ./...`, vet, build, race |
+| Frontend quality | success — **42 test files / 391 tests**, typecheck, build (plain `vitest run`, default workers) |
+| Integration | success — migrations, real-PG packages, P0/P1, Docker image builds, packaging/runtime/auth smokes, full browser suite, default-profile browser suite |
+| Publish images | success — ten images, `latest` + `sha-034329b…` |
+
+Inside the Integration job, `./e2e/run-default-profile-e2e.sh` executed with `ACTFB_E2E=1` against a
+real native PostgreSQL, real Go backend and one real Vite instance: the default-profile suite
+**5 passed (32.2 s)**, then the frontend renderer/authoring specs **48 passed (2.0 m)** — 23 tests in
+`chromium`, 23 in `phone`, and 2 authoring projects. Nothing skipped.
+
+### Unit, typecheck, build (local, pre-push)
 
 ```bash
 cd frontend

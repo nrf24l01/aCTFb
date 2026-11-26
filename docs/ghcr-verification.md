@@ -1,10 +1,60 @@
 # GHCR publication verification
 
-Status: **published and verified from `main` at commit `7f8ada7`** (board save 503 fix, actionable server
-errors, admin join-code surface). Ten separate images are publicly pullable without registry credentials, each
-with `latest` and an immutable `sha-<full-sha>` tag resolving to the same digest.
+Status: **published and verified from `main` at commit `034329b`** (rich-text Markdown editor with syntax
+highlighting across board, module, task and site authoring plus every reader). Ten separate images are publicly
+pullable without registry credentials, each with `latest` and an immutable `sha-<full-sha>` tag resolving to the
+same digest.
 
-## Current publication (`7f8ada7`)
+## Current publication (`034329b`)
+
+| Field | Value |
+| --- | --- |
+| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/45840313641 |
+| Commit | `034329bffd51123d4c5f7a89fa4852d337d1bdbe` |
+| Conclusion | success (Backend quality, Frontend quality, Integration, Publish images — 4/4) |
+| Immutable tag | `sha-034329bffd51123d4c5f7a89fa4852d337d1bdbe` |
+| Platform | `linux/amd64` only (read from each image config) |
+| Registry visibility | public; anonymous manifest + config-blob reads for all ten images (no stored credentials) |
+| `latest` vs `sha-*` | same manifest digest for every image |
+| `org.opencontainers.image.revision` | `034329bffd51123d4c5f7a89fa4852d337d1bdbe` on all ten |
+| Provenance attestations | none; single OCI image manifests |
+
+This publication ships the rich-text Markdown editor: the shared Tiptap editor behind the Write tab of the
+board/module/task dialogs and the site page, one sanitising Markdown renderer with syntax highlighting, safe
+table typography for readers, and a single form-owned length error. **There is no migration, no `config.yaml`
+and no `.env` change** in this range, and no `/api/v2` contract change: stored values stay Markdown strings.
+Operators only need `docker compose pull && docker compose up -d` in `deploy/`. The schema is unchanged from
+the previous publication (`020_board_join_codes` already shipped), so a deployment moving to this tag applies
+nothing new on boot.
+
+CI gate counts for this commit: Backend quality (Go test/vet/build/race) green; Frontend quality
+**42 test files / 391 tests**, typecheck and build green; Integration green including the default-profile
+browser suite **5 passed** plus the frontend renderer/authoring specs **48 passed** (23 tests × `chromium` and
+`phone`, plus 2 authoring projects) against a real native PostgreSQL, real Go backend and real Vite app with
+`ACTFB_E2E=1` (no skips).
+
+| Image | Digest | Compressed |
+| --- | --- | --- |
+| `ghcr.io/nrf24l01/actfb-backend` | `sha256:f735935ac404c226d8ef2bcb64ed77718bd009721bb46b269677f53c5ea116bd` | 20,454,106 B |
+| `ghcr.io/nrf24l01/actfb-frontend` | `sha256:9c4c87c00454f84c693f22925cb3e740af2c7e7d77ee4d7f783cb7f245fdc792` | 23,879,177 B |
+| `ghcr.io/nrf24l01/actfb-notification` | `sha256:9de5affe81a6b726454f29d068b64cfe33e27cab48d00a5e2ac7fcb14a1529e9` | 12,342,732 B |
+| `ghcr.io/nrf24l01/actfb-retention` | `sha256:166b9bfb271056f7a677ae3a6fc142ce338b2cf9056d0df7e2448e6afd2422b3` | 10,940,563 B |
+| `ghcr.io/nrf24l01/actfb-events-dispatcher` | `sha256:37de212a8f39cbbc68e7bace86885b3c57885cb1d4bf37c5d14897ab4ed9f81e` | 12,001,243 B |
+| `ghcr.io/nrf24l01/actfb-file-scanner` | `sha256:0c23a280c1995efe38c8ac3f29874cd3ef7c3be73a5b88d141a1a761650a94a7` | 13,359,289 B |
+| `ghcr.io/nrf24l01/actfb-storage-init` | `sha256:586826d9aae7f302816fc1d553fb2dc8627e7ac3cb6f118200c6c66cc6e74005` | 10,956,257 B |
+| `ghcr.io/nrf24l01/actfb-plugin-runner` | `sha256:360c7912ba86d4c0671d9141f6d7795084c52dfb0c570c5049c4b5952b32b58a` | 10,292,879 B |
+| `ghcr.io/nrf24l01/actfb-ad-worker` | `sha256:67de6e2abc9bded8974ade2af9f6bf26cf7c39f738d06a6f4495025c7187c2d0` | 27,023,888 B |
+| `ghcr.io/nrf24l01/actfb-instance-worker` | `sha256:70014e50fa41b3c9ba0155f6a1d073c0c2f5d68adecabaeebf75a0a8fbc1ac33` | 13,932,167 B |
+
+Published-asset proof (bounded, no operator resources): the published `actfb-frontend` image was pulled,
+its `/usr/share/nginx/html` assets extracted to a temporary directory, served read-only on a loopback port and
+executed in Chromium. The shipped `markdown-*.js` chunk exports the real shared renderer: a Python fence
+renders `class="language-python"` with `hljs-keyword` spans, a GFM table renders inside the generated
+`markdown-table-scroll` wrapper with validated `align`, and the shipped stylesheet gives `h1` a larger size than
+`p` at weight 600 with `1px` cell borders and no document overflow. The extracted copy, the temporary static
+server and the pulled image were then removed; the seven `actfb-prod-*` operator containers were never touched.
+
+## Previous publication (`7f8ada7`)
 
 | Field | Value |
 | --- | --- |

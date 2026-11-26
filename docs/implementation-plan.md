@@ -977,7 +977,25 @@ gates and CI wiring.
   editor wrapped it. Fixed with `max-width: 100%`, normal cell wrapping and an `8em` column floor, so
   prose wraps and only a genuinely over-wide table scrolls (16 columns: 1665 px → local scroll,
   104 px columns). New Chromium gates cover two/three-column prose, long URLs, unaligned `th`/`td`
-  and explicit alignment. Status remains **implemented, pending re-review of the I4 diff**.
+  and explicit alignment.
+- Whole-slice review: **APPROVED** (`docs/rich-text-editor-review.md`, scope `81cdbaa..22f4fd4`),
+  committed verbatim. Docs-only clarifications followed (Chromium-132+ scroll-focus hedge, deferred
+  roving tabindex/Select tooltips recorded, spec §7 language-drop fallback superseded by the lazy
+  159.06 kB gzip ruling, bare-token local-scroll choice documented); no product code changed.
+- One harness fix the editor required: `e2e/tests/organizer-ux.spec.ts` had authored raw Markdown
+  (`##`, `**`, `<script>`) with `.fill()` into the visual editor, which by design stores literal
+  text; both spots now open Source mode first. Plain-text `.fill()` (used by `p1-core.spec.ts`) was
+  probed and stores the identical string, so it needs no change.
+- **Status: implemented, reviewed, approved and published.** `main` at
+  `034329bffd51123d4c5f7a89fa4852d337d1bdbe`; CI run
+  https://github.com/nrf24l01/aCTFb/actions/runs/45840313641 — 4/4 jobs green (Backend quality,
+  Frontend quality, Integration, Publish images). Ten `linux/amd64` images carry `latest` plus
+  `sha-034329b…` with matching anonymous digests; the published frontend assets were executed in
+  Chromium to confirm the shipped renderer, `hljs-keyword` highlighting and shared typography.
+  Registry digests, sizes and the asset proof are in `docs/ghcr-verification.md`.
+- Operator action: `docker compose pull && docker compose up -d` in `deploy/`. No migration,
+  `config.yaml` or `.env` change is required by this range; the schema is unchanged from the
+  previous publication.
 - Remaining limitations: `@tiptap/markdown` is still documented as an early release, so the
   round-trip corpus and Source fallback remain mandatory; sanitisation and selection are proved
   in Chromium (happy-dom cannot exercise DOMPurify/ProseMirror selection); the authoring browser
