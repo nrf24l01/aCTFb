@@ -2,8 +2,9 @@
 
 Date: 2026-11-26
 Base commit: `81cdbaa` (`main`, working tree clean)
-Status: approved by the user; main owns the UX/contract decisions. Planning only — no product code,
-dependency or migration change has been made.
+Status: approved by the user; main owns the UX/contract decisions. Task 1 (safe shared syntax
+highlighting) is implemented; Tasks 2–3 (Tiptap editor, integration/browser gates) remain missing.
+No database migration, `/api/v2`, `deploy/` or `config.yaml` change has been made.
 
 ## 1. Context
 

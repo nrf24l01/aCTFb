@@ -1,6 +1,10 @@
 import DOMPurify from 'dompurify'
 import { Marked } from 'marked'
 import type { Token, Tokens } from 'marked'
+import { escapeHtml } from './html'
+import { highlightCode, normalizeCodeLanguage } from './highlight'
+
+export { escapeHtml } from './html'
 
 /**
  * Markdown rendering for organizer-authored content. The single entry point
@@ -12,33 +16,39 @@ import type { Token, Tokens } from 'marked'
  *   http, https and mailto, plus same-origin relative paths), so
  *   `javascript:`, `data:`, `vbscript:` never reach the HTML;
  * - only a small tag/attribute allowlist survives DOMPurify;
+ * - `class` survives only on highlighter-generated spans (`hljs-*`) and code
+ *   blocks (`language-*`); every other class is removed by a local hook;
  * - SVG/MathML/style/event-handler attributes are stripped.
  */
 const ALLOWED_TAGS = [
   'p', 'br', 'strong', 'em', 'del', 'code', 'pre', 'blockquote',
   'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-  'a', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img',
+  'a', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img', 'span',
 ]
 
-const ALLOWED_ATTR = ['href', 'title', 'alt', 'src', 'colspan', 'rowspan']
+const ALLOWED_ATTR = ['href', 'title', 'alt', 'src', 'colspan', 'rowspan', 'class']
 
 const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
-const escapeHtml = (value: string): string =>
-  value.replace(/[&<>"']/g, (character) => {
-    switch (character) {
-      case '&':
-        return '&amp;'
-      case '<':
-        return '&lt;'
-      case '>':
-        return '&gt;'
-      case '"':
-        return '&quot;'
-      default:
-        return '&#39;'
-    }
-  })
+const HLJS_CLASS_VALUE = /^(?:hljs-[a-z0-9_-]+\s*)+$/
+const LANGUAGE_CLASS_VALUE = /^language-[a-z0-9+#.-]+$/
+
+/**
+ * A private DOMPurify instance keeps the class hook scoped to this module
+ * instead of mutating the global singleton for every consumer.
+ */
+const purifier = DOMPurify(window)
+
+purifier.addHook('uponSanitizeAttribute', (node, data) => {
+  if (data.attrName !== 'class') return
+  const tagName = node.nodeName.toLowerCase()
+  const allowed =
+    (tagName === 'span' && HLJS_CLASS_VALUE.test(data.attrValue)) ||
+    (tagName === 'code' && LANGUAGE_CLASS_VALUE.test(data.attrValue))
+  if (!allowed) {
+    data.keepAttr = false
+  }
+})
 
 /** Same-origin form-relative or absolute URLs are allowed; anything else must
  * use an explicit safe protocol. `javascript:` and `data:` fail. */
@@ -78,10 +88,21 @@ marked.use({
   },
 })
 
+marked.use({
+  renderer: {
+    code(token: Tokens.Code): string {
+      const language = normalizeCodeLanguage(token.lang)
+      const highlighted = highlightCode(token.text, token.lang)
+      const body = highlighted ?? escapeHtml(token.text)
+      return `<pre><code class="language-${language}">${body}</code></pre>\n`
+    },
+  },
+})
+
 export function renderMarkdown(source: string | null | undefined): string {
   const markdown = typeof source === 'string' ? source : ''
   const raw = marked.parse(markdown) as string
-  return DOMPurify.sanitize(raw, {
+  return purifier.sanitize(raw, {
     ALLOWED_TAGS,
     ALLOWED_ATTR,
     ALLOW_DATA_ATTR: false,

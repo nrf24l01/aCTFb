@@ -908,15 +908,21 @@ Known limitations unchanged and restated: only the board adapter records a reque
 the single-line log and the 5xx `ERROR` level but not a cause); the admin legacy invite panel is an explicit
 advanced action rather than capability-gated, because legacy credential presence is not in any DTO.
 
-**Rich-text Markdown editor + syntax highlighting (planned 2026-11-26):** status **missing** —
-planning artifacts only, no product code, dependency or migration change in this range.
+**Rich-text Markdown editor + syntax highlighting (planned 2026-11-26):** status **partial** —
+Task 1 (safe shared syntax highlighting) is implemented and unit/build verified; the Tiptap editor
+(Task 2) and the four-surface integration/browser gates (Task 3) remain missing. The overall feature
+is therefore not complete.
 
 - Spec: `docs/superpowers/specs/2026-11-26-rich-text-editor-design.md`.
 - Plan: `docs/superpowers/plans/2026-11-26-rich-text-editor.md` (three tasks: safe highlighting in
   the shared renderer; Tiptap editor with Markdown round-trip and Source fallback; integration of
   board/module/task/site-intro authoring plus browser verification).
 - Contract: descriptions stay Markdown strings; `/api/v2`, migrations and `deploy/` are unchanged.
-- Proposed pins: `@tiptap/*` 3.35.0, `lowlight` 3.3.0, `highlight.js` 11.11.2, `marked` 17.0.6.
+- Task 1 evidence: `lowlight` 3.3.0 and `highlight.js` 11.11.2 pinned; `marked` stays at its current
+  `^15` until Task 2. `bun run test:unit` passes 36 files / 202 tests (184 baseline + 18 new),
+  `bun run typecheck` and `bun run build` pass. The `markdown` build chunk is 150.81 kB (50.52 kB
+  gzip). No backend, migration or config change.
+- Remaining pins for Task 2: `@tiptap/*` 3.35.0 and `marked` 17.0.6.
 - Known blockers to acceptance: the Tiptap Markdown extension is documented as an early release, so
   the semantic round-trip corpus and the Source fallback for raw HTML, task lists and unsafe URLs are
   mandatory gates, not optional hardening.

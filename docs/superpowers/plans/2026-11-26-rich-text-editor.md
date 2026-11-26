@@ -100,14 +100,17 @@ pins it.
 - Modify: `frontend/src/style.css`
 
 **Interfaces:**
-- Consumes: `isSafeUrl` and `escapeHtml` from `frontend/src/shared/lib/markdown.ts` (export
-  `escapeHtml` in this task so the highlighter reuses one escaper).
+- Consumes: `isSafeUrl` from `frontend/src/shared/lib/markdown.ts`; the escaper lives in a new
+  independent `frontend/src/shared/lib/html.ts` so the highlighter never imports the renderer
+  (avoids a `markdown` ↔ `highlight` cycle). `markdown.ts` re-exports `escapeHtml` for callers.
 - Produces:
   ```ts
   export interface HighlightLanguage { id: string; label: string }
   export const HIGHLIGHT_LANGUAGES: readonly HighlightLanguage[]
   export const DEFAULT_CODE_LANGUAGE = 'plaintext'
   export function isHighlightLanguage(id: string | null | undefined): boolean
+  /** Canonical registry id for a fence info string; unsafe/unknown → plaintext. */
+  export function normalizeCodeLanguage(language: string | null | undefined): string
   /** Escaped span HTML for the inner <code>, or null when plain text must be used. */
   export function highlightCode(code: string, language: string | null | undefined): string | null
   export const lowlight: Lowlight
@@ -120,14 +123,14 @@ pins it.
   export const safeLowlight: SafeLowlight
   ```
 
-- [ ] **Step 1: Add the two runtime dependencies**
+- [x] **Step 1: Add the two runtime dependencies**
 
 ```bash
 cd frontend && bun add --exact lowlight@3.3.0 highlight.js@11.11.2
 ```
 Expected: `package.json` gains both exact versions; `bun.lock` changes; no other package moves.
 
-- [ ] **Step 2: Write the failing highlighter test**
+- [x] **Step 2: Write the failing highlighter test**
 
 `frontend/src/shared/lib/highlight.test.ts`:
 
@@ -186,30 +189,33 @@ describe('safeLowlight', () => {
 })
 ```
 
-- [ ] **Step 3: Run it to verify it fails**
+- [x] **Step 3: Run it to verify it fails**
 
 Run: `cd frontend && bun run test:unit src/shared/lib/highlight.test.ts`
 Expected: FAIL — `Cannot find module './highlight'`.
 
-- [ ] **Step 4: Implement `highlight.ts`**
+- [x] **Step 4: Implement `highlight.ts`**
 
 Import `createLowlight` from `lowlight`, grammars from `highlight.js/lib/languages/<id>`, and reuse
-`escapeHtml` from `./markdown`. Build `HIGHLIGHT_LANGUAGES` from a `const` array of `{ id, label }`
-(the labels: `Plain text`, `Python`, `JavaScript`, `TypeScript`, `Go`, `Bash`, `JSON`, `YAML`,
-`HTML/XML`, `CSS`, `SQL`, `C`, `C++`, `Java`, `Rust`, `Dockerfile`, `HTTP`). Register all ids except
-`plaintext` plus the `plaintext` grammar into one `lowlight` instance. `highlightCode` returns
-`null` when the language is not registered, is `plaintext`, or the code is empty; otherwise it walks
-the returned HAST and serialises only `<span class="…">` with `escapeHtml` on text nodes, filtering
-class names to `hljs-*`. `safeLowlight` wraps `lowlight`: `registered()` always `true`,
-`listLanguages()` delegates, `highlight()` falls back to `{ type: 'root', children: [{ type: 'text',
-value }] }` for unknown/plaintext, and `highlightAuto(value)` returns the same plain root.
+`escapeHtml` from the independent `./html` module. Build `HIGHLIGHT_LANGUAGES` from a `const` array
+of `{ id, label }` (the labels: `Plain text`, `Python`, `JavaScript`, `TypeScript`, `Go`, `Bash`,
+`JSON`, `YAML`, `HTML/XML`, `CSS`, `SQL`, `C`, `C++`, `Java`, `Rust`, `Dockerfile`, `HTTP`).
+Register every grammar, including `plaintext`, into one `lowlight` instance. Map the common fence
+spellings (`py`, `js`, `sh`, `html`, `yml`, `ts`, `c++`, …) to canonical ids, take only the first
+word of an info string, and reject unsafe ids. `highlightCode` returns `null` when the language is
+not registered, is `plaintext`, or the code is empty; otherwise it walks the returned HAST and
+serialises only `<span class="…">` with `escapeHtml` on text nodes, keeping `hljs-*` class names and
+dropping secondary unprefixed classes such as `function_`. `safeLowlight` wraps `lowlight`:
+`registered()` always `true`, `listLanguages()` delegates, `highlight()` falls back to `{ type:
+'root', children: [{ type: 'text', value }] }` for unknown/plaintext, and `highlightAuto(value)`
+returns the same plain root.
 
-- [ ] **Step 5: Run the highlighter test until green**
+- [x] **Step 5: Run the highlighter test until green**
 
 Run: `cd frontend && bun run test:unit src/shared/lib/highlight.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Write the failing renderer tests**
+- [x] **Step 6: Write the failing renderer tests**
 
 Append to `frontend/src/shared/lib/markdown.test.ts`:
 
@@ -254,34 +260,36 @@ it('strips hljs classes that were not produced by the highlighter', () => {
 })
 ```
 
-- [ ] **Step 7: Run them to verify they fail**
+- [x] **Step 7: Run them to verify they fail**
 
 Run: `cd frontend && bun run test:unit src/shared/lib/markdown.test.ts`
 Expected: FAIL on the new cases (no `hljs-keyword`, `span` stripped).
 
-- [ ] **Step 8: Implement the renderer changes**
+- [x] **Step 8: Implement the renderer changes**
 
-In `frontend/src/shared/lib/markdown.ts`: export `escapeHtml`; add `'span'` to `ALLOWED_TAGS` and
-`'class'` to `ALLOWED_ATTR`; register one `DOMPurify.addHook('uponSanitizeAttribute', …)` that keeps
+In `frontend/src/shared/lib/markdown.ts`: re-export `escapeHtml` from `./html`; add `'span'` to
+`ALLOWED_TAGS` and `'class'` to `ALLOWED_ATTR`; create a private `DOMPurify(window)` instance (so the
+hook never mutates the global singleton) and register one `uponSanitizeAttribute` hook that keeps
 `class` only for `span` values matching `^(hljs-[a-z0-9_-]+\s*)+$` or `code` values matching
 `^language-[a-z0-9+#.-]+$`, and forces `data.keepAttr = false` otherwise; add
 `marked.use({ renderer: { code(token) { … } } })` that builds
-`<pre><code class="language-<id>">…</code></pre>` using `highlightCode(token.text, token.lang)` and
-falls back to `escapeHtml(token.text)`.
+`<pre><code class="language-<id>">…</code></pre>` using `normalizeCodeLanguage(token.lang)` for the
+safe class, `highlightCode(token.text, token.lang)` for the body, and `escapeHtml(token.text)` as the
+fallback.
 
-- [ ] **Step 9: Run the whole unit suite and typecheck**
+- [x] **Step 9: Run the whole unit suite and typecheck**
 
 Run: `cd frontend && bun run test:unit && bun run typecheck`
 Expected: all suites pass, including the six pre-existing `markdown.test.ts` cases.
 
-- [ ] **Step 10: Add the token styles**
+- [x] **Step 10: Add the token styles**
 
 In `frontend/src/style.css` add a flat block mapping `.hljs-keyword`, `.hljs-string`, `.hljs-number`,
 `.hljs-comment`, `.hljs-title`, `.hljs-attr`, `.hljs-built_in`, `.hljs-literal`, `.hljs-meta`,
 `.hljs-type`, `.hljs-symbol` to the existing `--iris/--foam/--gold/--rose/--love/--subtle`
 variables, plus `.markdown-body pre` padding/overflow. No gradients, no transitions, no new font.
 
-- [ ] **Step 11: Build and commit**
+- [x] **Step 11: Build and commit**
 
 ```bash
 cd frontend && bun run build

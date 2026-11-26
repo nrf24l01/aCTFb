@@ -199,6 +199,75 @@ body {
   }
 }
 
+/*
+ * Syntax highlighting: flat Rosé Pine token colours for fenced code.
+ * --subtle on --base is 5.48:1, so comments stay readable at normal size.
+ */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-doctag {
+  color: var(--iris);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition {
+  color: var(--foam);
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link,
+.hljs-built_in,
+.hljs-type {
+  color: var(--gold);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--subtle);
+}
+
+.hljs-title,
+.hljs-section {
+  color: var(--rose);
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable {
+  color: var(--foam);
+}
+
+.hljs-literal,
+.hljs-deletion {
+  color: var(--love);
+}
+
+.hljs-meta {
+  color: var(--iris);
+}
+
+.markdown-body pre {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  background: var(--base);
+  border: 1px solid var(--overlay);
+}
+
+.markdown-body pre code {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 /* Touch targets: at phone width every control stays at least 44 px tall. */
 @media (max-width: 760px) {
   [data-slot="button"],
