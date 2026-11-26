@@ -135,6 +135,14 @@ func TestBoardCreateInviteModeWithoutCredentialKey(t *testing.T) {
 	}
 	code := issueJoinCode(t, f.router, boardID, f.admin)
 
+	// The canonical status now reports a configured code, still without any
+	// legacy credential or deployment key.
+	after := decode[oapimodels.BoardJoinCodeStatus](t, doJSON(t, f.router, "GET",
+		"/api/v2/admin/boards/"+boardID+"/join-code", f.admin, nil, nil, 200), 200)
+	if after.Configured == nil || !*after.Configured || after.Revision == nil || *after.Revision < 1 {
+		t.Fatalf("status after issuing a code = %+v", after)
+	}
+
 	// Publish and enroll a real participant with the canonical code only.
 	if _, err := f.db.Pool.Exec(f.ctx, `UPDATE boards SET status='ACTIVE' WHERE id=$1`, boardID); err != nil {
 		t.Fatalf("activate board: %v", err)
@@ -150,6 +158,12 @@ func TestBoardCreateInviteModeWithoutCredentialKey(t *testing.T) {
 	if me.Joined == nil || !*me.Joined {
 		t.Fatalf("participant is not a member after a valid code: %+v", me)
 	}
+
+	// The per-board route accepts the same canonical code, and a second
+	// participant enrolls through it.
+	second := f.newUser(t, "invite_second")
+	doJSON(t, f.router, "POST", "/api/v2/boards/"+boardID+"/join", second,
+		map[string]any{"code": code}, nil, 200)
 
 	// A wrong code stays generic and never enrolls.
 	outsider := f.newUser(t, "invite_outsider")

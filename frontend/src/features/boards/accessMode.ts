@@ -20,15 +20,7 @@ export function participationLabel(mode: ParticipationMode): string {
   return participationLabels[mode] ?? mode
 }
 
-/**
- * Whether a board still carries a legacy sealed invite code.
- *
- * Every self-join now needs a board join code, so this helper no longer decides
- * whether the join form appears. It decides whether the deprecated legacy
- * invite panel (which needs the credential sealer) is worth showing for a board
- * that already had one. It is keyed on the authoritative persisted
- * `registrationMode`, not on the derived `accessMode`.
- */
-export function requiresInviteCode(board: { registrationMode: string } | null | undefined): boolean {
-  return board?.registrationMode === 'INVITE_ONLY'
-}
+// Whether a board has a *legacy* sealed invite code cannot be derived from the
+// board DTO: it depends on `boards.invite_code_hash`, which the API does not
+// expose. The admin page therefore treats the canonical join code panel as the
+// only automatic surface and offers the legacy reveal as an explicit action.

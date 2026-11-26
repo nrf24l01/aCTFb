@@ -1,6 +1,18 @@
-import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import BoardSettingsDialog from './BoardSettingsDialog.vue'
+import { boardsApi } from '@/features/boards/api/boards'
+
+vi.mock('@/features/boards/api/boards', () => ({
+  boardsApi: {
+    createBoard: vi.fn(),
+    updateBoard: vi.fn(),
+    getBoardInviteCode: vi.fn(),
+    rotateBoardInviteCode: vi.fn(),
+  },
+}))
+
+const getInviteCode = vi.mocked(boardsApi.getBoardInviteCode)
 
 const boardBase = {
   uuid: '11111111-1111-4111-8111-111111111111',
@@ -111,6 +123,52 @@ describe('BoardSettingsDialog gate-change confirmation', () => {
       .map((node) => node.textContent ?? '')
       .join(' ')
     expect(dialogText).not.toContain('Change board access?')
+    wrapper.unmount()
+  })
+})
+
+describe('BoardSettingsDialog join code hand-off', () => {
+  beforeEach(() => {
+    getInviteCode.mockReset()
+  })
+
+  it('never reads the deprecated invite code when an INVITE board is opened', async () => {
+    const wrapper = mount(BoardSettingsDialog, {
+      props: {
+        open: true,
+        board: {
+          ...boardBase,
+          visibility: 'PRIVATE',
+          registrationMode: 'INVITE_ONLY',
+          accessMode: 'INVITE',
+        },
+      },
+      attachTo: document.body,
+    })
+    await flushPromises()
+
+    expect(getInviteCode).not.toHaveBeenCalled()
+    const text = document.body.textContent ?? ''
+    expect(text).not.toContain('Could not load the invite code')
+    // Code management lives in the board's canonical join code panel.
+    expect(text).toContain('Join code panel')
+    wrapper.unmount()
+  })
+
+  it('points a new INVITE board at the join code panel after saving', async () => {
+    const wrapper = mount(BoardSettingsDialog, {
+      props: { open: true, board: null },
+      attachTo: document.body,
+    })
+    await flushPromises()
+
+    const inviteRadio = document.querySelector('input[name="board-access-mode"][value="INVITE"]') as HTMLInputElement
+    inviteRadio.click()
+    await flushPromises()
+
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('Join code panel')
+    expect(getInviteCode).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

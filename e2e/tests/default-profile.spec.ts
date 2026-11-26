@@ -348,3 +348,73 @@ test.describe('default profile: legacy code and mixed role', () => {
     expect(revealedRandom.length).toBe(26)
   })
 })
+
+test.describe('default profile: new INVITE board uses the canonical join code', () => {
+  test.skip(!enabled, 'requires E2E_DEFAULT_PROFILE=1 from e2e/run-default-profile-e2e.sh')
+
+  test('creating an INVITE board and opening it never reads the deprecated invite code', async ({ page, browser }) => {
+    await signIn(page, adminUser, adminPass)
+    const token = await accessToken(page)
+    const suffix = Date.now().toString(36)
+    const start = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const end = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+
+    // The default profile has no credential key: this create used to answer 503.
+    const board = await api(page, token, 'POST', '/api/v2/admin/boards', {
+      slug: `e2e-invite-${suffix}`,
+      name: `E2E invite ${suffix}`,
+      participationMode: 'INDIVIDUAL',
+      registrationMode: 'INVITE_ONLY',
+      visibility: 'PRIVATE',
+      accessMode: 'INVITE',
+      accessGroupUuids: [],
+      startsAt: start,
+      endsAt: end,
+      rating: { visibility: 'PUBLIC' },
+    })
+    const boardUuid = String(board.uuid)
+    expect(board.accessMode).toBe('INVITE')
+    const module = await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/modules`, {
+      name: 'Invite flag module',
+      type: 'TASKS',
+      allowedTaskTypes: ['FLAG'],
+      enabled: true,
+    })
+    expect(module.uuid).toBeTruthy()
+    await api(page, token, 'POST', `/api/v2/admin/boards/${boardUuid}/actions`, { action: 'PUBLISH' })
+
+    // Opening the admin page shows the canonical panel only: no legacy read, no
+    // red error, and nothing configured yet.
+    const legacyReads: string[] = []
+    page.on('request', (request) => {
+      if (request.url().includes('/invite-code')) legacyReads.push(request.url())
+    })
+    await page.goto(`/admin/boards/${boardUuid}`)
+    await expect(page.getByText('not configured')).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('Could not read invite code')).toHaveCount(0)
+    await expect(page.getByText('Could not load the invite code')).toHaveCount(0)
+    expect(legacyReads).toEqual([])
+
+    // The organizer explicitly generates the code; the plaintext is revealed once.
+    await page.getByRole('button', { name: 'Generate join code' }).click()
+    await expect(page.getByText('Copy this code now')).toBeVisible({ timeout: 15_000 })
+    const code = await page.locator('input[aria-label="New board join code"]').inputValue()
+    expect(code.length).toBe(26)
+
+    // A real participant enrolls with that code through the board page.
+    const participantContext = await browser.newContext()
+    try {
+      const participant = await participantContext.newPage()
+      await signIn(participant, participantUser, participantPass)
+      await participant.goto(`/boards/${boardUuid}`)
+      await expect(participant.getByRole('button', { name: 'Enter board code' })).toBeVisible({ timeout: 15_000 })
+      await participant.getByRole('button', { name: 'Enter board code' }).click()
+      await participant.locator('#join-board-code').fill(code)
+      await participant.getByRole('button', { name: 'Join', exact: true }).click()
+      await expect(participant).toHaveURL(new RegExp(`/boards/${boardUuid}$`), { timeout: 15_000 })
+      await expect(participant.getByText('Joined: yes')).toBeVisible()
+    } finally {
+      await participantContext.close()
+    }
+  })
+})

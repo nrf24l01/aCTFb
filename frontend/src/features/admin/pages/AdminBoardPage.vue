@@ -27,7 +27,7 @@ import {
   canReadAudit,
   hasBoardPermission,
 } from '@/features/boards/permissions'
-import { accessModeLabel, participationLabel, requiresInviteCode } from '@/features/boards/accessMode'
+import { accessModeLabel, participationLabel } from '@/features/boards/accessMode'
 import { useSession } from '@/features/auth/session'
 import type { AdminBoard, AdminModule, Audience, BoardPermissionsResponse } from '@/shared/types/api'
 
@@ -47,6 +47,13 @@ const actionError = ref<unknown>(null)
 const actionPending = ref(false)
 
 const editBoardOpen = ref(false)
+/**
+ * The legacy invite panel is a compatibility view for boards created before
+ * join codes. It is never mounted automatically: it needs the deprecated route,
+ * which answers 422 for every board that has no legacy credential, and the
+ * canonical join code panel is the primary code management surface.
+ */
+const legacyInviteOpen = ref(false)
 const createModuleOpen = ref(false)
 const editModule = ref<AdminModule | null>(null)
 const deleteModule = ref<AdminModule | null>(null)
@@ -266,11 +273,12 @@ void load()
         class="mb-6"
       />
 
-      <InviteCodePanel
-        v-if="requiresInviteCode(board)"
-        :board-uuid="boardUuid"
-        class="mb-6"
-      />
+      <div v-if="canEditBoard" class="mb-6 space-y-3">
+        <Button variant="ghost" size="sm" @click="legacyInviteOpen = !legacyInviteOpen">
+          {{ legacyInviteOpen ? 'Hide legacy invite code' : 'Legacy invite code (pre-join-code boards)' }}
+        </Button>
+        <InviteCodePanel v-if="legacyInviteOpen" :board-uuid="boardUuid" />
+      </div>
 
       <Alert v-if="board.rating.visibility === 'HIDDEN'" class="mb-6 rounded-none border-gold/60 bg-black">
         <AlertTitle>Rating hidden</AlertTitle>

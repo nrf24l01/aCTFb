@@ -64,14 +64,59 @@ name, so they cannot recur as an unexplained reference.
    never rewritten by a mode change or an unrelated metadata save.
 3. **Legacy ciphertext is preserved** for pre-020 boards: nothing deletes, rotates or re-encrypts
    `boards.invite_code_hash` / `invite_code_ciphertext`. The deprecated `invite-code` admin routes and the
-   `POST /boards/{uuid}/join` `inviteCode` fallback keep their existing behaviour, including the honest
+   `POST /boards/{uuid}/join` `inviteCode` fallback keep their existing backend contract, including the honest
    `503`+dependency log when a legacy sealed code cannot be opened because no credential key is configured.
+   Honest caveat: for a board created *after* this change the deprecated `GET …/invite-code` answers
+   `422 INVALID_INVITE_CODE`, because there is no legacy credential at all. That is the pre-existing
+   "no code configured" condition of that route, not a new failure mode; the canonical `join-code` route is the
+   supported flow. See the UI section below for how the admin surface now reflects that.
 4. **No new key, flag or migration.** No access rule was weakened: `INVITE` still means `PRIVATE` +
    `INVITE_ONLY` with no groups, `AUDIENCE` still requires a live group, `PUBLIC` still rejects groups, and a
    board with no code answers `JOIN_CODE_REQUIRED` rather than enrolling anyone.
 
 Net user-visible change: an `INVITE` board can be created on the default profile. Everything else keeps its
 contract.
+
+## Admin UI: one canonical code surface (review I1)
+
+The backend change alone left the deprecated invite panel in a dead end: the settings dialog fetched
+`GET /admin/boards/{uuid}/invite-code` as soon as an `INVITE` board was opened, and the board page rendered
+`InviteCodePanel` for every `INVITE_ONLY` board, so a freshly created board showed a red `422` immediately.
+
+Fixed without adding a new design domain and without an API change:
+
+* `JoinCodePanel` (existing canonical status/generate/set/rotate UI, hash-only, no deployment key) is the only
+  automatic code management surface, for every access mode including `INVITE_ONLY`.
+* `BoardSettingsDialog` no longer calls the deprecated route at all. The `INVITE` block now explains that the
+  join code is issued in the board's Join code panel after saving; nothing is generated automatically and no
+  plaintext is prefetched.
+* `AdminBoardPage` no longer auto-renders the legacy panel. It is reachable only through an explicit
+  **Legacy invite code (pre-join-code boards)** action, and it is not mounted (so nothing is requested) until
+  the organizer asks.
+* `InviteCodePanel` is relabelled "Legacy invite code" and explains that participants join with the canonical
+  code. After an explicit click, the documented `422 INVALID_INVITE_CODE` renders as a neutral
+  "This board has no legacy invite code" empty state instead of a destructive alert. Revealing still works for
+  pre-020 boards, and a successful reveal is unchanged.
+* `requiresInviteCode` was removed: whether a *legacy* credential exists is not derivable from the board DTO
+  (`boards.invite_code_hash` is not exposed), so panel visibility must not pretend to know. The removal is
+  covered by the updated `accessMode` tests.
+
+New frontend tests (RED first, then green):
+
+| Test | File | Proves |
+| --- | --- | --- |
+| `opens the canonical join code panel without reading the deprecated invite code` | `frontend/src/features/admin/pages/AdminBoardPage.test.ts` | opening an `INVITE` board calls `getBoardJoinCodeStatus`, never `getBoardInviteCode`, shows `not configured` + `Generate join code` + `Set custom code`, and mounts no legacy panel |
+| `offers the legacy reveal only as an explicit advanced action` | same | the legacy panel appears only after the explicit action, and still performs no read on mount |
+| `never reads the deprecated invite code when an INVITE board is opened` | `frontend/src/features/admin/components/BoardSettingsDialog.test.ts` | opening settings for an `INVITE` board performs no deprecated GET and shows no `Could not load the invite code` |
+| `points a new INVITE board at the join code panel after saving` | same | selecting `INVITE` on a new board explains the canonical panel instead of prefetching a code |
+| `is labelled as the legacy code, not the primary join code` | `frontend/src/features/boards/components/InviteCodePanel.test.ts` | the panel no longer claims to be the code needed to join |
+| `never reads the deprecated route until the organizer asks` | same | mount performs no request |
+| `shows a neutral empty state when the board has no legacy code` | same | `422 INVALID_INVITE_CODE` is an empty state, not a destructive error |
+| `still reveals a configured legacy code on demand` | same | pre-020 reveal compatibility is preserved |
+
+The HTTP/PG test `TestBoardCreateInviteModeWithoutCredentialKey` additionally asserts the canonical status flips
+to `configured: true` after the explicit generate, that a real participant enrolls through the canonical
+code-only route, and that a second participant enrolls through the per-board route with the same code.
 
 ## Actionable server errors (shared HTTP boundary)
 
@@ -143,18 +188,20 @@ go test ./... (real DSN)                                         49 packages ok,
 go test -race ./internal/boards ./internal/boards/http ./internal/httpapi   ok
 ```
 
-The single failure is `TestRealDockerExpiryCleanupAndExtend` in `internal/instances`
-(`start: FORBIDDEN: access denied`). It fails identically on an untouched `cb056ff` worktree, needs a real
-Docker runtime, and is unrelated to this change.
+The single failure is `TestRealDockerExpiryCleanupAndExtend` in `internal/instances`. Baseline evidence and the
+actual cause are recorded in the "Pre-existing baseline failure" section below.
 
-No Docker/Podman image was built or claimed; no frontend test was run because no frontend code changed.
+No Docker/Podman image was built or claimed. Frontend verification for this slice: `bun run test --run`
+(35 files / 184 tests), `bun run typecheck`, `bun run build` — all green.
 
 ## Limits
 
 * The operator's deployed image/version was never verified, so "the running build contains this fix" is not
   claimed. The source-level reproduction of the 503 is exact for `INVITE` creates on the default profile.
-* The admin board dialog still shows an `Invite code` mode with no capability probe. After this fix that mode
-  works, but the panel only explains "Save the board first to generate and copy its invite code" — a
-  capability-aware hint is a UX decision left to main.
 * A board created in `INVITE` mode has **no** code until the organizer issues one; joins answer
   `JOIN_CODE_REQUIRED` until then. That is the intended minimal contract, not a regression.
+* The legacy panel is not capability-gated. Showing it only for boards that actually have a legacy row would
+  need new status metadata (`boards.invite_code_hash` is not in any DTO); probing the deprecated route to
+  discover it is exactly the error-as-capability pattern this fix removes. The explicit advanced action is the
+  bounded compromise.
+* Markdown editor work is untouched and not claimed.

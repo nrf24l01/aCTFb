@@ -47,7 +47,7 @@ const emit = defineEmits<{
 const modes: Array<{ value: Exclude<BoardAccessMode, 'LEGACY'>; label: string; description: string }> = [
   { value: 'PUBLIC', label: 'Public', description: 'Anyone can browse the published board. Sign-in is still required to join, submit and score.' },
   { value: 'AUDIENCE', label: 'Selected audiences', description: 'Only members of the selected access groups can join.' },
-  { value: 'INVITE', label: 'Invite code', description: 'Joining requires the board invite code. Rotating it invalidates the old code.' },
+  { value: 'INVITE', label: 'Invite code', description: 'Joining requires the board join code. The code is issued and replaced in the Join code panel; replacing it invalidates the old code.' },
 ]
 
 const form = reactive({
@@ -76,14 +76,6 @@ const isEdit = computed(() => Boolean(props.board))
 const slugTouched = ref(false)
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
-const inviteCode = ref('')
-const inviteLoading = ref(false)
-const inviteError = ref<unknown>(null)
-const inviteCopied = ref(false)
-const rotateConfirmOpen = ref(false)
-const rotating = ref(false)
-const rotateError = ref<unknown>(null)
-
 const {
   discardOpen: discardConfirmOpen,
   reset: resetGuard,
@@ -91,7 +83,7 @@ const {
   keepEditing,
   discardAndClose,
 } = useDiscardGuard({
-  snapshot: () => ({ ...form, inviteCode: inviteCode.value }),
+  snapshot: () => ({ ...form }),
   close: () => emit('update:open', false),
 })
 
@@ -138,12 +130,8 @@ watch(
     slugTouched.value = Boolean(board)
     problems.value = {}
     error.value = null
-    inviteCode.value = ''
-    inviteError.value = null
-    inviteCopied.value = false
     accessGroupQuery.value = ''
     if (props.canManageAccessGroups) void loadAccessGroups()
-    if (board && board.accessMode === 'INVITE') void loadInvite()
     gateChangeConfirmOpen.value = false
     resetGuard()
   },
@@ -172,19 +160,6 @@ async function loadAccessGroups() {
     accessGroupsError.value = caught
   } finally {
     accessGroupsLoading.value = false
-  }
-}
-
-async function loadInvite() {
-  if (!props.board) return
-  inviteLoading.value = true
-  inviteError.value = null
-  try {
-    inviteCode.value = (await boardsApi.getBoardInviteCode(props.board.uuid)).inviteCode
-  } catch (caught) {
-    inviteError.value = caught
-  } finally {
-    inviteLoading.value = false
   }
 }
 
@@ -289,28 +264,6 @@ async function save(window: { startsAt: string | null; endsAt: string | null }) 
   }
 }
 
-async function copyInvite() {
-  try {
-    await navigator.clipboard.writeText(inviteCode.value)
-    inviteCopied.value = true
-  } catch {
-    inviteCopied.value = false
-  }
-}
-
-async function rotateInvite() {
-  if (!props.board) return
-  rotating.value = true
-  rotateError.value = null
-  try {
-    inviteCode.value = (await boardsApi.rotateBoardInviteCode(props.board.uuid)).inviteCode
-    rotateConfirmOpen.value = false
-  } catch (caught) {
-    rotateError.value = caught
-  } finally {
-    rotating.value = false
-  }
-}
 </script>
 
 <template>
@@ -404,26 +357,14 @@ async function rotateInvite() {
               </p>
             </div>
 
-            <div v-if="showInvite && isEdit" class="space-y-2 border-t border-border pt-3">
-              <p class="text-sm font-medium">Invite code</p>
-              <ErrorAlert v-if="inviteError" :error="inviteError" title="Could not load the invite code">
-                <Button type="button" variant="ghost" class="mt-2" @click="loadInvite">Retry</Button>
-              </ErrorAlert>
-              <p v-else-if="inviteLoading" class="text-xs text-muted-foreground">Loading…</p>
-              <template v-else-if="inviteCode">
-                <div class="flex flex-wrap items-center gap-2">
-                  <code class="border border-border px-2 py-1 font-mono text-xs">{{ inviteCode }}</code>
-                  <Button type="button" variant="outline" size="sm" @click="copyInvite">
-                    {{ inviteCopied ? 'Copied' : 'Copy' }}
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" @click="rotateConfirmOpen = true">Rotate</Button>
-                </div>
-                <p class="text-xs text-muted-foreground">Rotating invalidates the old code immediately.</p>
-              </template>
+            <div v-if="showInvite" class="space-y-2 border-t border-border pt-3">
+              <p class="text-sm font-medium">Join code</p>
+              <p class="text-xs text-muted-foreground">
+                Participants join with the board join code, managed in the Join code panel on this board's admin
+                page after saving. Nothing is generated automatically: use Generate join code or Set a custom
+                code there, and copy the code once.
+              </p>
             </div>
-            <p v-else-if="showInvite" class="border-t border-border pt-3 text-xs text-muted-foreground">
-              Save the board first to generate and copy its invite code.
-            </p>
           </fieldset>
 
           <div class="grid gap-3 sm:grid-cols-2">
@@ -489,7 +430,7 @@ async function rotateInvite() {
   <ConfirmDialog
     :open="gateChangeConfirmOpen"
     title="Change board access?"
-    description="This board currently uses access groups. Switching away from Selected audiences replaces that group gate: non-members with an invite code, or anyone for Public, would be able to join. This cannot be undone by cancelling later."
+    description="This board currently uses access groups. Switching away from Selected audiences replaces that group gate: non-members holding the join code, or anyone for Public, would be able to join. This cannot be undone by cancelling later."
     confirm-label="Change access"
     destructive
     :pending="pending"
@@ -505,15 +446,4 @@ async function rotateInvite() {
     @update:open="(value) => { if (!value) keepEditing() }"
     @confirm="discardAndClose()"
   />
-  <ConfirmDialog
-    :open="rotateConfirmOpen"
-    title="Rotate invite code"
-    description="The current invite code stops working immediately. Participants who already joined keep access."
-    confirm-label="Rotate code"
-    destructive
-    :pending="rotating"
-    @update:open="(open) => { if (!open) rotateConfirmOpen = false }"
-    @confirm="rotateInvite"
-  />
-  <ErrorAlert v-if="rotateError" :error="rotateError" title="Could not rotate the invite code" />
 </template>
