@@ -118,9 +118,11 @@ ci_contract_check() {
   _ci_forbid_line "$integration" 'integration cannot write packages' '^      packages: write$'
   _ci_forbid_line "$integration" 'integration does not log in to a registry' '^        uses: docker/login-action@'
   _ci_forbid_line "$integration" 'integration never pushes images' '^ *docker push'
-  # Any `docker buildx` subcommand, not just `buildx build`, and regardless of a
-  # `env X=1` / `bash -c` prefix. The bake shape checks below are the primary
-  # guard; this is the defence-in-depth one.
+  # Any `docker buildx` subcommand, not just `buildx build`. This matches the
+  # invocation shapes the workflow actually uses (bare, `sudo`, or with leading
+  # `VAR=value` assignments); it is a pattern guard for known forms, not a shell
+  # parser, so an obfuscated call (for example `bash -c '…'`) is out of scope.
+  # The bake shape checks below remain the primary guard.
   _ci_forbid_line "$integration" 'integration has no hand-written buildx invocation' '^ *([A-Za-z_][A-Za-z0-9_]*=[^ ]+ +)*(sudo +)?docker +buildx'
   _ci_forbid_line "$integration" 'integration does not pass its own cache flags' '^ *--cache-from'
 
@@ -147,11 +149,22 @@ ci_contract_check() {
     'TestRustFSFullStackIntegration' \
     'test-production-packaging.sh' \
     'test-production-auth-proxy.sh' \
+    'scripts/test-ci-contract.sh' \
+    'e2e/test-run-cleanup.sh' \
     'run-e2e.sh' \
     'run-full-e2e.sh' \
     'run-default-profile-e2e.sh'; do
     _ci_require_in "$integration" "integration still runs ${gate}" "$gate"
   done
+
+  # The two regression guards must be real steps with their published names and
+  # commands, not merely a mention somewhere in the job.
+  _ci_require_line "$integration" 'contract guard step is named and wired' \
+    '^        run: \./scripts/test-ci-contract\.sh$'
+  _ci_require_in "$integration" 'contract guard step keeps its name' 'Test CI contract regression guards'
+  _ci_require_line "$integration" 'cleanup guard step is named and wired' \
+    '^        run: \./e2e/test-run-cleanup\.sh$'
+  _ci_require_in "$integration" 'cleanup guard step keeps its name' 'Test test-resource cleanup guards'
 
   # --- publish keeps the tests-before-push invariant -----------------------
   local publish_needs
@@ -224,6 +237,13 @@ _ci_mutate_drop() { # file literal
   awk -v lit="$2" 'index($0, lit) == 0' "$1"
 }
 
+# Replace a line only when the entire line equals `from`. Needed for fixtures
+# that must hit one specific block: a substring replace on `  contents: read`
+# also matches publish's more deeply indented copy.
+_ci_mutate_replace_line() { # file from to (whole-line, literal)
+  awk -v from="$2" -v to="$3" '{ if ($0 == from) print to; else print }' "$1"
+}
+
 _ci_mutate_insert_after_job() { # file job literal-line
   awk -v job="$2" -v ins="$3" '
     { print }
@@ -237,15 +257,20 @@ _ci_mutate_insert_after_job() { # file job literal-line
 # A mutation that breaks an unrelated check therefore fails the self-test.
 _ci_expect() { # expect(accept|reject) label mutated-workflow log bake [expected-fail-label]
   local want="$1" label="$2" mutated="$3" log="$4" bake="$5" expected="${6:-}"
-  # ci_contract_check resets the counters, so preserve the running selftest
-  # tally and only add this fixture's own verdict to it.
+  # ci_contract_check resets the counters and the recorded labels, so preserve
+  # the running selftest tally (including the label snapshot) and only add this
+  # fixture's own verdict to it. Restoring the labels matters as much as the
+  # counters: a stale label left behind by an earlier fixture would satisfy a
+  # later expectation that never actually fired.
   local saved_passes="$CI_CONTRACT_PASSES" saved_failures="$CI_CONTRACT_FAILURES"
+  local -a saved_labels=("${CI_CONTRACT_FAILED_LABELS[@]+"${CI_CONTRACT_FAILED_LABELS[@]}"}")
   ci_contract_check "$mutated" "$bake" >"$log" 2>&1 || true
   local fails="$CI_CONTRACT_FAILURES"
   local labels
   labels="$(printf '%s\n' "${CI_CONTRACT_FAILED_LABELS[@]+"${CI_CONTRACT_FAILED_LABELS[@]}"}")"
   CI_CONTRACT_PASSES="$saved_passes"
   CI_CONTRACT_FAILURES="$saved_failures"
+  CI_CONTRACT_FAILED_LABELS=("${saved_labels[@]+"${saved_labels[@]}"}")
 
   if [[ "$want" == reject ]]; then
     if [[ -z "$expected" ]]; then
@@ -346,9 +371,21 @@ ci_contract_selftest() {
   _ci_expect reject 'a workflow that dropped a gate step' "$dir/dropped-gate.yml" "$log" "$bake" \
     'integration still runs TestRustFSFullStackIntegration'
 
+  # The two regression-guard steps are load-bearing: dropping either one must be
+  # rejected, and each must be reported by its own assertion.
+  _ci_mutate_drop "$wf" 'scripts/test-ci-contract.sh' >"$dir/dropped-contract-guard.yml"
+  _ci_expect reject 'a workflow without the CI contract guard step' "$dir/dropped-contract-guard.yml" "$log" "$bake" \
+    'integration still runs scripts/test-ci-contract.sh'
+
+  _ci_mutate_drop "$wf" 'e2e/test-run-cleanup.sh' >"$dir/dropped-cleanup-guard.yml"
+  _ci_expect reject 'a workflow without the cleanup guard step' "$dir/dropped-cleanup-guard.yml" "$log" "$bake" \
+    'integration still runs e2e/test-run-cleanup.sh'
+
   # Workflow-level privilege escalation: write-all must be rejected even though
-  # no job declares its own permissions block.
-  _ci_mutate_replace "$wf" '  contents: read' '  write-all' >"$dir/global-write-all.yml"
+  # no job declares its own permissions block. Whole-line replacement, so only
+  # the root `permissions:` child is rewritten and publish's own read-only line
+  # is left alone.
+  _ci_mutate_replace_line "$wf" '  contents: read' '  write-all' >"$dir/global-write-all.yml"
   _ci_expect reject 'a workflow-level write-all' "$dir/global-write-all.yml" "$log" "$bake" \
     'workflow never grants write-all'
 

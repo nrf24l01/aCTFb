@@ -67,26 +67,52 @@ run_cleanup_unclassified() {
   return 0
 }
 
+# run_cleanup_temp_root -> the directory tree the harness owns.
+# Derived from the base temp directory, never from probing whether a nested
+# `opencode` happens to exist: an existence-dependent root silently changes what
+# may be deleted between hosts.
+run_cleanup_temp_root() {
+  local base="${TMPDIR:-/tmp}" resolved
+  resolved="$(cd "$base" 2>/dev/null && pwd -P)" || resolved="/tmp"
+  printf '%s\n' "$resolved/opencode"
+}
+
+# run_cleanup_path_is_temp_owned PATH -> 0 when PATH lives under a harness root.
+# Both `<TMPDIR>/opencode` and the fixed `/tmp/opencode` default are accepted,
+# because the runners default their workdir to `/tmp/opencode/<project>` whether
+# or not TMPDIR is set.
+run_cleanup_path_is_temp_owned() {
+  local resolved="$1" root
+  while IFS= read -r root; do
+    [[ -n "$root" ]] || continue
+    case "$resolved" in
+      "$root"/*) return 0 ;;
+    esac
+  done <<EOF
+$(run_cleanup_temp_root)
+/tmp/opencode
+EOF
+  return 1
+}
+
+
 # run_cleanup_remove_workdir DIR
 #   Removes the harness's own scratch directory, and only that. The path is
-#   resolved first and must live under the shared temp root, so a bad
-#   E2E_WORKDIR cannot recursively delete a checkout.
+#   resolved first and must live under a harness temp root, so a bad
+#   E2E_WORKDIR cannot recursively delete a checkout. A caller-supplied output
+#   directory outside those roots is therefore never touched.
 run_cleanup_remove_workdir() {
   local dir="${1:-}"
   [[ -n "$dir" ]] || return 0
   [[ -d "$dir" ]] || return 0
 
-  local resolved temp_root
+  local resolved
   resolved="$(cd "$dir" 2>/dev/null && pwd -P)" || return 0
-  temp_root="$(cd "${TMPDIR:-/tmp}/opencode" 2>/dev/null && pwd -P)" || temp_root="/tmp/opencode"
 
-  case "$resolved" in
-    "$temp_root"/*) ;;
-    *)
-      printf 'WARNING: refusing to delete a non-temp workdir: %s\n' "$resolved" >&2
-      return 1
-      ;;
-  esac
+  if ! run_cleanup_path_is_temp_owned "$resolved"; then
+    printf 'WARNING: refusing to delete a non-temp workdir: %s\n' "$resolved" >&2
+    return 1
+  fi
 
   rm -rf -- "$resolved"
 }

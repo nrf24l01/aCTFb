@@ -44,6 +44,36 @@ else
   fail "counters accumulated: $first then $CI_CONTRACT_PASSES"
 fi
 
+# Recorded failure labels must reset too. A stale label would let a later
+# expectation be satisfied by a failure that never happened.
+ci_contract_check "$WORK/nonexistent-workflow.yml" docker-bake.hcl >/dev/null 2>&1
+stale_labels="${#CI_CONTRACT_FAILED_LABELS[@]}"
+ci_contract_check .github/workflows/go.yml docker-bake.hcl >/dev/null 2>&1
+if [[ "$stale_labels" -gt 0 && "${#CI_CONTRACT_FAILED_LABELS[@]}" -eq 0 ]]; then
+  pass "failure labels reset between invocations (no stale match)"
+else
+  fail "failure labels leaked: $stale_labels then ${#CI_CONTRACT_FAILED_LABELS[@]}"
+fi
+
+# --- 2b. the two regression guards are wired into the workflow -----------
+for guard in 'Test CI contract regression guards' 'Test test-resource cleanup guards'; do
+  if grep -qF -- "$guard" .github/workflows/go.yml; then
+    pass "workflow declares the step '${guard}'"
+  else
+    fail "workflow is missing the step '${guard}'"
+  fi
+done
+if grep -qE '^        run: \./scripts/test-ci-contract\.sh$' .github/workflows/go.yml; then
+  pass 'contract guard step runs scripts/test-ci-contract.sh'
+else
+  fail 'contract guard step does not run scripts/test-ci-contract.sh'
+fi
+if grep -qE '^        run: \./e2e/test-run-cleanup\.sh$' .github/workflows/go.yml; then
+  pass 'cleanup guard step runs e2e/test-run-cleanup.sh'
+else
+  fail 'cleanup guard step does not run e2e/test-run-cleanup.sh'
+fi
+
 # --- 3. the self-test passes, with one fixture per invariant --------------
 ci_contract_selftest .github/workflows/go.yml docker-bake.hcl >"$WORK/selftest.log" 2>&1
 rc=$?

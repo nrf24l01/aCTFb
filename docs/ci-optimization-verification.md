@@ -188,7 +188,8 @@ When removal is refused, the existing leak assertion still runs and fails the sc
 mistaken for success. The cost of the conservative choice is documented: on a manual host a failed full-stack
 run may need explicit cleanup of its own containers.
 
-Verified with `./e2e/test-run-cleanup.sh` — 18 checks against a stub `docker` on `PATH`, no daemon:
+Verified with `./e2e/test-run-cleanup.sh` — 21 checks against a stub `docker` on `PATH`, no daemon, and
+passing under both the default `TMPDIR` and `TMPDIR=/tmp/opencode`:
 a bystander container survives a manual host, `CI=true` alone does not authorise deletion, a self-hosted
 runner is denied, a hosted runner removes its own and the bystander but never a pre-existing container,
 non-`actfb` volumes are untouched, and a non-temp workdir is refused. Removing the guard from the helper
@@ -225,6 +226,107 @@ were added: workflow-level `write-all` (M1) and a meta-check proving a wrong exp
 RED: pointing the push fixture at the wrong label makes the self-test fail with
 `expected failure label: … / actual failure labels: …`.
 
+## Round-2 review fixes (N1–N6)
+
+Second review found one Important item: the two guard suites existed but **nothing in CI ran them**. The rest
+were correctness and honesty repairs to the guards themselves.
+
+### N1 — the guards are now real CI steps
+
+Two steps in the existing `integration` job, immediately after `Packaging contract checks` (pure text, no
+service needed, and before `Set up Docker Buildx` so a guard failure fails fast):
+
+```yaml
+      - name: Test CI contract regression guards
+        run: ./scripts/test-ci-contract.sh
+
+      - name: Test test-resource cleanup guards
+        run: ./e2e/test-run-cleanup.sh
+```
+
+The job count stays at four. The contract now asserts each step by **name and command**, and two new mutants
+prove the wiring is load-bearing: deleting either step is rejected with its own label
+(`integration still runs scripts/test-ci-contract.sh`, `integration still runs e2e/test-run-cleanup.sh`).
+Verified RED: removing the contract-guard line trips exactly those two checks.
+
+Both scripts are committed `100755`, so the `run:` lines are executable.
+
+### N2 — the cleanup fixture was environment-dependent (true RED)
+
+`./e2e/test-run-cleanup.sh` under `TMPDIR=/tmp/opencode` failed 2 of 18. Two causes, both real:
+
+1. **The fixture was only accidentally outside the temp root.** It used `$WORK/fake-repo`, where `$WORK`
+   itself is created under `${TMPDIR:-/tmp}`. Whether that counted as "outside" depended on the helper
+   resolving `${TMPDIR}/opencode` — and on this host `/tmp/opencode/opencode` happens to exist, so the
+   fixture sat outside it. On a host without that directory the fallback `/tmp/opencode` swallowed the
+   fixture and the negative case broke. Existence-dependent behaviour is the defect.
+2. **The same instability was a runtime bug, not just a test bug.** With `TMPDIR=/tmp/opencode` — this
+   repository's own convention — the helper's temp root became `/tmp/opencode/opencode`, so the real workdir
+   `/tmp/opencode/<project>` was **not** under it and `run_cleanup_remove_workdir` would have refused to
+   clean up a genuine harness workdir.
+
+Fix: `run_cleanup_temp_root` now resolves the base directory and appends `opencode` deterministically, without
+probing for an existing nested directory, and `run_cleanup_path_is_temp_owned` accepts both
+`<TMPDIR>/opencode` and the fixed `/tmp/opencode` default (the runners default their workdir to
+`/tmp/opencode/<project>` either way). The production guard is unchanged in strength: it still refuses
+anything outside those roots.
+
+The negative fixture now uses a dedicated empty throwaway directory under `$HOME` (falling back to `/var/tmp`),
+created by the test and removed exactly on `trap`. It never points at the repository or a broad user
+directory — pointing the "must refuse `rm -rf`" test at real data would be the very hazard under test. The test
+also asserts the fixture base really is outside every temp root, and fails loudly if it is not, so the case can
+never silently pass for the wrong reason. Added: absent-path no-op, and `/tmp/opencode` default accepted.
+
+| Run | Result |
+| --- | --- |
+| default `TMPDIR` | **21 passed, 0 failed** |
+| `TMPDIR=/tmp/opencode` | **21 passed, 0 failed** |
+| guard disabled (RED) | **2 failed** — `workdir: non-temp path was accepted for deletion`, `… contents were deleted` |
+
+### N3 — counts in this document are the current ones
+
+`350` packaging checks (not the earlier 342, and not the historical 337), contract `75`, self-test `15`,
+contract runner `14`, cleanup `21`, negative control `25`. The 337 figure belongs to an earlier phase and is
+not used as a current number anywhere.
+
+### N4 — no false claim about `bash -c`
+
+The buildx guard's comment claimed it covered `bash -c` prefixes. It does not: the pattern matches bare,
+`sudo`, and leading `VAR=value` invocations. The comment now says so and states plainly that this is a
+pattern guard for known forms, not a shell parser, and that an obfuscated call is out of scope. The bake-shape
+checks remain the primary guard. No shell parser was added — repository trust plus source review is the
+control there.
+
+### N5 — failure labels reset with the counters
+
+`_ci_expect` restored `CI_CONTRACT_PASSES`/`CI_CONTRACT_FAILURES` but not `CI_CONTRACT_FAILED_LABELS`, so a
+label left by an earlier fixture could satisfy a later expectation that never fired. The label array is now
+saved and restored alongside the counters, and `scripts/test-ci-contract.sh` asserts the snapshot does not
+leak (fail, then pass, then expect zero labels).
+
+### N6 — the `write-all` mutant is root-anchored
+
+The mutant used a substring replace on `  contents: read`, which also matches publish's more deeply indented
+copy. Added `_ci_mutate_replace_line` (whole-line equality) so only the root `permissions:` child is
+rewritten. Publish's read-only line and its `packages: write` are untouched, and the expected label is
+unchanged.
+
+## Round-2 validation (actual)
+
+| Check | Result |
+| --- | --- |
+| `bash -n` on all changed scripts | OK |
+| Contract positive | **75 passed, 0 failed** |
+| Contract self-test | **15 passed, 0 failed** |
+| Contract runner (`scripts/test-ci-contract.sh`) | **14 passed, 0 failed** |
+| Cleanup guards, both TMPDIR modes | **21 passed, 0 failed** each |
+| Packaging script | **350 passed, 0 failed**, 1 SKIP |
+| Workflow YAML | parses; 4 jobs; integration no `needs`/`permissions` |
+| Step modes | `100755` for both new guard scripts |
+
+No Docker build, no Go or frontend run, no server, no `gh run`. The full-stack gate is still **unexecuted** —
+it will run for the first time on the CI host after approval.
+
 ## Local validations performed
 
 All commands below were run on this machine at the change, after applying it. Exit codes are the real ones.
@@ -234,12 +336,12 @@ No Docker build, no Go or frontend test run, no server: the cleanup tests use a 
 | --- | --- | --- |
 | Patch applied exactly | `diff <(grep -v '^index ' prepared.patch) <(grep -v '^index ' <(git diff))` | byte-identical |
 | Shell syntax | `bash -n` on all changed scripts | OK |
-| Contract, positive | `ci_contract_check .github/workflows/go.yml docker-bake.hcl` | **69 passed, 0 failed** (deterministic over 3 runs) |
-| Contract self-test | `ci_contract_selftest …` | **13 passed, 0 failed** — 11 mutants + 1 meta-check, each pinned to its own expected label |
-| Contract, negative control | `ci_contract_check` against baseline `0da549e` | **19 failed** — the gate is live, not decorative |
-| Contract test runner | `./scripts/test-ci-contract.sh` | **9 passed, 0 failed** |
-| Cleanup policy tests | `./e2e/test-run-cleanup.sh` (mock `docker`, no daemon) | **18 passed, 0 failed** |
-| Packaging script | `./scripts/test-production-packaging.sh` | **337 passed, 0 failed**, 1 SKIP |
+| Contract, positive | `ci_contract_check .github/workflows/go.yml docker-bake.hcl` | **75 passed, 0 failed** (deterministic over 3 runs) |
+| Contract self-test | `ci_contract_selftest …` | **15 passed, 0 failed** — 13 mutants + 1 meta-check + 1 positive control, each mutant pinned to its own expected label |
+| Contract, negative control | `ci_contract_check` against baseline `0da549e` | **25 failed** — the gate is live, not decorative |
+| Contract test runner | `./scripts/test-ci-contract.sh` | **14 passed, 0 failed** |
+| Cleanup policy tests | `./e2e/test-run-cleanup.sh` (mock `docker`, no daemon) | **21 passed, 0 failed**, identical under `TMPDIR` unset and `TMPDIR=/tmp/opencode` |
+| Packaging script | `./scripts/test-production-packaging.sh` | **350 passed, 0 failed**, 1 SKIP (335 with `ACTFB_SKIP_CI_CONTRACT_SELFTEST=1`) |
 | Workflow YAML | PyYAML 6.0.4 (preinstalled) | parses; 4 jobs; `integration` has no `needs`, no `permissions`; `publish` keeps `needs: [backend, frontend, integration]` |
 | Bake definition | `docker buildx bake -f docker-bake.hcl --print` with the ten `set` overrides | 10 targets, exact `actfb-<target>:ci` tags, `context: .` (frontend `frontend`), `linux/amd64`, per-target gha scopes with `mode=max` |
 | Test collection | `bunx playwright test … --list` | 18 / 1 / 24 as tabulated above |
@@ -322,6 +424,7 @@ change reaches `main` and a new run passes.
 | 4 | H1 makes a red commit more expensive | Accepted and documented in the workflow comment. Green commits are strictly faster; `publish` still blocks on all three |
 | 5 | The integration independence assertion is a known-snapshot check | If a genuine artifact dependency is ever wanted, that assertion must change deliberately |
 | 6 | `bake-action` tag overrides verified from the action schema and `bake --print`, not yet observed on a real runner | If a tag were wrong, the packaging/runtime smokes fail loudly in the same job |
+| 7 | The contract is text matching, not a YAML or shell parser: the buildx forbid covers known invocation shapes only, and the independence check is a snapshot assertion | Deliberate. A real dependency or an obfuscated call must be changed on purpose, which is the point of the friction. Repository trust plus source review remains the control |
 
 ## Not verified here
 

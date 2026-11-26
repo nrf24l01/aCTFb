@@ -340,6 +340,15 @@ jobs:
           ACTFB_IMAGE_SUFFIX: ci
         run: ./scripts/test-production-packaging.sh
 
+      # The two guard suites below are the regression tests for this pipeline
+      # itself. They are pure text and need no service, so they run right after
+      # the contract that they prove is live.
+      - name: Test CI contract regression guards
+        run: ./scripts/test-ci-contract.sh
+
+      - name: Test test-resource cleanup guards
+        run: ./e2e/test-run-cleanup.sh
+
       - name: Production image runtime smoke
         env:
           ACTFB_BACKEND_IMAGE: actfb-backend:ci

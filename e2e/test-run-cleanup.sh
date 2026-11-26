@@ -16,7 +16,10 @@ pass() { printf 'PASS %s\n' "$1"; passes=$((passes + 1)); }
 fail() { printf 'FAIL %s\n' "$1" >&2; failures=$((failures + 1)); }
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/actfb-cleanup-test.XXXXXX")"
-trap 'rm -rf -- "$WORK"' EXIT
+# Cleanup is extended once the outside fixture exists; both paths are removed
+# exactly, never by pattern.
+OUTSIDE_ROOT=""
+trap 'rm -rf -- "$WORK"; [[ -n "${OUTSIDE_ROOT:-}" ]] && rm -rf -- "$OUTSIDE_ROOT"' EXIT
 
 # --- stub docker ------------------------------------------------------------
 mkdir -p "$WORK/bin"
@@ -137,19 +140,59 @@ set_containers own-clamav own-pg bystander
 if containers_now | grep -qx 'own-clamav'; then fail 'owned removal: named container not removed on manual host'; else pass 'owned removal: named containers removed on manual host'; fi
 if containers_now | grep -qx 'bystander'; then pass 'owned removal: unrelated container untouched'; else fail 'owned removal: unrelated container deleted'; fi
 
-# --- 7. workdir removal only under the temp root -------------------------
-mkdir -p "$WORK/fake-repo/docs"
-if ( unset GITHUB_ACTIONS; run_cleanup_remove_workdir "$WORK/fake-repo" ) >/dev/null 2>&1; then
+# --- 7. workdir removal only under a harness temp root -------------------
+# The negative fixture must be a path that is genuinely outside every accepted
+# temp root, but must never be the repository or a broad user directory: the
+# guard's whole purpose is to refuse `rm -rf`, and a test that points at real
+# data would be the very hazard it is checking for. So create a dedicated,
+# empty, throwaway directory under a base that is outside the temp roots and
+# remove exactly that directory on exit.
+fixture_base="${HOME:-/var/tmp}"
+if ! mkdir -p "$fixture_base" 2>/dev/null || [[ ! -w "$fixture_base" ]]; then
+  fixture_base="/var/tmp"
+fi
+OUTSIDE_ROOT="$(mktemp -d "$fixture_base/.actfb-cleanup-fixture.XXXXXX")"
+
+if run_cleanup_path_is_temp_owned "$(cd "$OUTSIDE_ROOT" && pwd -P)"; then
+  fail "fixture base ${fixture_base} is inside a harness temp root; the negative case cannot be trusted"
+else
+  pass "negative fixture is outside every harness temp root (${fixture_base})"
+fi
+
+mkdir -p "$OUTSIDE_ROOT/docs"
+printf 'keep me\n' >"$OUTSIDE_ROOT/docs/owned.txt"
+if ( unset GITHUB_ACTIONS; run_cleanup_remove_workdir "$OUTSIDE_ROOT" ) >/dev/null 2>&1; then
   fail 'workdir: non-temp path was accepted for deletion'
 else
   pass 'workdir: non-temp path refused'
 fi
-if [[ -d "$WORK/fake-repo/docs" ]]; then pass 'workdir: non-temp path left intact'; else fail 'workdir: non-temp path was deleted'; fi
+if [[ -f "$OUTSIDE_ROOT/docs/owned.txt" ]]; then
+  pass 'workdir: non-temp path and its contents left intact'
+else
+  fail 'workdir: non-temp path contents were deleted'
+fi
+rm -rf -- "$OUTSIDE_ROOT"
+OUTSIDE_ROOT=""
 
-tempdir="${TMPDIR:-/tmp}/opencode/actfb-cleanup-owned-$$"
+# A workdir that does not exist is a no-op, not an error.
+if run_cleanup_remove_workdir "$WORK/definitely-absent" >/dev/null 2>&1; then
+  pass 'workdir: absent path is a no-op'
+else
+  fail 'workdir: absent path returned an error'
+fi
+
+# The harness's own temp workdir is still removed, under both temp conventions.
+tempdir="$(run_cleanup_temp_root)/actfb-cleanup-owned-$$"
 mkdir -p "$tempdir/nested"
 run_cleanup_remove_workdir "$tempdir" >/dev/null 2>&1
 if [[ -d "$tempdir" ]]; then fail 'workdir: own temp dir not removed'; else pass 'workdir: own temp dir removed'; fi
+
+# The fixed /tmp/opencode default must be accepted even when TMPDIR points
+# somewhere else, because the runners default their workdir there.
+fixed_default="/tmp/opencode/actfb-cleanup-fixed-$$"
+mkdir -p "$fixed_default"
+run_cleanup_remove_workdir "$fixed_default" >/dev/null 2>&1
+if [[ -d "$fixed_default" ]]; then fail 'workdir: /tmp/opencode default not removed'; else pass 'workdir: /tmp/opencode default removed'; fi
 
 # --- 8. empty difference set is a no-op on any host ----------------------
 new_state
