@@ -177,3 +177,140 @@ non-nil error from the envelope write, the logged cause becomes the write error.
   and I2 asks for the baseline evidence to be recorded.
 - I did not exercise the admin UI in a browser; I1 is read from the component code paths only.
 - No Docker/Podman image, migration run or frontend test was performed.
+
+---
+
+# Re-review: I1, I2 and M1–M5 fixes
+
+Date: 2026-11-26
+Range: `33e9247dcbdf42ece2d8f1bb6aad7c1692c1f2a6..34829fef8333beafa77facdc0362648d348f2f5e`
+(`b561355` admin join-code surface, `34829fe` dependency detail/root cause/503; 23 files, +1120/−168)
+Method: read-only static re-review of that diff only, plus the cited code paths and the new tests. Same
+constraints as above: no builds, no `go test`, no Bun/vitest/Playwright run, no servers, no Docker, no
+subagents, no product edits. Only this file was appended.
+
+## Verdict
+
+**APPROVED. No Critical finding, no Important finding remaining.**
+
+I1 is closed at the right layer (UI only, no API/DTO change, no new design domain), I2's baseline is now
+documented with an exact command, output and cause chain that I independently verified against the code, and
+M1–M5 are each fixed as claimed with tests that assert behaviour rather than implementation. Nothing in the
+range weakens authorization, changes a route, an envelope, or a permission, and no new log field can carry a
+plaintext code, hash, JWT, password, DSN, request body, SQL text/parameters or raw PostgreSQL `DETAIL`.
+
+Minor observations are listed at the end as deferred; none of them blocks publishing.
+
+## I1 — canonical join code is the only automatic code surface
+
+- `BoardSettingsDialog.vue` no longer talks to the deprecated route at all: `loadInvite`, `copyInvite`,
+  `rotateInvite`, `rotateConfirmOpen`, `rotateError` and the `accessMode === 'INVITE'` prefetch trigger are
+  gone; the only remaining `boardsApi` use in that file is `createBoard`/`updateBoard`
+  (`frontend/src/features/admin/components/BoardSettingsDialog.vue:249-250`). The `INVITE` block is now a
+  static hand-off to the Join code panel (`:360-366`) and no longer contains an `ErrorAlert`.
+- `AdminBoardPage.vue:56` introduces `legacyInviteOpen = ref(false)`; the ghost action at `:277-279` is the
+  only entry point and `InviteCodePanel` is mounted only under `v-if="legacyInviteOpen"` (`:280`). The
+  automatic surface remains `JoinCodePanel` (`:270-274`, `canEditBoard` gated, every access mode).
+- `InviteCodePanel.vue:9,44-47,102-104` treats the documented `422 INVALID_INVITE_CODE` as a neutral
+  "This board has no legacy invite code" empty state instead of a destructive alert; the request is still
+  only issued from the explicit `load()` click (`:115-117`), and a configured legacy code renders and rotates
+  exactly as before (`:36-41`, `:55-65`). Pre-020 reveal compatibility is preserved and covered.
+- `requiresInviteCode` is removed (`frontend/src/features/boards/accessMode.ts:23-30`) with no dangling
+  references anywhere in `frontend/src` or `e2e`.
+- The new tests are not vacuous: the strings they assert exist in the real components
+  (`JoinCodePanel.vue:164` `not configured`, `:175` `Generate join code`, `:198` `Set custom code`,
+  `AdminBoardPage.vue:278` `Legacy invite code (pre-join-code boards)`), the `ApiError` fixture matches the
+  real constructor (`frontend/src/shared/api/errors.ts:19-33`), the mocks match the real call shapes
+  (`getBoardJoinCodeStatus(boardUuid)`, `audiencesApi.adminList(boardUuid, 100, 0)`), and `canEditBoard`
+  really is true in the fixture because it is admin-derived (`AdminBoardPage.vue:37,65`,
+  `permissions.ts:4-9`), so `JoinCodePanel` genuinely renders.
+- E2E (`e2e/tests/default-profile.spec.ts:351-420`) asserts zero `/invite-code` requests, no
+  "Could not read/load the invite code" text, a 26-character generated code, and a second real user joining
+  through `BoardPage.vue:155-162` ("Enter board code") with `Joined: yes` (`BoardPage.vue:240`). Its helpers
+  (`signIn`, `api`, `accessToken`, `enabled`) are the file's own, and the access-denied path it relies on is
+  real (`BoardPage.vue:160`).
+
+## I2 — the baseline failure is now documented honestly
+
+The report's "Pre-existing baseline failure" section records the worktree, the full commit
+`cb056ff69c56fde633960c6f4d9bdbf4f5f1fd5a` (matches `git rev-parse cb056ff`), the identical DSN and flags, the
+exact command and the exact output. I verified the causal chain it claims, and every reference is correct:
+
+- `StartTask` → `start` (`internal/instances/service.go:276-282`) authorizes at line 280, i.e. **before**
+  `loadSource`, before the binding lookup and before any registry/driver call → "no driver called" is provable
+  from the code, not inferred from container counts.
+- `authorizeParticipant` `:613` → `requireParticipantEligibility` `:626` →
+  `access.CanAccessModuleAsParticipant` → `isBoardParticipant` false branch
+  (`internal/access/postgres.go:523-526`) → `forbidden()` (`internal/instances/errors.go:82`), whose
+  `Error()` formats `CODE: message` (`:50-55`), producing exactly `FORBIDDEN: access denied`.
+- `seedDockerFixture` (`internal/instances/docker_lifetime_test.go:26-95`) inserts user, board, module, task,
+  integration, template, version, binding, allowlist and module settings — and **no** `board_participants` row.
+  The documented cause is therefore correct, and the failure is a fixture/ABAC gap, not a Docker dependency.
+  The failing assertion is `:152`, as quoted.
+- Range isolation is accurate: `git diff --name-only cb056ff..34829fe` touches only `docs/`, `e2e/tests`,
+  `frontend/src`, `internal/boards`, `internal/httpapi`.
+- The suite status is stated as "49 packages ok, 1 pre-existing failure" and explicitly "recorded, not fixed,
+  and it is not claimed as green". That is the honest form of a not-green suite; nothing is asserted as green
+  that is not.
+
+## M1–M5
+
+| Item | Where | Assessment |
+| --- | --- | --- |
+| M1 name + detail | `internal/boards/errors.go:85-134`, `internal/httpapi/problem.go:143-186` | Fixed: the dependency is matched first, `DependencyCause()` is classified as a leaf, so `dependency=<name>` and `cause_code=postgres\|timeout\|canceled\|network\|error` coexist; no cause → `cause_code=dependency`. `Unwrap() []error` keeps `errors.Is(err, ErrDependencyUnavailable)` working, and no `errors.Unwrap` caller exists in the tree, so dropping single-unwrap compatibility breaks nothing. |
+| M2 decrypt stays 503 | `internal/boards/service_board_invites.go:25-31`, `internal/boards/service_teams.go:142-146` | Fixed: sealer failures map to `credential_sealer`; with the nil sealer the existing typed error is returned unchanged rather than nested (`errors.go:129-132`). Covered by `TestLegacyInviteDecryptFailureKeepsDependencyStatus`. |
+| M3 frames-only stack | `internal/httpapi/problem.go:204-239`, `internal/httpapi/router.go:264` | Fixed: `runtime.Callers`/`CallersFrames`, function + `filepath.Base` + line, 24 frames / 4 KiB caps; `runtime/debug` is no longer imported anywhere in `internal/httpapi`. No argument words, no pointers, no absolute paths. |
+| M4 named audience dependency | `internal/boards/http/errors.go:388-392` | Fixed, and the 503 mapping is unchanged. Covered by `TestWriteAccessErrorNamesTheDependency`. |
+| M5 first cause wins | `internal/httpapi/problem.go:116-125` | Fixed: an adapter-recorded cause survives a later returned error, still one line. Covered by `TestLaterReturnedErrorKeepsAdapterCause`. |
+
+## Security re-check on the new code
+
+- No route, handler registration, permission check, access-mode rule, join-code validation or response
+  envelope changed in this range; `internal/boards/service_join_codes.go` and the 020 contract are untouched.
+- PostgreSQL payload is still absent: `postgresSummary` is unchanged and only emits
+  `postgres SQLSTATE=… table=… constraint=…` (`problem.go:191-199`); a PostgreSQL error nested inside a
+  dependency now reaches that same summariser, never the driver `Message`/`Detail`/`Where`/`File`.
+- Join codes: 4xx lines carry no `cause` at all (`router.go` early return for `<500`), `code=` redaction stays
+  in `sanitizeCause`, and `TestSubmittedJoinCodeNeverReachesLogs` proves neither an issued custom code nor a
+  submitted wrong code appears in the single line, which still carries `JOIN_CODE_INVALID`.
+- The stack value contains only package/function identifiers, base file names and line numbers; the panic
+  value itself still goes through `sanitizeCause`.
+
+## Minor (deferred; no action required for approval)
+
+1. The fix report's "Verification actually run" block does not list the default-profile Chromium E2E and its
+   result; only `docs/implementation-plan.md` mentions it. One line there would make the published record
+   self-contained.
+2. The report's M1 bullet claims the dependency + PostgreSQL combination logs SQLSTATE/table/constraint, but
+   the unit test uses a plain error. The path is correct by construction (`classifyLeafCause`); a case with a
+   `*pgconn.PgError` inside `dependencyUnavailableCause` would pin it.
+3. `internal/httpapi/problem.go:150` asserts `err.(dependencyCauser)` directly while the namer is found with
+   `errors.As` (`:148`). A *wrapped* `DependencyError` therefore falls back to `cause_code=dependency` with the
+   wrapper text. Still safe and single-line; `errors.As` would make the two lookups consistent.
+4. Truncation at `problem.go:236-237` can split a rune or a line; the JSON encoder substitutes invalid bytes,
+   so this is cosmetic only.
+5. The first-cause guard uses `diag.Cause == ""`, so a cause whose sanitized text is empty could still be
+   replaced by a later one. No leak, no double line; a recorded flag would be exact.
+6. `InviteCodePanel`'s neutral empty state has no dismiss control; it clears on unmount or on the next toggle
+   from the board page.
+7. `AdminBoardPage.test.ts` mocks `vue-router` with only `useRoute`, so `RouterLink` is unresolved during that
+   test (warning only; the assertions are DOM/button based).
+
+## Scope still explicitly deferred
+
+Only the board adapter records a cause. `users`, `files`, `deployment`, `instances`, `access`,
+`authorization`, `integrations`, `plugins`, `attackdefense` and `site` keep the single-line behaviour and the
+5xx level change but not a recorded cause, and the nil-service guards in
+`internal/boards/http/audience_handlers.go` / `file_handlers.go` still return the bare
+`boards.ErrDependencyUnavailable` (no `dependency` field). Both are stated in the report and unchanged here;
+they are the next slice, not a regression from this one. Editor/Markdown work remains out of scope.
+
+## Limits of this re-review
+
+I did not run any command that executes product code: the 49/1 suite result, the race runs, the
+`35 files / 184 tests` frontend result, `typecheck`, `build`, the single real-browser E2E pass and the
+`Docker 29.10.0` observation are quoted from the implementer's report and main's hand-off. What I did verify
+independently is the source-level truth of every claim those results rest on: the baseline command's cause
+chain, the fixture gap, range isolation, the removed prefetch, the neutral 422 handling, the log fields and
+their redaction, and the 503/`errors.Is` compatibility.
+
