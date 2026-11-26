@@ -385,8 +385,10 @@ func (h *Handler) writeAccessError(c *echo.Context, err error, admin bool) error
 		err = boards.Invalid("body.subjectUuid", "subject is invalid or not a board participant", "INVALID_VALUE")
 	case errors.Is(err, access.ErrPublicBoardGroups):
 		err = boards.Invalid("body.accessGroupUuids", "public boards cannot use access groups", "INVALID_VALUE")
-	case errors.Is(err, access.ErrNoDatabase), errors.Is(err, access.ErrNoAuthorizer):
-		err = boards.ErrDependencyUnavailable
+	case errors.Is(err, access.ErrNoDatabase):
+		err = boards.DependencyUnavailable("database")
+	case errors.Is(err, access.ErrNoAuthorizer):
+		err = boards.DependencyUnavailable("authorizer")
 	}
 	if admin {
 		return writeAdminError(c, err)

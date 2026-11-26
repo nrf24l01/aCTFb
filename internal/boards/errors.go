@@ -84,7 +84,7 @@ var (
 // boundary can log a stable, actionable dependency identifier.
 type DependencyError struct {
 	Dependency string
-	Err        error
+	Cause      error
 }
 
 func (e *DependencyError) Error() string {
@@ -94,27 +94,43 @@ func (e *DependencyError) Error() string {
 	return "boards: dependency unavailable: " + e.Dependency
 }
 
-func (e *DependencyError) Unwrap() error {
-	if e.Err != nil {
-		return e.Err
+// Unwrap exposes both the stable sentinel and the underlying failure, so
+// errors.Is(err, ErrDependencyUnavailable) keeps matching and a specific cause
+// (for example a PostgreSQL error) stays reachable for classification.
+func (e *DependencyError) Unwrap() []error {
+	if e.Cause == nil {
+		return []error{ErrDependencyUnavailable}
 	}
-	return ErrDependencyUnavailable
+	return []error{ErrDependencyUnavailable, e.Cause}
 }
 
 // DependencyName satisfies the HTTP boundary's typed dependency interface.
 func (e *DependencyError) DependencyName() string { return e.Dependency }
 
+// DependencyCause exposes the underlying failure so the log can name the
+// dependency and still report the actionable detail.
+func (e *DependencyError) DependencyCause() error { return e.Cause }
+
+// DependencyUnavailable is the exported form for adapters that map another
+// package's "not configured" sentinel at the HTTP boundary.
+func DependencyUnavailable(name string) error { return dependencyUnavailable(name) }
+
 func dependencyUnavailable(name string) error {
-	return &DependencyError{Dependency: name, Err: ErrDependencyUnavailable}
+	return &DependencyError{Dependency: name}
 }
 
 // dependencyUnavailableCause keeps the underlying failure (for the server log)
-// while errors.Is(err, ErrDependencyUnavailable) still matches.
+// while errors.Is(err, ErrDependencyUnavailable) still matches. An existing
+// typed dependency error is returned unchanged instead of being nested.
 func dependencyUnavailableCause(name string, cause error) error {
 	if cause == nil {
 		return dependencyUnavailable(name)
 	}
-	return &DependencyError{Dependency: name, Err: errors.Join(ErrDependencyUnavailable, cause)}
+	var existing *DependencyError
+	if errors.As(cause, &existing) {
+		return existing
+	}
+	return &DependencyError{Dependency: name, Cause: cause}
 }
 
 // RateLimitError carries the limiter's actual remaining window so HTTP can

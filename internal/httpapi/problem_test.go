@@ -335,3 +335,126 @@ func TestPanicWithoutAccessLogStillLogs(t *testing.T) {
 		}
 	}
 }
+
+// dependencyCauseError is a dependency failure with an underlying detail.
+type dependencyCauseError struct {
+	dependency string
+	cause      error
+}
+
+func (e dependencyCauseError) Error() string {
+	return "boards: dependency unavailable: " + e.dependency
+}
+func (e dependencyCauseError) DependencyName() string { return e.dependency }
+func (e dependencyCauseError) DependencyCause() error { return e.cause }
+
+// TestDependencyCauseKeepsNameAndDetail: a named dependency must not hide the
+// underlying detail, and the detail must not hide the dependency name.
+func TestDependencyCauseKeepsNameAndDetail(t *testing.T) {
+	var logs strings.Builder
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	router := NewRouter(logger, func(context.Context) error { return nil })
+	router.GET("/api/v2/admin/boards/x/invite-code", func(c *echo.Context) error {
+		RecordProblem(c, Problem{
+			Status: http.StatusServiceUnavailable,
+			Code:   "DEPENDENCY_UNAVAILABLE",
+			Cause: dependencyCauseError{
+				dependency: "credential_sealer",
+				cause:      errors.New("cipher: message authentication failed"),
+			},
+		})
+		return writeAPIError(c, http.StatusServiceUnavailable, oapimodels.ErrorCodeDEPENDENCYUNAVAILABLE, "Service unavailable")
+	})
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v2/admin/boards/x/invite-code", nil))
+
+	line := logLines(&logs)[0]
+	for _, want := range []string{
+		`"level":"ERROR"`, `"status":503`, `"dependency":"credential_sealer"`,
+		`"cause":"cipher: message authentication failed"`, `"cause_code":"error"`,
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("log line missing %s: %s", want, line)
+		}
+	}
+}
+
+// TestDependencyWithoutCauseIsClassifiedAsDependency: a known dependency error
+// with no detail is still a dependency, never a generic "error".
+func TestDependencyWithoutCauseIsClassifiedAsDependency(t *testing.T) {
+	var logs strings.Builder
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	router := NewRouter(logger, func(context.Context) error { return nil })
+	router.GET("/api/v2/admin/boards", func(c *echo.Context) error {
+		RecordProblem(c, Problem{
+			Status: http.StatusServiceUnavailable,
+			Code:   "DEPENDENCY_UNAVAILABLE",
+			Cause:  dependencyTestError{dependency: "board_store"},
+		})
+		return writeAPIError(c, http.StatusServiceUnavailable, oapimodels.ErrorCodeDEPENDENCYUNAVAILABLE, "Service unavailable")
+	})
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v2/admin/boards", nil))
+
+	line := logLines(&logs)[0]
+	for _, want := range []string{`"cause_code":"dependency"`, `"dependency":"board_store"`} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("log line missing %s: %s", want, line)
+		}
+	}
+}
+
+// TestLaterReturnedErrorKeepsAdapterCause: the adapter records the real cause,
+// then the envelope write returns an error. The root cause must survive.
+func TestLaterReturnedErrorKeepsAdapterCause(t *testing.T) {
+	var logs strings.Builder
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	router := NewRouter(logger, func(context.Context) error { return nil })
+	router.GET("/api/v2/admin/boards", func(c *echo.Context) error {
+		RecordProblem(c, Problem{
+			Status: http.StatusServiceUnavailable,
+			Code:   "DEPENDENCY_UNAVAILABLE",
+			Cause:  dependencyTestError{dependency: "credential_sealer"},
+		})
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "response writer failed")
+	})
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v2/admin/boards", nil))
+
+	lines := logLines(&logs)
+	if len(lines) != 1 {
+		t.Fatalf("got %d log lines, want exactly 1: %v", len(lines), lines)
+	}
+	line := lines[0]
+	if !strings.Contains(line, `"dependency":"credential_sealer"`) {
+		t.Fatalf("adapter dependency cause was lost: %s", line)
+	}
+	if strings.Contains(line, "response writer failed") {
+		t.Fatalf("the later write error replaced the root cause: %s", line)
+	}
+}
+
+// TestStackIsFramesOnly: the panic stack is source frames, not raw memory words.
+func TestStackIsFramesOnly(t *testing.T) {
+	var logs strings.Builder
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	router := NewRouter(logger, func(context.Context) error { return nil })
+	router.GET("/api/v2/admin/boards", func(*echo.Context) error { panic("boom") })
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v2/admin/boards", nil))
+
+	line := logLines(&logs)[0]
+	if !strings.Contains(line, `"stack":"`) || !strings.Contains(line, "httpapi") {
+		t.Fatalf("stack is not a usable frame list: %s", line)
+	}
+	if strings.Contains(line, "0x") {
+		t.Fatalf("stack contains raw pointers/argument words: %s", line)
+	}
+	if strings.Contains(line, "/home/") {
+		t.Fatalf("stack leaks absolute source paths: %s", line)
+	}
+}

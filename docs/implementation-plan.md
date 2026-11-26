@@ -867,7 +867,17 @@ Bounded on purpose: only the board adapter records a cause today. `users`, `file
 behaviour and level change but not the cause until their mappers are wired the same way.
 
 Verification: `go build ./...`, `go vet ./...`, `gofmt` clean, `go test ./...` against a native PostgreSQL 18.7
-cluster (49 packages ok, one pre-existing Docker-runtime failure at `cb056ff`), and
-`go test -race ./internal/boards ./internal/boards/http ./internal/httpapi`. Details in
-`docs/board-save-errors-fix.md`. Status: **implemented locally; main review pending. No frontend or editor
-work included.**
+cluster (49 packages ok, one pre-existing failure at `cb056ff`), and
+`go test -race ./internal/boards ./internal/boards/http ./internal/httpapi ./internal/authorization ./internal/access`.
+Details in `docs/board-save-errors-fix.md`.
+
+Review follow-up (`docs/board-save-errors-review.md`): I1 — the admin UI now treats the canonical Join code
+panel as the only automatic code surface, the settings dialog no longer reads the deprecated route, and the
+legacy reveal is an explicit advanced action with a neutral no-legacy-code state; covered by component tests
+and a default-profile Chromium E2E that creates an INVITE board, generates a code in the panel and has a
+participant join with it. I2 — the baseline command, output and the real cause of the single failing package
+are recorded in the report; it is a pre-existing fixture/ABAC gap (no `board_participants` row), not a Docker
+dependency, and it is not claimed green. M1–M5 (dependency detail, 503 on decrypt failure, frames-only stack,
+named audience dependencies, first-cause-wins) are fixed with tests.
+
+Status: **implemented locally; main re-review pending. No Markdown editor work included.**

@@ -418,3 +418,27 @@ func TestJoinCodeShapeRejectsInvalid(t *testing.T) {
 
 // ensure the boards package sentinel used above stays referenced for clarity.
 var _ = boards.ErrJoinCodeInvalid
+
+// TestLegacyInviteDecryptFailureKeepsDependencyStatus covers review M2: a
+// corrupt sealed envelope (or an unknown key version) is a dependency failure,
+// so it keeps the documented 503 instead of becoming an internal 500.
+func TestLegacyInviteDecryptFailureKeepsDependencyStatus(t *testing.T) {
+	f := newJoinCodeHTTPFixture(t, "PRIVATE", "INVITE_ONLY", "", false)
+
+	// A hash exists, but the ciphertext cannot be opened by the configured key.
+	if _, err := f.db.Pool.Exec(f.ctx, `
+		UPDATE boards SET invite_code_hash=$2, invite_code_ciphertext=$3 WHERE id=$1
+	`, f.boardID, "legacy-hash-value", []byte("not-a-valid-envelope")); err != nil {
+		t.Fatalf("seed corrupt legacy invite: %v", err)
+	}
+
+	body := doJSON(t, f.router, http.MethodGet, "/api/v2/admin/boards/"+f.boardID+"/invite-code",
+		f.admin, nil, nil, http.StatusServiceUnavailable)
+	apiErr := decode[oapimodels.APIError](t, body, http.StatusServiceUnavailable)
+	if apiErr.Code == nil || *apiErr.Code != oapimodels.ErrorCodeDEPENDENCYUNAVAILABLE {
+		t.Fatalf("code = %v, want DEPENDENCY_UNAVAILABLE", apiErr.Code)
+	}
+	if apiErr.Message == nil || *apiErr.Message != "Service unavailable" {
+		t.Fatalf("message = %v, want the documented generic message", apiErr.Message)
+	}
+}

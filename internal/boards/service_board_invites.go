@@ -24,7 +24,10 @@ func (s *Service) GetBoardInviteCode(ctx context.Context, principal authorizatio
 	}
 	code, err := s.openInvite(ciphertext, boardInviteAAD(boardID))
 	if err != nil {
-		return nil, err
+		// A corrupt envelope or an unknown key version is a dependency failure,
+		// not an internal one: keep the documented 503 instead of silently
+		// changing the client status.
+		return nil, dependencyUnavailableCause("credential_sealer", err)
 	}
 	return &BoardInvite{InviteCode: code, ExpiresAt: expiresAt}, nil
 }

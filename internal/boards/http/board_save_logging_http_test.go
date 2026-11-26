@@ -2,6 +2,7 @@ package http
 
 import (
 	"log/slog"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -65,4 +66,51 @@ func splitLogLines(output string) []string {
 		}
 	}
 	return lines
+}
+
+// TestSubmittedJoinCodeNeverReachesLogs covers review's redaction concern: a
+// custom code is an unlabelled secret, so no error text may carry it. The join
+// rejection must stay generic and the log must not echo the submitted value.
+func TestSubmittedJoinCodeNeverReachesLogs(t *testing.T) {
+	var logs strings.Builder
+	f := newNoSealerBoardFixtureWith(t, slog.New(slog.NewJSONHandler(&logs, nil)))
+
+	board := decode[oapimodels.AdminBoard](t, f.createBoard(t, inviteBoardPayload("log-code-"+uuid.NewString()[:8]), 201), 201)
+	boardID := string(*board.UUID)
+	if _, err := f.db.Pool.Exec(f.ctx, `UPDATE boards SET status='ACTIVE' WHERE id=$1`, boardID); err != nil {
+		t.Fatalf("activate board: %v", err)
+	}
+
+	// The organizer issues a distinctive custom code; its plaintext is returned
+	// once and must never be logged by any later request.
+	const custom = "CUSTOM-SECRET-CODE-0001"
+	issued := decode[oapimodels.BoardJoinCodeResponse](t, doJSON(t, f.router, http.MethodPost,
+		"/api/v2/admin/boards/"+boardID+"/join-code", f.admin,
+		map[string]any{"code": custom}, nil, 200), 200)
+	if issued.Code == nil || *issued.Code != custom {
+		t.Fatalf("custom code = %v", issued.Code)
+	}
+
+	logs.Reset()
+	// A wrong code from a participant is the documented generic 403.
+	participant := f.newUser(t, "log_code_participant")
+	const wrong = "WRONG-SECRET-CODE-9Z"
+	body := doJSON(t, f.router, http.MethodPost, "/api/v2/boards/join", participant,
+		map[string]any{"code": wrong}, nil, 403)
+	if strings.Contains(string(body), wrong) {
+		t.Fatalf("response echoed the submitted code: %s", body)
+	}
+
+	lines := splitLogLines(logs.String())
+	if len(lines) != 1 {
+		t.Fatalf("got %d log lines, want exactly 1: %v", len(lines), lines)
+	}
+	for _, secret := range []string{custom, wrong, "CUSTOM-SECRET", "WRONG-SECRET"} {
+		if strings.Contains(lines[0], secret) {
+			t.Fatalf("log leaked the join code %q: %s", secret, lines[0])
+		}
+	}
+	if !strings.Contains(lines[0], `"error_code":"JOIN_CODE_INVALID"`) {
+		t.Fatalf("log lost the stable code: %s", lines[0])
+	}
 }

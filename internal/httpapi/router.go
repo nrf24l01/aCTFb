@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
-	"runtime/debug"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -262,7 +261,7 @@ func recoveryMiddleware(logger *slog.Logger) echo.MiddlewareFunc {
 					Code:      string(oapimodels.ErrorCodeINTERNALERROR),
 					Operation: "panic",
 					Cause:     fmt.Errorf("panic: %v", recovered),
-					Stack:     string(debug.Stack()),
+					Stack:     stackFrames(),
 				})
 
 				// Without the access log no other line would report this panic, so

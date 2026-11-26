@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"net"
+	"path/filepath"
 	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -43,6 +46,12 @@ const maxCauseLength = 512
 // this package importing that domain.
 type DependencyNamer interface {
 	DependencyName() string
+}
+
+// dependencyCauser exposes the underlying failure behind a named dependency, so
+// the log keeps both the stable name and the actionable detail.
+type dependencyCauser interface {
+	DependencyCause() error
 }
 
 // Diagnostic is the safe, already-sanitized summary of a failed request. It
@@ -104,7 +113,10 @@ func RecordProblem(c *echo.Context, p Problem) {
 	if p.Stack != "" && diag.Stack == "" {
 		diag.Stack = p.Stack
 	}
-	if p.Cause != nil {
+	// The first recorded cause wins. An adapter records the real failure before
+	// it maps to the generic envelope; a later error (for example a failed
+	// envelope write) must not replace that root cause in the log.
+	if p.Cause != nil && diag.Cause == "" {
 		causeCode, cause, dependency := classifyCause(p.Cause)
 		diag.CauseCode = causeCode
 		diag.Cause = cause
@@ -124,37 +136,53 @@ func recordedProblem(c *echo.Context) (Diagnostic, bool) {
 }
 
 // classifyCause turns an arbitrary error into a stable class plus a bounded,
-// sanitized description. Payload-bearing parts of database errors (message,
-// detail, where, SQL text) are dropped entirely.
+// sanitized description. A named dependency keeps its name *and* the underlying
+// detail; a dependency with no detail is classified as a dependency rather than
+// a generic error. Payload-bearing parts of database errors (message, detail,
+// where, SQL text) are dropped entirely.
 func classifyCause(err error) (causeCode, cause, dependency string) {
 	if err == nil {
 		return "", "", ""
 	}
+	var namer DependencyNamer
+	if errors.As(err, &namer) {
+		dependency = namer.DependencyName()
+		if causer, ok := err.(dependencyCauser); ok {
+			if inner := causer.DependencyCause(); inner != nil {
+				code, text := classifyLeafCause(inner)
+				return code, text, dependency
+			}
+		}
+		return CauseCodeDependency, sanitizeCause(err.Error()), dependency
+	}
+	code, text := classifyLeafCause(err)
+	return code, text, ""
+}
+
+// classifyLeafCause classifies one concrete failure, ignoring dependency
+// wrappers so a name and a detail can be reported together.
+func classifyLeafCause(err error) (causeCode, cause string) {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		return CauseCodePostgres, postgresSummary(pgErr), ""
+		return CauseCodePostgres, postgresSummary(pgErr)
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return CauseCodeTimeout, "context deadline exceeded", ""
+		return CauseCodeTimeout, "context deadline exceeded"
 	}
 	if errors.Is(err, context.Canceled) {
-		return CauseCodeCanceled, "request context canceled", ""
+		return CauseCodeCanceled, "request context canceled"
 	}
 	// A returned *echo.HTTPError stringifies as "code=..., message=..."; its
 	// Message is the actionable part.
 	var httpErr *echo.HTTPError
 	if errors.As(err, &httpErr) && httpErr.Message != "" {
-		return CauseCodeError, sanitizeCause(httpErr.Message), ""
-	}
-	var namer DependencyNamer
-	if errors.As(err, &namer) {
-		return CauseCodeDependency, sanitizeCause(err.Error()), namer.DependencyName()
+		return CauseCodeError, sanitizeCause(httpErr.Message)
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		return CauseCodeNetwork, sanitizeCause(err.Error()), ""
+		return CauseCodeNetwork, sanitizeCause(err.Error())
 	}
-	return CauseCodeError, sanitizeCause(err.Error()), ""
+	return CauseCodeError, sanitizeCause(err.Error())
 }
 
 // postgresSummary reports the actionable, non-payload identifiers only:
@@ -172,6 +200,44 @@ func postgresSummary(err *pgconn.PgError) string {
 }
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z0-9_.$-]{1,64}$`)
+
+// maxStackFrames and maxStackBytes bound the panic trace in the log line.
+const (
+	maxStackFrames = 24
+	maxStackBytes  = 4096
+)
+
+// stackFrames renders the caller chain as function + base file + line. It
+// deliberately avoids runtime/debug.Stack: that output includes raw argument
+// words and absolute source paths, which are neither actionable nor desirable
+// in a production log.
+func stackFrames() string {
+	pcs := make([]uintptr, maxStackFrames)
+	count := runtime.Callers(3, pcs)
+	frames := runtime.CallersFrames(pcs[:count])
+	var builder strings.Builder
+	for {
+		frame, more := frames.Next()
+		if frame.Function != "" {
+			builder.WriteString(frame.Function)
+			if frame.File != "" {
+				builder.WriteString(" ")
+				builder.WriteString(filepath.Base(frame.File))
+				builder.WriteString(":")
+				builder.WriteString(strconv.Itoa(frame.Line))
+			}
+			builder.WriteString("\n")
+		}
+		if !more || builder.Len() >= maxStackBytes {
+			break
+		}
+	}
+	out := builder.String()
+	if len(out) > maxStackBytes {
+		out = out[:maxStackBytes]
+	}
+	return out
+}
 
 // safeIdentifier keeps a schema object name only when it has a plain shape.
 func safeIdentifier(value string) string {

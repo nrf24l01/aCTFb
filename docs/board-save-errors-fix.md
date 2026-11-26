@@ -169,12 +169,87 @@ New RED → GREEN coverage:
 | `TestUnknownErrorSecretsAreRedacted` | same | DSN, password, JWT, bearer and `code=` never reach the log |
 | `TestReturnedHTTPErrorLogsOnce` | same | a returned error is actionable and logged once |
 | `TestDependencyNameFromErrorIsRecorded` | same | dependency names come from a typed error, not message parsing |
+| `TestDependencyCauseKeepsNameAndDetail` | same | a named dependency keeps its name *and* the underlying detail |
+| `TestDependencyWithoutCauseIsClassifiedAsDependency` | same | a known dependency with no detail is `cause_code=dependency`, not `error` |
+| `TestLaterReturnedErrorKeepsAdapterCause` | same | a later write error cannot replace the adapter-recorded root cause |
+| `TestStackIsFramesOnly` | same | panic stack is frames only: no pointers, no absolute paths |
+| `TestLegacyInviteDecryptFailureKeepsDependencyStatus` | `internal/boards/http/join_code_extra_http_test.go` | corrupt legacy envelope stays `503`, not `500` |
+| `TestWriteAccessErrorNamesTheDependency` | `internal/boards/http/errors_mapping_test.go` | audience 503s carry `dependency=database`/`authorizer` |
+| `TestSubmittedJoinCodeNeverReachesLogs` | `internal/boards/http/board_save_logging_http_test.go` | neither an issued nor a submitted custom code appears in logs |
 
 Adjusted for the corrected behaviour (they previously relied on create auto-minting a legacy invite):
 
 * `internal/boards/access_mode_pg_test.go`, `internal/boards/http/join_code_extra_http_test.go` and
   `internal/boards/http/p1r_http_test.go` now seed the pre-020 legacy row directly (or use the canonical
   join-code route). The legacy compatibility assertions themselves are unchanged.
+
+## Review hygiene fixes (M1–M5)
+
+* **M1 — the dependency name and its detail are both logged.** `classifyCause` now checks the typed
+  dependency first and classifies the underlying cause separately, so a PostgreSQL failure wrapped in a
+  dependency keeps `dependency=<name>` *and* `cause_code=postgres` with SQLSTATE/table/constraint. A named
+  dependency with no detail reports `cause_code=dependency`, never a generic `error`.
+  `DependencyError` exposes `DependencyCause()` and unwraps to both the sentinel and the cause.
+* **M2 — a decrypt failure keeps the documented status.** `GetBoardInviteCode` and `TeamInviteKey` map a
+  sealer failure (corrupt envelope, unknown key version) to the typed `credential_sealer` dependency, so it
+  stays `503 DEPENDENCY_UNAVAILABLE` as before instead of silently becoming `500`. RED evidence: with the
+  wrapping removed the test observed `500 INTERNAL_ERROR`.
+* **M3 — panic stacks are frames only.** `runtime.Callers`/`CallersFrames` replaces `runtime/debug.Stack`:
+  function, base file name and line, capped at 24 frames / 4096 bytes. No argument words, no `0x` pointers,
+  no absolute source paths. Test asserts all three absences.
+* **M4 — audience 503s name their dependency.** `writeAccessError` maps `access.ErrNoDatabase` /
+  `ErrNoAuthorizer` through `boards.DependencyUnavailable("database"|"authorizer")`. RED evidence: the same
+  test previously logged `cause_code=error` with no `dependency`.
+* **M5 — a later write error cannot erase the root cause.** `RecordProblem` keeps the first recorded cause;
+  a subsequent error (for example a failed envelope write) no longer replaces it. Test covers exactly that
+  ordering and asserts a single log line.
+
+Redaction guard for unlabelled secrets: a custom join code is an opaque string that no pattern can recognise,
+so the guarantee is that controlled error paths never put it into a cause at all. `TestSubmittedJoinCodeNeverReachesLogs`
+issues a distinctive custom code, then rejects a different distinctive wrong code and asserts neither the
+successful plaintext nor the submitted value appears in the single log line, which still carries
+`error_code=JOIN_CODE_INVALID`.
+
+## Pre-existing baseline failure (review I2)
+
+Claim under test: the one failing package is unrelated to this range and already fails at `cb056ff`.
+
+Exact commands, same environment, same DSN, same flags:
+
+```text
+# baseline (detached worktree at the pre-fix commit)
+git worktree add /tmp/opencode/baseline-i2 cb056ff
+cd /tmp/opencode/baseline-i2 && git rev-parse HEAD
+  cb056ff69c56fde633960c6f4d9bdbf4f5f1fd5a
+ACTFB_TEST_POSTGRES_DSN="postgres://postgres@127.0.0.1:55433/actfb_test?sslmode=disable"   go test ./internal/instances/ -run '^TestRealDockerExpiryCleanupAndExtend$' -count=1 -v
+
+=== RUN   TestRealDockerExpiryCleanupAndExtend
+    docker_lifetime_test.go:152: start: FORBIDDEN: access denied
+--- FAIL: TestRealDockerExpiryCleanupAndExtend (0.18s)
+FAIL	github.com/nrf24l01/actfb/internal/instances	0.183s
+```
+
+The identical failure is observed at `HEAD` in the full run below.
+
+Actual cause, from the code and the run — **not** "Docker is unavailable":
+
+* Docker is present and healthy in this environment (`docker version` → server `29.10.0`), and the fixture
+  image lookup succeeded (the test did not skip).
+* The failure text is produced by the service, not the driver: `docker_lifetime_test.go:152`
+  (`t.Fatalf("start: %v", err)`) wraps `service.StartTask`, and `FORBIDDEN` is
+  `internal/instances/errors.go:82`.
+* `StartTask` → `authorizeParticipant` (`internal/instances/service.go:613`) →
+  `requireParticipantEligibility` (`:626`) → `access.CanAccessModuleAsParticipant`, which returns false when
+  the user has no `board_participants` row (`internal/access/postgres.go:523-526`). `seedDockerFixture`
+  (`internal/instances/docker_lifetime_test.go:26-95`) seeds the user, board, module, task, integration,
+  template, binding and allowlist, but **no participation row**, so the admin principal is not a participant
+  and the request is denied before the driver is called.
+* Corroboration: `docker ps -aq --filter 'label=actfb.instance' | wc -l` → `0` both before and after the
+  run; no container was ever created, so no Docker runtime work happened.
+
+Conclusion: a pre-existing fixture/ABAC gap in `internal/instances`, untouched by this range
+(`git diff --name-only cb056ff..HEAD` covers only `docs/`, `frontend/`, `internal/boards`, `internal/httpapi`).
+It is recorded, not fixed, and it is not claimed as green.
 
 ## Verification actually run
 
@@ -184,8 +259,11 @@ Native PostgreSQL 18.7 cluster, own data directory, own database, own per-test s
 go build ./...                                                   ok
 go vet ./...                                                     ok
 gofmt -l internal cmd api                                        clean
-go test ./... (real DSN)                                         49 packages ok, 1 pre-existing failure
-go test -race ./internal/boards ./internal/boards/http ./internal/httpapi   ok
+ACTFB_TEST_POSTGRES_DSN=… go test -p 1 ./...                     49 packages ok, 1 pre-existing failure
+ACTFB_TEST_POSTGRES_DSN=… go test -race ./internal/boards ./internal/boards/http ./internal/httpapi ./internal/authorization ./internal/access   ok
+cd frontend && bun run test --run                                35 files / 184 tests passed
+cd frontend && bun run typecheck                                 ok
+cd frontend && bun run build                                     ok
 ```
 
 The single failure is `TestRealDockerExpiryCleanupAndExtend` in `internal/instances`. Baseline evidence and the
