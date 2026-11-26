@@ -126,8 +126,11 @@ Board, module and task descriptions and the site introduction are authored with 
 `src/shared/components/MarkdownEditor.vue`; the stored value stays a Markdown string, so `/api/v2`,
 migrations and `deploy/` are unchanged.
 
-- **Write | Preview tabs stay.** The existing dialog layout is unchanged; only the Write body is the
-  editor. Preview still calls `renderMarkdown`.
+- **Direct authoring, no outer tabs.** Board, module and task dialogs and the site introduction
+  mount one Visual editor directly in the form; there is no outer Write/Preview `Tabs` markup,
+  import, `renderMarkdown` preview state or preview-only branch left on those four surfaces. The
+  `tabs` primitive stays installed for unrelated consumers. Visual/Source is the only mode switch,
+  and both modes share the one `v-model` string.
 - **Visual mode** supports paragraphs and hard breaks, bold/italic/strikethrough, headings 1–6,
   bullet/ordered lists, blockquote, inline code, fenced code blocks with a language, links, images,
   GFM tables and horizontal rules. Toolbar controls are named buttons (toolbar buttons are
@@ -147,8 +150,8 @@ migrations and `deploy/` are unchanged.
   lose edits.
 - **Limits.** `DESCRIPTION_MAX_CHARACTERS` is 50,000 and `SITE_INTRO_MAX_CHARACTERS` is 131,072,
   matching the Go rune limits. The counter uses code points (`Array.from`), not UTF-16 units. Each
-  dialog owns exactly one live error message, rendered outside the Write/Preview tabs next to the
-  field label, so an over-limit save from either tab shows the stable "at most 50,000 characters" /
+  dialog owns exactly one live error message, rendered outside the editor next to the field label,
+  so an over-limit save from either editor mode shows the stable "at most 50,000 characters" /
   "at most 131,072 characters" message instead of silently doing nothing. The editor passes
   `show-length-error="false"` there (it would otherwise repeat the same sentence) and mirrors the
   state with `aria-invalid`/`aria-describedby`; the counter stays visible and turns red over the
@@ -162,8 +165,9 @@ migrations and `deploy/` are unchanged.
   highlighter registry and editor features were kept rather than reduced.
 - **Reader rendering.** `BoardPage` and `ModulePage` render their description through
   `renderMarkdown` inside the existing `PageHeader` subtitle slot (`.markdown-body.markdown-body-inline`,
-  compact spacing, no page redesign). `TaskPage`, `LandingPage`, the site page and all three dialog
-  Preview tabs use `.markdown-body`, so what an organizer previews is what a participant reads.
+  compact spacing, no page redesign). `TaskPage`, `LandingPage` and the site page use
+  `.markdown-body`, and the four authoring surfaces render the same shared Markdown typography
+  directly in the editor, so what an organizer authors is what a participant reads.
 - **Reader typography.** `src/style.css` defines one shared block for `.markdown-body` and
   `.markdown-editor .ProseMirror`: headings h1 1.5em / h2 1.3em / h3 1.15em / h4–h6 1em at weight
   600 and line-height 1.3, body line-height 1.5 with 0.75em block spacing, visible `disc`/`decimal`
@@ -193,11 +197,11 @@ migrations and `deploy/` are unchanged.
   documented, not redesigned. Reader tables are not given `tabindex`: no wrapper attributes are
   invented for it. Chromium (132+) makes an overflowing scroll container keyboard-focusable and
   scrollable natively, which is what the Chromium gate exercises; other engines are not claimed.
-- **Deferred polish.** A roving tabindex across the toolbar and tooltips on the two `Select`
-  controls (heading, code language) are deferred: every control is already Tab-reachable and named.
-  Also deferred: Write→Preview→Write unmounts Tiptap and resets undo history and the caret (content
-  is preserved by `v-model`); a fenced block inside the board/module header subtitle; and DOMPurify
-  proof, which exists only in a real browser.
+- **Deferred polish.** A roving tabindex across the toolbar is deferred: every control is already
+  Tab-reachable and named. Also deferred: a fenced block inside the board/module header subtitle,
+  and DOMPurify proof, which exists only in a real browser. Visual→Source→Visual keeps the same
+  form-owned value and does not unmount the surrounding dialog, so undo history and the caret
+  survive responsive resizes (asserted in `desktop-workspaces.spec.ts`).
 
 ### Syntax highlighting registry
 
@@ -220,7 +224,7 @@ the same registry through `safeLowlight`, so an unknown language stays plain in 
 
 ### Gates
 
-- `cd frontend && bun run test:unit -- --maxWorkers=1` — 42 files / 391 tests.
+- `cd frontend && bun run test:unit -- --maxWorkers=1` — 43 files / 403 tests.
 - `bun run typecheck`, `bun run build` — clean; chunk sizes above.
 - `bun run test:e2e -- markdown-render.spec.ts` — 23 tests per project in real Chromium (`chromium`
   and a 375 px Chromium `phone` project): highlighting/contrast, DOMPurify removal and a direct
@@ -229,12 +233,21 @@ the same registry through `safeLowlight`, so an unknown language stays plain in 
   column alignment, prose-cell wrapping without a scroll (two- and three-column), unbroken
   URL/inline-code wrapping, local wide-table scrolling without page overflow, paste filtering,
   source fallback, link row, limits and toolbar wrapping.
+- `desktop-workspaces.spec.ts` — 21 tests per project (16 chromium, 5 phone; the other 5/16 are
+  project-specific skips, not a disabled gate). Real DOM geometry with ±1px assertions: page cap,
+  dialog caps, rail widths, one-column card fallbacks, the 1099/1100, 719/720, 759/760 and
+  1199/1200 threshold neighbours, a real three- then six-template catalog created through the
+  authoring API, the 200% zoom reflow (CSS and device-metrics), Unicode rune counting with exact
+  stored bytes, one editor across resizes, and no duplicate request or orphan form target. See
+  `docs/desktop-workspaces-verification.md` for the measured numbers and screenshots.
 - The CI default-profile runner (`e2e/run-default-profile-e2e.sh`) sets `ACTFB_E2E=1` and executes
-  `rich-text-editor.spec.ts` against the real backend and Vite app; it is not left as a conditional
-  skip. The spec authors all four surfaces through the real dialogs, asserts computed formatting in
-  the module Preview tab and on the participant board/module/task readers, keeps exact Markdown
-  round-trips, checks that the single over-limit message stays visible on the Preview tab with no
-  API call, and reads the saved content as a participant.
+  `markdown-render.spec.ts`, `rich-text-editor.spec.ts` and `desktop-workspaces.spec.ts` against the
+  real backend and Vite app; none is left as a conditional skip. The authoring spec writes all four
+  surfaces through the real dialogs, asserts computed formatting directly in the editor and on the
+  participant board/module/task readers, keeps exact Markdown round-trips, checks that the single
+  over-limit message stays visible with no API call, and reads the saved content as a participant.
+  The `Code language` control is driven by an observable condition (the toolbar's own
+  `aria-pressed`, then the trigger's `aria-expanded`) rather than a retry or a global wait.
 
 ## Scoped authority in the UI
 
@@ -269,6 +282,47 @@ implemented; FLAG automatic checks have no accept/reject control.
 - Desktop sidebar; under 760 px it becomes a Sheet drawer with 44 px minimum controls. Every async surface has
   loading, empty, error/no-permission and populated states; focus-visible outlines are preserved.
 - Server strings are rendered as text (no `v-html`). `description` whitespace is preserved with CSS only.
+
+### Desktop workspaces (content-width layout)
+
+The workspace layout is driven by the **actual usable content width**, not by `window.innerWidth`.
+`PageContainer` is a named inline-size container (`workspace`) with a 1600px outer cap, which is
+1552px of usable content at a 1920px viewport, 1180px at 1440px and 764px at 1024px with the
+persistent 212px sidebar. Every threshold below is measured inside that container, so a wider window
+cannot squeeze a column and a narrower one cannot keep one.
+
+| Rule | Threshold (own container width) | Effect |
+|---|---|---|
+| `.workspace-layout` | 1100px | one column below, `minmax(0,1fr) 320px` at or above (24px gap) |
+| `.workspace-layout--task` | 1100px | one column below, `minmax(0,1fr) 360px` at or above |
+| `.workspace-cards--board` (`board-modules`) | 760px | two module card columns |
+| `.workspace-cards--tasks` (`module-tasks`) | 720px / 1200px | two / three task card columns |
+| `.workspace-cards--admin` (`admin-cards`) | 720px / 1200px | two / three cards (admin hub, template catalog) |
+| `.authoring-body` (`authoring`) | 1040px | dialog main/settings columns |
+| `.authoring-home` (`home-authoring`) | 1100px | site form main/settings columns |
+
+Decisions that follow from this, and why:
+
+- **Rails are fixed, main is fluid.** A 320px management rail (360px for the task reader) stays a
+  predictable width while the main column absorbs the extra space, so a wide screen adds reading and
+  table room instead of stretching narrow controls. Both columns and their grid ancestors carry
+  `min-width: 0`, so a wide table scrolls inside its own panel instead of widening the page.
+- **No `overflow-x: hidden` anywhere.** Document overflow is a real defect and stays observable; the
+  375px legacy invite button was fixed by wrapping instead of being clipped.
+- **Prose keeps a readable measure.** Only text blocks (`p`, headings, lists, blockquotes) get the
+  ~80ch measure inside `.workspace-prose`; `pre` and `table` use the full panel width with local
+  scrolling. Constraining all of `.markdown-body` would squeeze code and tables.
+- **Simple forms stay bounded.** `PageContainer`'s `bounded` variant keeps the profile-like form at
+  its previous 1104px; a wider workspace is not a licence to stretch every input.
+- **Phone.** Below 760px the sidebar becomes a Sheet drawer, controls are at least 44px tall, and the
+  workspace, cards and dialogs all fall back to one column at the 343px content width of a 375px
+  viewport.
+- **Zoom.** At 200% the effective layout viewport halves, so the same container rules reflow the
+  columns instead of shrinking controls. This is asserted two ways in
+  `frontend/e2e/desktop-workspaces.spec.ts`: a CSS-`zoom` pass that proves the container-query
+  reflow, and a Chromium device-metrics pass (960x540 CSS px at devicePixelRatio 2) that also covers
+  the `vw`-based dialog cap. Neither is claimed to be OS-level zoom.
+
 
 ## Development
 

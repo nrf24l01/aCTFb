@@ -1001,12 +1001,16 @@ gates and CI wiring.
   in Chromium (happy-dom cannot exercise DOMPurify/ProseMirror selection); the authoring browser
   gate requires the real backend/PG stack and is not part of the frontend-only job.
 
-**Desktop workspaces and direct authoring (2026-11-26):** status **partial** — Task 1 and Task 2 are
-implemented and locally verified; Task 3 (full responsive acceptance and CI coverage) is not
-started, so the whole feature is not complete and no publication is claimed.
+**Desktop workspaces and direct authoring (2026-11-26):** status **implemented, pending independent
+review and main screenshot inspection** — Tasks 1, 2 and 3 are implemented and locally verified. No
+publication is claimed: nothing is pushed, no CI run was triggered and the main assistant has not yet
+inspected the final screenshots.
 
 - Spec: `docs/superpowers/specs/2026-11-26-desktop-workspaces-design.md`.
 - Plan: `docs/superpowers/plans/2026-11-26-desktop-workspaces.md` (base `0da549e`).
+- Verification record: `docs/desktop-workspaces-verification.md`; responsive decisions and the
+  actual container thresholds are documented in `docs/frontend.md` under "Desktop workspaces
+  (content-width layout)".
 - Task 1 scope: `BoardSettingsDialog`, `ModuleEditorDialog`, `TaskEditorDialog`, `AdminSitePage`,
   their four unit test files, `frontend/e2e/rich-text-editor.spec.ts`,
   `frontend/e2e/desktop-workspaces.spec.ts` and narrowly scoped authoring geometry in
@@ -1056,9 +1060,11 @@ started, so the whole feature is not complete and no publication is claimed.
   outer / 1552px usable and the site form measures 1552 at 1920 and 1180 at 1440. The pre-existing
   7px document overflow at 375px from the legacy invite button was not hidden with
   `overflow-x: hidden`; Task 2 fixes the button wrapping and the document is 375px wide. The
-  INSTANCE browser check is a layout check under a profile where deployment templates are
-  disabled, not provider execution; the root default-profile 5-test suite was not rerun in Task 1;
-  independent review and main screenshot inspection are still required before publication.
+  INSTANCE browser check is a layout check: with `deployment.enabled=false` the runtime instance
+  binding endpoint is unregistered while the template catalog stays available, so this is not
+  provider execution (Task 3 corrected the earlier "catalog disabled" wording); the root
+  default-profile 5-test suite was not rerun in Task 1; independent review and main screenshot
+  inspection are still required before publication.
 
 **Task 2 — shared workspace and reader/organizer views (2026-11-26):** implemented, pending
 independent review. Base `9c4466b`; source and tests in `006809d`. Frontend-only; no backend, API,
@@ -1111,8 +1117,14 @@ migration, dependency or provider change and no new fetch/mutation call.
   — task participant 1920/1440/1024, task preview 1920, board participant 1920/1440, module
   participant 1920/1440, admin board 1920 (closed and open lifecycle)/1440/1024/375, admin users
   1920, site introduction 1920/1440/375, plus the Task 1 dialogs re-captured in the same run.
-- Task 2 limitations: the default profile disables the deployment-template catalog, so the
-  templates card grid is proved by the shared admin-card rule on the hub plus a unit structure
-  test, not by a browser-measured catalog; the root default-profile 5-test suite and CI wiring of
-  the new spec remain Task 3; independent review and main screenshot inspection are still
-  required. Full details: `.superpowers/sdd/2026-11-26-desktop-workspaces/task-2-report.md`.
+- Task 2 limitations, corrected by Task 3: **the "default profile disables the deployment-template
+  catalog" premise was wrong.** The catalog is always served
+  (`cmd/backend/routes_integration.go:137`; the boot guard `deployment_catalog_pg_test.go` and the
+  root default-profile spec already create a template with every optional feature off). Task 2
+  did not seed or measure the catalog: it inferred the grid from the shared `admin-cards` rule on
+  the admin hub plus a unit structure test. Task 3 created three and then six real templates
+  through the authoring API on the same default profile and measured 3/2/1-column tracks in the
+  browser; the root default-profile suite, the CI inclusion of the new spec and the full matrix
+  are done there. Independent review and main screenshot inspection are still required. Full
+  details: `.superpowers/sdd/2026-11-26-desktop-workspaces/task-2-report.md` and
+  `task-3-report.md`.
