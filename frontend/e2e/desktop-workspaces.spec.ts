@@ -356,6 +356,13 @@ test.describe('desktop authoring workspaces', () => {
   let catalogPrefix: string
 
   test.beforeAll(async ({ browser, request }) => {
+    // This hook signs in two roles and then seeds the whole board. The login
+    // limiter can cost one 61s wait plus an 8s failed-login detection per role,
+    // so the worst case is ~140s of waiting before any fixture work. Playwright
+    // applies `test.setTimeout` to the running hook only (verified: a 5s hook
+    // passes under a 3s project timeout, and a 1s hook budget aborts it), so the
+    // 90s project default stays in force for every individual test.
+    test.setTimeout(240_000)
     if (!adminUser || !adminPass) throw new Error('E2E_ADMIN_USERNAME and E2E_ADMIN_PASSWORD are required')
 
     // One owned browser session per role for the whole spec: the backend
