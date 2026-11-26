@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, vi } from 'vitest'
+import { DESCRIPTION_MAX_CHARACTERS } from '@/shared/lib/text'
 
 const updateModule = vi.fn().mockResolvedValue({})
 
@@ -254,6 +255,72 @@ describe('ModuleEditorDialog instance limit validation', () => {
 
     expect(updateModule).not.toHaveBeenCalled()
     expect(document.body.textContent).toContain('Max concurrent per participant must be a whole number between 1 and 100')
+    wrapper.unmount()
+  })
+})
+
+describe('ModuleEditorDialog Markdown authoring', () => {
+  const boardUuid = '11111111-1111-4111-8111-111111111111'
+
+  const moduleWithDescription = (description: string) => ({
+    uuid: '22222222-2222-4222-8222-222222222222',
+    boardUuid,
+    name: 'Rich module',
+    description,
+    type: 'TASKS' as const,
+    allowedTaskTypes: ['FLAG' as const],
+    status: 'ACTIVE' as const,
+    audienceUuids: [],
+    order: 0,
+    enabled: true,
+  })
+
+  async function waitForEditor() {
+    await vi.waitFor(() => {
+      expect(document.querySelector('[aria-label="Bold"]')).not.toBeNull()
+    }, { timeout: 10_000, interval: 20 })
+  }
+
+  it('edits the description with the rich editor and keeps Markdown on save', async () => {
+    const wrapper = mount(ModuleEditorDialog, {
+      props: { open: true, boardUuid, audiences: [], module: moduleWithDescription('**bold**') },
+      attachTo: document.body,
+    })
+    await waitForEditor()
+
+    expect(document.querySelector('[aria-label="Bold"]')).not.toBeNull()
+    expect(document.querySelector('#module-description')).not.toBeNull()
+
+    await (document.querySelector('[aria-label="Source mode"]') as HTMLButtonElement).click()
+    await flushPromises()
+    expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe('**bold**')
+
+    document.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+    await flushPromises()
+
+    expect(updateModule).toHaveBeenCalledTimes(1)
+    const [, , body] = updateModule.mock.calls[0] as [string, string, { description: string }]
+    expect(body.description).toBe('**bold**')
+    wrapper.unmount()
+  })
+
+  it('blocks submit when the description exceeds the server limit', async () => {
+    const wrapper = mount(ModuleEditorDialog, {
+      props: {
+        open: true,
+        boardUuid,
+        audiences: [],
+        module: moduleWithDescription('x'.repeat(DESCRIPTION_MAX_CHARACTERS + 1)),
+      },
+      attachTo: document.body,
+    })
+    await waitForEditor()
+
+    document.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+    await flushPromises()
+
+    expect(updateModule).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('at most 50,000 characters')
     wrapper.unmount()
   })
 })

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import TaskEditorDialog from '@/features/admin/components/TaskEditorDialog.vue'
 import { boardsApi } from '@/features/boards/api/boards'
+import { DESCRIPTION_MAX_CHARACTERS } from '@/shared/lib/text'
 import type { AdminTask } from '@/shared/types/api'
 
 vi.mock('@/features/boards/api/boards', () => ({
@@ -118,6 +119,47 @@ describe('TaskEditorDialog FLAG payload', () => {
     expect(body).not.toHaveProperty('acceptedAnswers')
     expect(body.instance).toEqual({ enabled: false })
 
+    wrapper.unmount()
+  })
+})
+
+describe('TaskEditorDialog Markdown authoring', () => {
+  async function waitForEditor() {
+    await vi.waitFor(() => {
+      expect(document.querySelector('[aria-label="Bold"]')).not.toBeNull()
+    }, { timeout: 10_000, interval: 20 })
+  }
+
+  it('edits the description with the rich editor and keeps Markdown on save', async () => {
+    const wrapper = await mountDialog({ ...existingTask, description: '**bold**' })
+    await waitForEditor()
+
+    expect(document.querySelector('[aria-label="Bold"]')).not.toBeNull()
+    expect(document.querySelector('#task-description')).not.toBeNull()
+
+    await (document.querySelector('[aria-label="Source mode"]') as HTMLButtonElement).click()
+    await flushPromises()
+    expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe('**bold**')
+
+    await submitForm()
+
+    expect(updateTask).toHaveBeenCalledTimes(1)
+    const [, , , body] = updateTask.mock.calls[0] as [string, string, string, { description: string }]
+    expect(body.description).toBe('**bold**')
+    wrapper.unmount()
+  })
+
+  it('blocks submit when the description exceeds the server limit', async () => {
+    const wrapper = await mountDialog({
+      ...existingTask,
+      description: 'x'.repeat(DESCRIPTION_MAX_CHARACTERS + 1),
+    })
+    await waitForEditor()
+
+    await submitForm()
+
+    expect(updateTask).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('at most 50,000 characters')
     wrapper.unmount()
   })
 })

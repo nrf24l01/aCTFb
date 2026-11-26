@@ -3,7 +3,6 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
@@ -21,8 +20,10 @@ import { accessApi } from '@/features/access/api'
 import { parseDateWindow, validateBoardName, validateSlug } from '@/features/admin/validation'
 import { formatDateTimeLocal } from '@/shared/lib/format'
 import { renderMarkdown } from '@/shared/lib/markdown'
+import { DESCRIPTION_MAX_CHARACTERS, validateDescriptionLength } from '@/shared/lib/text'
 import { isApiError } from '@/shared/api/errors'
 import { useDiscardGuard } from '@/features/admin/useDiscardGuard'
+import { MarkdownEditorLazy } from '@/shared/components/MarkdownEditorLazy'
 import type {
   AccessGroup,
   AdminBoard,
@@ -194,6 +195,7 @@ async function submit() {
   problems.value = {
     slug: validateSlug(form.slug.trim()),
     name: validateBoardName(form.name.trim()),
+    description: validateDescriptionLength(form.description, DESCRIPTION_MAX_CHARACTERS),
     window: window.problem ?? validateSettings(),
   }
   if (Object.values(problems.value).some(Boolean)) {
@@ -292,7 +294,15 @@ async function save(window: { startsAt: string | null; endsAt: string | null }) 
                 <TabsTrigger value="preview">Preview</TabsTrigger>
               </TabsList>
               <TabsContent value="write">
-                <Textarea id="board-description" v-model="form.description" rows="4" />
+                <MarkdownEditorLazy
+                  id="board-description"
+                  v-model="form.description"
+                  label="Board description"
+                  :max-length="DESCRIPTION_MAX_CHARACTERS"
+                />
+                <p v-if="problems.description" role="alert" class="mt-1 text-xs text-status-error-ink">
+                  {{ problems.description }}
+                </p>
               </TabsContent>
               <TabsContent value="preview">
                 <div class="min-h-24 border border-border px-3 py-2">

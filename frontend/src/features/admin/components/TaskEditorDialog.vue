@@ -35,6 +35,8 @@ import {
 import { isApiError } from '@/shared/api/errors'
 import { useDiscardGuard } from '@/features/admin/useDiscardGuard'
 import { renderMarkdown } from '@/shared/lib/markdown'
+import { DESCRIPTION_MAX_CHARACTERS, validateDescriptionLength } from '@/shared/lib/text'
+import { MarkdownEditorLazy } from '@/shared/components/MarkdownEditorLazy'
 import { taskTypeLabel } from '@/features/boards/format'
 import type {
   AdminTask,
@@ -385,6 +387,7 @@ async function submit() {
   problems.value = {
     title: validateTaskTitle(form.title.trim()),
     category: validateCategory(form.category.trim()),
+    description: validateDescriptionLength(form.description, DESCRIPTION_MAX_CHARACTERS),
     points: validatePoints(form.points),
     answers: answers.problem,
     policy: validatePolicy(),
@@ -508,7 +511,15 @@ async function submit() {
                 <TabsTrigger value="preview">Preview</TabsTrigger>
               </TabsList>
               <TabsContent value="write">
-                <Textarea id="task-description" v-model="form.description" rows="6" />
+                <MarkdownEditorLazy
+                  id="task-description"
+                  v-model="form.description"
+                  label="Task description"
+                  :max-length="DESCRIPTION_MAX_CHARACTERS"
+                />
+                <p v-if="problems.description" role="alert" class="mt-1 text-xs text-status-error-ink">
+                  {{ problems.description }}
+                </p>
               </TabsContent>
               <TabsContent value="preview">
                 <div class="min-h-28 border border-border px-3 py-2">

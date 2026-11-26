@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import BoardSettingsDialog from './BoardSettingsDialog.vue'
 import { boardsApi } from '@/features/boards/api/boards'
+import { DESCRIPTION_MAX_CHARACTERS } from '@/shared/lib/text'
 
 vi.mock('@/features/boards/api/boards', () => ({
   boardsApi: {
@@ -169,6 +170,62 @@ describe('BoardSettingsDialog join code hand-off', () => {
     const text = document.body.textContent ?? ''
     expect(text).toContain('Join code panel')
     expect(getInviteCode).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+})
+
+describe('BoardSettingsDialog Markdown authoring', () => {
+  const updateBoard = vi.mocked(boardsApi.updateBoard)
+
+  async function waitForEditor() {
+    await vi.waitFor(() => {
+      expect(document.querySelector('[aria-label="Bold"]')).not.toBeNull()
+    }, { timeout: 10_000, interval: 20 })
+  }
+
+  beforeEach(() => {
+    updateBoard.mockReset()
+    updateBoard.mockResolvedValue(boardBase)
+  })
+
+  it('edits the description with the rich editor and keeps Markdown on save', async () => {
+    const wrapper = mount(BoardSettingsDialog, {
+      props: { open: true, board: { ...boardBase, description: '**bold**' } },
+      attachTo: document.body,
+    })
+    await waitForEditor()
+
+    expect(document.querySelector('[aria-label="Bold"]')).not.toBeNull()
+    expect(document.querySelector('#board-description')).not.toBeNull()
+
+    await (document.querySelector('[aria-label="Source mode"]') as HTMLButtonElement).click()
+    await flushPromises()
+    expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe('**bold**')
+
+    document.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+    await flushPromises()
+
+    expect(updateBoard).toHaveBeenCalledTimes(1)
+    const [, body] = updateBoard.mock.calls[0] as [string, { description: string }]
+    expect(body.description).toBe('**bold**')
+    wrapper.unmount()
+  })
+
+  it('blocks submit when the description exceeds the server limit', async () => {
+    const wrapper = mount(BoardSettingsDialog, {
+      props: {
+        open: true,
+        board: { ...boardBase, description: 'x'.repeat(DESCRIPTION_MAX_CHARACTERS + 1) },
+      },
+      attachTo: document.body,
+    })
+    await waitForEditor()
+
+    document.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+    await flushPromises()
+
+    expect(updateBoard).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('at most 50,000 characters')
     wrapper.unmount()
   })
 })

@@ -193,6 +193,7 @@ const insertControls: ToolbarControl[] = [
           <Button
             variant="ghost"
             size="icon-sm"
+            type="button"
             aria-label="Undo"
             :disabled="isDisabled || !canRun('undo')"
             @click="undo"
@@ -207,6 +208,7 @@ const insertControls: ToolbarControl[] = [
           <Button
             variant="ghost"
             size="icon-sm"
+            type="button"
             aria-label="Redo"
             :disabled="isDisabled || !canRun('redo')"
             @click="redo"
@@ -278,6 +280,7 @@ const insertControls: ToolbarControl[] = [
           <Button
             variant="ghost"
             size="icon-sm"
+            type="button"
             aria-label="Link"
             :disabled="isDisabled"
             @click="emit('requestLink')"

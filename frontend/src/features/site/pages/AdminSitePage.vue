@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
 import ErrorAlert from '@/components/layout/ErrorAlert.vue'
 import FormField from '@/components/layout/FormField.vue'
 import LoadingState from '@/components/layout/LoadingState.vue'
@@ -13,6 +12,8 @@ import PageHeader from '@/components/layout/PageHeader.vue'
 import { useSession } from '@/features/auth/session'
 import { siteApi } from '@/features/site/api'
 import { renderMarkdown } from '@/shared/lib/markdown'
+import { SITE_INTRO_MAX_CHARACTERS, validateDescriptionLength } from '@/shared/lib/text'
+import { MarkdownEditorLazy } from '@/shared/components/MarkdownEditorLazy'
 import { isApiError } from '@/shared/api/errors'
 
 const { state } = useSession()
@@ -55,6 +56,7 @@ async function save() {
   saved.value = false
   problems.value = {
     title: form.title.trim() ? undefined : 'Enter a title.',
+    description: validateDescriptionLength(form.introMarkdown, SITE_INTRO_MAX_CHARACTERS),
   }
   if (Object.values(problems.value).some(Boolean)) return
 
@@ -111,14 +113,16 @@ void load()
               <TabsTrigger value="preview">Preview</TabsTrigger>
             </TabsList>
             <TabsContent value="write">
-              <Textarea
+              <MarkdownEditorLazy
                 id="site-intro"
                 v-model="form.introMarkdown"
-                rows="16"
-                spellcheck="false"
-                aria-label="Introduction Markdown"
+                label="Introduction Markdown"
+                :max-length="SITE_INTRO_MAX_CHARACTERS"
                 placeholder="# Welcome&#10;&#10;Write the CTF introduction in Markdown."
               />
+              <p v-if="problems.description" role="alert" class="mt-1 text-xs text-status-error-ink">
+                {{ problems.description }}
+              </p>
               <p class="mt-1 text-xs text-muted-foreground">
                 Markdown only. Raw HTML is escaped and links are limited to http, https, mailto and relative paths.
               </p>

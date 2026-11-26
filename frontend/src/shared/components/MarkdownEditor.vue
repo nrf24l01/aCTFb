@@ -67,6 +67,8 @@ const confirmVisualOpen = ref(false)
 const linkRowOpen = ref(false)
 const linkDraft = ref('')
 const linkError = ref<string | undefined>(undefined)
+/** Selection captured when the link row opened, so the URL applies to it. */
+const linkSelection = ref<{ from: number; to: number } | null>(null)
 
 let initialising = false
 
@@ -205,9 +207,15 @@ const onSourceInput = (event: Event): void => {
 }
 
 const openLinkRow = (): void => {
-  const current = editor.value?.getAttributes('link').href
+  const instance = editor.value
+  const current = instance?.getAttributes('link').href
   linkDraft.value = typeof current === 'string' ? current : ''
   linkError.value = undefined
+  // Keep the editor selection: focusing the URL input blurs the contenteditable,
+  // and the URL must apply to the text the author had selected.
+  linkSelection.value = instance
+    ? { from: instance.state.selection.from, to: instance.state.selection.to }
+    : null
   linkRowOpen.value = true
   void nextTick(() => {
     const element = linkInput.value?.$el
@@ -229,7 +237,9 @@ const applyLink = (): void => {
     linkError.value = 'Enter a safe URL: http, https, mailto or a site path.'
     return
   }
-  instance.chain().focus().extendMarkRange('link').setLink({ href }).run()
+  const chain = instance.chain().focus()
+  if (linkSelection.value) chain.setTextSelection(linkSelection.value)
+  chain.extendMarkRange('link').setLink({ href }).run()
   closeLinkRow()
 }
 
@@ -325,6 +335,7 @@ onBeforeUnmount(() => {
       <Button
         variant="link"
         size="xs"
+        type="button"
         class="h-auto px-1 text-xs"
         @click="confirmVisualOpen = true"
       >
@@ -348,6 +359,7 @@ onBeforeUnmount(() => {
               <Button
                 variant="ghost"
                 size="sm"
+                type="button"
                 aria-label="Source mode"
                 class="m-1"
                 @click="toggleMode"
@@ -374,6 +386,7 @@ onBeforeUnmount(() => {
                 <Button
                   variant="ghost"
                   size="sm"
+                  type="button"
                   aria-label="Visual mode"
                   @click="toggleMode"
                 >
@@ -410,13 +423,13 @@ onBeforeUnmount(() => {
           @keydown.enter.prevent="applyLink"
           @keydown.esc.prevent="closeLinkRow"
         />
-        <Button size="sm" @click="applyLink">
+        <Button size="sm" type="button" @click="applyLink">
           Apply
         </Button>
-        <Button variant="ghost" size="sm" @click="removeLink">
+        <Button variant="ghost" size="sm" type="button" @click="removeLink">
           Remove
         </Button>
-        <Button variant="ghost" size="sm" @click="closeLinkRow">
+        <Button variant="ghost" size="sm" type="button" @click="closeLinkRow">
           Cancel
         </Button>
         <p
