@@ -13,6 +13,7 @@ import (
 )
 
 func (h *Handler) GetBoardInviteCode(c *echo.Context) error {
+	httpapi.SetOperation(c, "board.invite_code.read")
 	principal, ok := httpapi.CurrentPrincipal(c)
 	if !ok {
 		return writeAdminError(c, boards.ErrUnauthorized)
@@ -29,6 +30,7 @@ func (h *Handler) GetBoardInviteCode(c *echo.Context) error {
 }
 
 func (h *Handler) RotateBoardInviteCode(c *echo.Context) error {
+	httpapi.SetOperation(c, "board.invite_code.rotate")
 	principal, ok := httpapi.CurrentPrincipal(c)
 	if !ok {
 		return writeAdminError(c, boards.ErrUnauthorized)

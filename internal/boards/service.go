@@ -173,7 +173,7 @@ func NewService(
 
 func (s *Service) ready() error {
 	if s == nil || s.store == nil {
-		return ErrDependencyUnavailable
+		return dependencyUnavailable("board_store")
 	}
 	return nil
 }
@@ -209,7 +209,7 @@ func (s *Service) authorize(
 	scope authorization.Scope,
 ) (authorization.Decision, error) {
 	if s.auth == nil {
-		return authorization.Decision{}, ErrDependencyUnavailable
+		return authorization.Decision{}, dependencyUnavailable("authorizer")
 	}
 	decision, err := s.auth.Authorize(ctx, principal, permission, scope)
 	if err != nil {
@@ -250,7 +250,7 @@ func (s *Service) CheckPermission(
 		return err
 	}
 	if s.auth == nil {
-		return ErrDependencyUnavailable
+		return dependencyUnavailable("authorizer")
 	}
 	return s.requirePermission(ctx, principal, permission, authorization.Scope{BoardID: boardID, ModuleID: moduleID})
 }
@@ -265,7 +265,7 @@ func (s *Service) CheckBoardRead(ctx context.Context, principal authorization.Pr
 		return err
 	}
 	if s.auth == nil {
-		return ErrDependencyUnavailable
+		return dependencyUnavailable("authorizer")
 	}
 	return s.requireBoardRead(ctx, principal, boardID)
 }
@@ -282,8 +282,10 @@ func mapAuthorizationError(err error) error {
 		return ErrBoardNotFound
 	case errors.Is(err, authorization.ErrModuleNotFound):
 		return ErrModuleNotFound
-	case errors.Is(err, authorization.ErrNoDatabase), errors.Is(err, authorization.ErrNoAuthorizer):
-		return ErrDependencyUnavailable
+	case errors.Is(err, authorization.ErrNoDatabase):
+		return dependencyUnavailable("database")
+	case errors.Is(err, authorization.ErrNoAuthorizer):
+		return dependencyUnavailable("authorizer")
 	default:
 		return err
 	}
@@ -312,7 +314,7 @@ func mapFileError(err error) error {
 	case errors.Is(err, files.ErrTaskNotFound):
 		return ErrTaskNotFound
 	case errors.Is(err, files.ErrDependencyUnavailable), errors.Is(err, files.ErrScannerUnavailable), errors.Is(err, files.ErrS3PresignFailed):
-		return ErrDependencyUnavailable
+		return dependencyUnavailable("files_service")
 	default:
 		return err
 	}
@@ -330,8 +332,10 @@ func mapAccessError(err error) error {
 		return ErrBoardNotFound
 	case errors.Is(err, access.ErrModuleNotFound):
 		return ErrModuleNotFound
-	case errors.Is(err, access.ErrNoDatabase), errors.Is(err, access.ErrNoAuthorizer):
-		return ErrDependencyUnavailable
+	case errors.Is(err, access.ErrNoDatabase):
+		return dependencyUnavailable("database")
+	case errors.Is(err, access.ErrNoAuthorizer):
+		return dependencyUnavailable("authorizer")
 	default:
 		return err
 	}
@@ -387,7 +391,7 @@ func (s *Service) hashAnswers(answers []string) ([]string, error) {
 
 func (s *Service) requestHash(principal authorization.Principal, path TaskPath, key, text string, draftID ...string) ([]byte, error) {
 	if len(s.idempotencySecret) == 0 {
-		return nil, ErrDependencyUnavailable
+		return nil, dependencyUnavailable("idempotency_secret")
 	}
 	mac := hmac.New(sha256.New, s.idempotencySecret)
 	_, _ = mac.Write([]byte(idempotencyRequestDomain))

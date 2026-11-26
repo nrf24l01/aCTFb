@@ -29,7 +29,7 @@ func (s *Service) AdminListSubmissions(
 	filter.Limit, filter.Offset = normalizePage(filter.Limit, filter.Offset)
 	if filter.ResourceType == SubmissionResourcePentest {
 		if s.submissionSource == nil {
-			return Page[Submission]{}, ErrDependencyUnavailable
+			return Page[Submission]{}, dependencyUnavailable("submission_source")
 		}
 		return s.submissionSource.ListSubmissions(ctx, principal, boardID, filter)
 	}

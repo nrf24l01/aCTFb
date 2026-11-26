@@ -843,3 +843,31 @@ production build, and a real-Chromium pass over the committed fixture (65 badges
 desktop/375 px/200 % zoom). All ten `linux/amd64` images were verified anonymously at `latest` +
 `sha-332fdcb…` with matching `org.opencontainers.image.revision`, and the published frontend asset layer
 contains the new status tokens. Status: **implemented; published and registry-verified.**
+
+## 2026-11-26 board save 503 and actionable server errors (local, unpushed)
+
+Root cause found and reproduced: `AdminCreateBoard`/`AdminUpdateBoard` still auto-minted the obsolete legacy
+**encrypted** invite code on `INVITE` mode, which fails closed when no credential sealer exists. The sealer is
+only built when `deployment.credential_key` is set, and that key is only required when deployment, plugins,
+A+D or integrations are enabled — so the default profile answered `503 DEPENDENCY_UNAVAILABLE` in ~3 ms. This
+contradicted the shipped 020 contract, where enrollment is hash-only and the organizer issues the code
+explicitly. Board creation now stores no credential at all; legacy rows are preserved and the deprecated
+invite-code routes keep their behaviour.
+
+The second half is observability: adapters write the envelope and return `nil`, so their cause never reached
+the only logging point. `internal/httpapi/problem.go` adds a request-scoped, sanitized diagnostic
+(`RecordProblem`/`SetOperation`), and the access log now emits exactly one line per request — 5xx at `ERROR`
+with `error_code`, `operation`, `dependency`, `cause_code`, `cause` (and `stack` for panics), 4xx at `INFO`
+with the stable code only. PostgreSQL failures are reduced to SQLSTATE/table/constraint, and DSNs, JWTs,
+bearer tokens and `code=` values are redacted. Trace IDs remain server-generated; the client envelope is
+unchanged.
+
+Bounded on purpose: only the board adapter records a cause today. `users`, `files`, `deployment`, `instances`,
+`access`, `authorization`, `integrations`, `plugins`, `attackdefense` and `site` inherit the single-line
+behaviour and level change but not the cause until their mappers are wired the same way.
+
+Verification: `go build ./...`, `go vet ./...`, `gofmt` clean, `go test ./...` against a native PostgreSQL 18.7
+cluster (49 packages ok, one pre-existing Docker-runtime failure at `cb056ff`), and
+`go test -race ./internal/boards ./internal/boards/http ./internal/httpapi`. Details in
+`docs/board-save-errors-fix.md`. Status: **implemented locally; main review pending. No frontend or editor
+work included.**

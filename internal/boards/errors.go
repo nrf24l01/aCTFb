@@ -78,6 +78,45 @@ var (
 	ErrJoinCodeStale                = errors.New("boards: join code was changed by someone else")
 )
 
+// DependencyError names the unavailable dependency without exposing its
+// configuration. It wraps ErrDependencyUnavailable so every existing
+// errors.Is(err, ErrDependencyUnavailable) check keeps working, while the HTTP
+// boundary can log a stable, actionable dependency identifier.
+type DependencyError struct {
+	Dependency string
+	Err        error
+}
+
+func (e *DependencyError) Error() string {
+	if e.Dependency == "" {
+		return "boards: dependency unavailable"
+	}
+	return "boards: dependency unavailable: " + e.Dependency
+}
+
+func (e *DependencyError) Unwrap() error {
+	if e.Err != nil {
+		return e.Err
+	}
+	return ErrDependencyUnavailable
+}
+
+// DependencyName satisfies the HTTP boundary's typed dependency interface.
+func (e *DependencyError) DependencyName() string { return e.Dependency }
+
+func dependencyUnavailable(name string) error {
+	return &DependencyError{Dependency: name, Err: ErrDependencyUnavailable}
+}
+
+// dependencyUnavailableCause keeps the underlying failure (for the server log)
+// while errors.Is(err, ErrDependencyUnavailable) still matches.
+func dependencyUnavailableCause(name string, cause error) error {
+	if cause == nil {
+		return dependencyUnavailable(name)
+	}
+	return &DependencyError{Dependency: name, Err: errors.Join(ErrDependencyUnavailable, cause)}
+}
+
 // RateLimitError carries the limiter's actual remaining window so HTTP can
 // return a truthful Retry-After value. It unwraps to the stable sentinel used by
 // existing error mapping.

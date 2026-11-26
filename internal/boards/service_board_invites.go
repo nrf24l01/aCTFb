@@ -24,7 +24,7 @@ func (s *Service) GetBoardInviteCode(ctx context.Context, principal authorizatio
 	}
 	code, err := s.openInvite(ciphertext, boardInviteAAD(boardID))
 	if err != nil {
-		return nil, ErrDependencyUnavailable
+		return nil, err
 	}
 	return &BoardInvite{InviteCode: code, ExpiresAt: expiresAt}, nil
 }

@@ -19,14 +19,14 @@ func (s *Service) validatePluginCheckerConfig(
 	extensionKey, checkerKey string,
 ) error {
 	if extensionKey == "" {
-		return ErrDependencyUnavailable
+		return dependencyUnavailable("plugin_extension")
 	}
 	if s.pluginChecker == nil {
-		return ErrDependencyUnavailable
+		return dependencyUnavailable("plugin_checker")
 	}
 	validator, ok := s.pluginChecker.(PluginCheckerConfigValidator)
 	if !ok {
-		return ErrDependencyUnavailable
+		return dependencyUnavailable("plugin_checker")
 	}
 	return validator.ValidatePluginChecker(ctx, principal, boardID, moduleID, extensionKey, checkerKey)
 }

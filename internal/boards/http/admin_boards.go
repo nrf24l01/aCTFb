@@ -47,6 +47,7 @@ func (h *Handler) AdminListBoards(c *echo.Context) error {
 }
 
 func (h *Handler) AdminCreateBoard(c *echo.Context) error {
+	httpapi.SetOperation(c, "board.create")
 	principal, ok := httpapi.CurrentPrincipal(c)
 	if !ok {
 		return writeAdminError(c, boards.ErrUnauthorized)
@@ -100,6 +101,7 @@ func (h *Handler) AdminGetBoard(c *echo.Context) error {
 }
 
 func (h *Handler) AdminUpdateBoard(c *echo.Context) error {
+	httpapi.SetOperation(c, "board.update")
 	principal, ok := httpapi.CurrentPrincipal(c)
 	if !ok {
 		return writeAdminError(c, boards.ErrUnauthorized)
@@ -171,6 +173,7 @@ func (h *Handler) AdminUpdateBoard(c *echo.Context) error {
 }
 
 func (h *Handler) AdminDeleteBoard(c *echo.Context) error {
+	httpapi.SetOperation(c, "board.delete")
 	principal, ok := httpapi.CurrentPrincipal(c)
 	if !ok {
 		return writeAdminError(c, boards.ErrUnauthorized)

@@ -67,7 +67,7 @@ func (s *Service) SetBoardJoinCode(
 	if strings.TrimSpace(custom) == "" {
 		generated, err := newJoinCode()
 		if err != nil {
-			return nil, ErrDependencyUnavailable
+			return nil, dependencyUnavailableCause("random_source", err)
 		}
 		code = generated
 	} else {
@@ -298,12 +298,12 @@ func (s *Service) matchJoinCode(ctx context.Context, boardID uuid.UUID, normaliz
 
 func (s *Service) limitJoinAttempts(ctx context.Context, principal authorization.Principal) error {
 	if s.limiter == nil {
-		return ErrDependencyUnavailable
+		return dependencyUnavailable("rate_limiter")
 	}
 	allowed, retryAfter, err := s.limiter.Allow(ctx, "board-join:"+principal.UserID.String(),
 		joinCodeAttemptLimit, joinCodeAttemptWindow)
 	if err != nil {
-		return ErrDependencyUnavailable
+		return dependencyUnavailableCause("rate_limiter", err)
 	}
 	if !allowed {
 		return &JoinCodeRateLimitError{RetryAfter: retryAfter}

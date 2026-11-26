@@ -65,7 +65,7 @@ func (s *Service) AdminCreateTask(
 	}
 	if input.Type == TaskTypeInstance {
 		if s.instanceBinder == nil {
-			return nil, ErrDependencyUnavailable
+			return nil, dependencyUnavailable("instance_binder")
 		}
 		if input.Instance.DeploymentTemplateID == nil || input.Instance.TemplateVersion == nil {
 			return nil, Invalid("body.instance", "deploymentTemplateUuid and templateVersion are required", "REQUIRED")
@@ -124,7 +124,7 @@ func (s *Service) AdminCreateTask(
 			_ = s.store.DeleteTask(ctx, boardID, moduleID, created.ID,
 				auditEvent(principal, &boardID, &moduleID, "task.delete", "task", &created.ID,
 					map[string]any{"reason": "instance binder unavailable"}))
-			return nil, ErrDependencyUnavailable
+			return nil, dependencyUnavailable("instance_binder")
 		}
 		_, bindErr := s.instanceBinder.BindTaskInstance(ctx, principal, boardID, moduleID, created.ID,
 			InstanceBindingInput{

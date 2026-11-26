@@ -194,7 +194,7 @@ func (s *Service) requireParticipantOwnModuleAccess(ctx context.Context, princip
 		// A participant-own action must never be authorized without the policy
 		// that proves live group/audience eligibility. Failing closed is a
 		// configuration error (503), not a permission denial.
-		return ErrDependencyUnavailable
+		return dependencyUnavailable("access_policy")
 	}
 	allowed, err := s.accessPolicy.CanAccessModuleAsParticipant(ctx, principal, boardID, moduleID)
 	if err != nil {
@@ -353,12 +353,12 @@ func (s *Service) SubmitTask(
 	}
 
 	if s.limiter == nil {
-		return nil, ErrDependencyUnavailable
+		return nil, dependencyUnavailable("rate_limiter")
 	}
 	allowed, retryAfter, err := s.limiter.Allow(ctx, "submission:"+principal.UserID.String()+":"+path.TaskID.String(),
 		submissionRateLimit, submissionRateLimitWindow)
 	if err != nil {
-		return nil, ErrDependencyUnavailable
+		return nil, dependencyUnavailableCause("rate_limiter", err)
 	}
 	if !allowed {
 		return nil, &RateLimitError{RetryAfter: retryAfter}
@@ -422,7 +422,7 @@ func (s *Service) SubmitTask(
 			return nil, ErrCheckerError
 		}
 		if s.pluginChecker == nil {
-			return nil, ErrDependencyUnavailable
+			return nil, dependencyUnavailable("plugin_checker")
 		}
 		result, checkErr := s.pluginChecker.Check(ctx, PluginCheckRequest{
 			CheckerKey: task.CheckerKey, ActorUserID: principal.UserID,
@@ -472,7 +472,7 @@ func (s *Service) SubmitTask(
 		}
 		if input.DraftID != nil {
 			if s.fileService == nil {
-				return nil, ErrDependencyUnavailable
+				return nil, dependencyUnavailable("files_service")
 			}
 			policy := files.DefaultAttachmentPolicy()
 			if task.FilesPolicy != nil {

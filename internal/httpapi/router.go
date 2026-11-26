@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -58,7 +59,7 @@ func NewRouter(logger *slog.Logger, ready func(context.Context) error, allowedOr
 	}
 
 	e.GET("/health", healthHandler)
-	e.GET("/ready", readinessHandler(logger, ready))
+	e.GET("/ready", readinessHandler(ready))
 
 	// Keep unknown technical/API routes in the project's standard error shape.
 	e.RouteNotFound("/*", func(c *echo.Context) error {
@@ -97,10 +98,16 @@ func healthHandler(c *echo.Context) error {
 	return c.JSON(http.StatusOK, statusResponse{Status: "ok"})
 }
 
-func readinessHandler(logger *slog.Logger, ready func(context.Context) error) echo.HandlerFunc {
+func readinessHandler(ready func(context.Context) error) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		if ready == nil {
-			logger.Warn("readiness check is not configured", "trace_id", traceID(c))
+			// The access log reports the failure once, with the safe cause.
+			RecordProblem(c, Problem{
+				Status:    http.StatusServiceUnavailable,
+				Code:      string(oapimodels.ErrorCodeDEPENDENCYUNAVAILABLE),
+				Operation: "readiness.check",
+				Cause:     errors.New("readiness check is not configured"),
+			})
 			return writeAPIError(c, http.StatusServiceUnavailable, oapimodels.ErrorCodeDEPENDENCYUNAVAILABLE, "Service unavailable")
 		}
 
@@ -121,22 +128,24 @@ func readinessHandler(logger *slog.Logger, ready func(context.Context) error) ec
 		select {
 		case err := <-result:
 			if err != nil {
-				logger.Warn(
-					"readiness check failed",
-					"trace_id", traceID(c),
-					"error", redactLogValue(err.Error()),
-				)
+				RecordProblem(c, Problem{
+					Status:    http.StatusServiceUnavailable,
+					Code:      string(oapimodels.ErrorCodeDEPENDENCYUNAVAILABLE),
+					Operation: "readiness.check",
+					Cause:     err,
+				})
 				return writeAPIError(c, http.StatusServiceUnavailable, oapimodels.ErrorCodeDEPENDENCYUNAVAILABLE, "Service unavailable")
 			}
 
 			return c.JSON(http.StatusOK, statusResponse{Status: "ready"})
 
 		case <-ctx.Done():
-			logger.Warn(
-				"readiness check timed out",
-				"trace_id", traceID(c),
-				"error", ctx.Err().Error(),
-			)
+			RecordProblem(c, Problem{
+				Status:    http.StatusServiceUnavailable,
+				Code:      string(oapimodels.ErrorCodeDEPENDENCYUNAVAILABLE),
+				Operation: "readiness.check",
+				Cause:     ctx.Err(),
+			})
 			return writeAPIError(c, http.StatusServiceUnavailable, oapimodels.ErrorCodeDEPENDENCYUNAVAILABLE, "Service unavailable")
 		}
 	}
@@ -157,6 +166,7 @@ func requestIDMiddleware() echo.MiddlewareFunc {
 func accessLogMiddleware(logger *slog.Logger) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
+			c.Set(accessLogActiveKey, true)
 			started := time.Now()
 			err := next(c)
 
@@ -177,6 +187,8 @@ func accessLogMiddleware(logger *slog.Logger) echo.MiddlewareFunc {
 				} else if status < http.StatusBadRequest {
 					status = http.StatusInternalServerError
 				}
+				code, _ := errorResponseForStatus(status)
+				RecordProblem(c, Problem{Status: status, Code: string(code), Cause: err})
 			}
 
 			path := c.Path()
@@ -205,11 +217,14 @@ func accessLogMiddleware(logger *slog.Logger) echo.MiddlewareFunc {
 				"remote_ip", remoteIP,
 				"bytes_out", bytesOut,
 			}
-			if err != nil {
-				attrs = append(attrs, "error", redactLogValue(err.Error()))
-			}
+			attrs = append(attrs, problemAttrs(c, status)...)
 
-			logger.Info("http request", attrs...)
+			// One line per request: ERROR with a safe, actionable cause for 5xx,
+			// INFO with the stable code for 4xx. Adapters that write the envelope
+			// themselves return a nil error, so the recorded diagnostic is the only
+			// place their cause can come from.
+			logRequestOutcome(logger, status, attrs)
+			c.Set(problemLoggedKey, true)
 
 			return err
 		}
@@ -240,12 +255,29 @@ func recoveryMiddleware(logger *slog.Logger) echo.MiddlewareFunc {
 					return
 				}
 
-				logger.Error(
-					"panic recovered",
-					"trace_id", traceID(c),
-					"panic", redactLogValue(fmt.Sprint(recovered)),
-					"stack", string(debug.Stack()),
-				)
+				// The single request line reports this panic with the stack; the
+				// client still receives only the generic envelope.
+				RecordProblem(c, Problem{
+					Status:    http.StatusInternalServerError,
+					Code:      string(oapimodels.ErrorCodeINTERNALERROR),
+					Operation: "panic",
+					Cause:     fmt.Errorf("panic: %v", recovered),
+					Stack:     string(debug.Stack()),
+				})
+
+				// Without the access log no other line would report this panic, so
+				// this boundary reports it itself instead of losing it.
+				if active, _ := c.Get(accessLogActiveKey).(bool); !active {
+					attrs := []any{
+						"trace_id", traceID(c),
+						"method", c.Request().Method,
+						"path", c.Request().URL.Path,
+						"status", http.StatusInternalServerError,
+					}
+					attrs = append(attrs, problemAttrs(c, http.StatusInternalServerError)...)
+					logRequestOutcome(logger, http.StatusInternalServerError, attrs)
+					c.Set(problemLoggedKey, true)
+				}
 
 				_ = writeAPIError(c, http.StatusInternalServerError, oapimodels.ErrorCodeINTERNALERROR, "Internal server error")
 				err = nil
@@ -268,15 +300,82 @@ func errorHandler(logger *slog.Logger) echo.HTTPErrorHandler {
 		}
 
 		code, message := errorResponseForStatus(status)
-		logger.Error(
-			"http request failed",
-			"trace_id", traceID(c),
-			"status", status,
-			"error", redactLogValue(err.Error()),
-		)
+		// The access log already reported this request. This fallback only runs
+		// when a caller installs the error handler without that middleware, so a
+		// failure is never silently lost and never logged twice.
+		if claimed, _ := c.Get(problemLoggedKey).(bool); !claimed {
+			RecordProblem(c, Problem{Status: status, Code: string(code), Cause: err})
+			attrs := []any{
+				"trace_id", traceID(c),
+				"method", c.Request().Method,
+				"path", c.Request().URL.Path,
+				"status", status,
+			}
+			attrs = append(attrs, problemAttrs(c, status)...)
+			logRequestOutcome(logger, status, attrs)
+		}
 
 		_ = writeAPIError(c, status, code, message)
 	}
+}
+
+// problemAttrs renders the safe diagnostic fields for one failed request.
+// 4xx carries only the stable code and operation: request input is never logged.
+func problemAttrs(c *echo.Context, status int) []any {
+	if status < http.StatusBadRequest {
+		return nil
+	}
+	diag, _ := recordedProblem(c)
+	code := diag.Code
+	if code == "" {
+		mapped, _ := errorResponseForStatus(status)
+		code = string(mapped)
+	}
+	operation := diag.Operation
+	if operation == "" {
+		operation = defaultOperation(c)
+	}
+	attrs := []any{"error_code", code, "operation", operation}
+	if status < http.StatusInternalServerError {
+		return attrs
+	}
+	if diag.Dependency != "" {
+		attrs = append(attrs, "dependency", diag.Dependency)
+	}
+	if diag.CauseCode != "" {
+		attrs = append(attrs, "cause_code", diag.CauseCode)
+	}
+	if diag.Cause != "" {
+		attrs = append(attrs, "cause", diag.Cause)
+	}
+	if diag.Stack != "" {
+		attrs = append(attrs, "stack", diag.Stack)
+	}
+	return attrs
+}
+
+// defaultOperation names the operation from the matched route pattern, which
+// never contains a path parameter value.
+func defaultOperation(c *echo.Context) string {
+	method := ""
+	if c.Request() != nil {
+		method = c.Request().Method
+	}
+	if route := c.Path(); route != "" {
+		return method + " " + route
+	}
+	return method
+}
+
+// logRequestOutcome emits the single structured line for a request. 5xx is an
+// ERROR because it needs an operator; 4xx stays INFO because it is usually the
+// caller's input.
+func logRequestOutcome(logger *slog.Logger, status int, attrs []any) {
+	if status >= http.StatusInternalServerError {
+		logger.Error("http request failed", attrs...)
+		return
+	}
+	logger.Info("http request", attrs...)
 }
 
 func errorResponseForStatus(status int) (oapimodels.ErrorCode, string) {
@@ -347,6 +446,9 @@ var (
 		`(?i)(password|passwd|secret|token|api[_-]?key|access[_-]?key|refresh[_-]?token|access[_-]?token|authorization)["']?\s*[=:]\s*["']?[^\s&,;"']+`,
 	)
 	bearerPattern = regexp.MustCompile(`(?i)bearer\s+[a-z0-9._~+/=-]+`)
+	// redactedRun collapses a value that two patterns both masked, so
+	// "authorization=Bearer <token>" reads as one marker instead of two.
+	redactedRun = regexp.MustCompile(`(\[REDACTED\])(?:\s+\[REDACTED\])+`)
 )
 
 // redactLogValue prevents common credential shapes from reaching structured
@@ -354,5 +456,6 @@ var (
 func redactLogValue(value string) string {
 	value = bearerPattern.ReplaceAllString(value, "Bearer [REDACTED]")
 	value = secretAssignmentPattern.ReplaceAllString(value, "$1=[REDACTED]")
+	value = redactedRun.ReplaceAllString(value, "$1")
 	return value
 }

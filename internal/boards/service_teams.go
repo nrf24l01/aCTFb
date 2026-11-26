@@ -140,7 +140,7 @@ func (s *Service) TeamInviteKey(ctx context.Context, principal authorization.Pri
 	}
 	code, err := s.openInvite(invite.Ciphertext, teamInviteAAD(boardID, team.ID))
 	if err != nil {
-		return nil, ErrDependencyUnavailable
+		return nil, err
 	}
 	return &TeamInvite{InviteKey: code, ExpiresAt: invite.ExpiresAt}, nil
 }

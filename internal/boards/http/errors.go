@@ -14,6 +14,7 @@ import (
 	"github.com/nrf24l01/actfb/internal/boards"
 	"github.com/nrf24l01/actfb/internal/files"
 	oapimodels "github.com/nrf24l01/actfb/internal/generated/openapi/models"
+	"github.com/nrf24l01/actfb/internal/httpapi"
 )
 
 type apiProblem struct {
@@ -140,6 +141,7 @@ func writeAdminError(c *echo.Context, err error) error {
 
 func writeProblem(c *echo.Context, err error, admin bool) error {
 	if err == nil {
+		httpapi.RecordProblem(c, httpapi.Problem{Status: http.StatusInternalServerError, Code: string(oapimodels.ErrorCodeINTERNALERROR)})
 		return internalProblem().write(c)
 	}
 	if problem := validationProblemWhen(err); problem != nil {
@@ -291,6 +293,9 @@ func writeProblem(c *echo.Context, err error, admin bool) error {
 	case errors.Is(err, boards.ErrRoleGrantNotAllowed):
 		status, code, message = http.StatusForbidden, oapimodels.ErrorCodeROLEGRANTNOTALLOWED, "Role grant not allowed"
 	}
+	// The response envelope is deliberately generic; the original cause is
+	// recorded here, sanitized, so the single access-log line can explain it.
+	httpapi.RecordProblem(c, httpapi.Problem{Status: status, Code: string(code), Cause: err})
 	problem := &apiProblem{status: status, code: code, message: message, retryAfter: retry}
 	return problem.write(c)
 }

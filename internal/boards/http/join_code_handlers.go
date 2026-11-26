@@ -57,6 +57,7 @@ func (h *Handler) JoinBoardByCode(c *echo.Context) error {
 // GetBoardJoinCodeStatus reports whether a code exists. It never returns code
 // material.
 func (h *Handler) GetBoardJoinCodeStatus(c *echo.Context) error {
+	httpapi.SetOperation(c, "board.join_code.read")
 	principal, ok := httpapi.CurrentPrincipal(c)
 	if !ok {
 		return writeAdminError(c, boards.ErrUnauthorized)
@@ -75,6 +76,7 @@ func (h *Handler) GetBoardJoinCodeStatus(c *echo.Context) error {
 // SetBoardJoinCode generates a random code or stores a custom one. The
 // plaintext is returned exactly once.
 func (h *Handler) SetBoardJoinCode(c *echo.Context) error {
+	httpapi.SetOperation(c, "board.join_code.set")
 	principal, ok := httpapi.CurrentPrincipal(c)
 	if !ok {
 		return writeAdminError(c, boards.ErrUnauthorized)

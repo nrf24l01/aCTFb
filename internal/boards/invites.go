@@ -34,14 +34,14 @@ func teamInviteAAD(boardID, teamID uuid.UUID) []byte {
 
 func (s *Service) sealInvite(code string, aad []byte) ([]byte, error) {
 	if s.sealer == nil {
-		return nil, ErrDependencyUnavailable
+		return nil, dependencyUnavailable("credential_sealer")
 	}
 	return s.sealer.Seal([]byte(code), aad)
 }
 
 func (s *Service) openInvite(ciphertext []byte, aad []byte) (string, error) {
 	if s.sealer == nil {
-		return "", ErrDependencyUnavailable
+		return "", dependencyUnavailable("credential_sealer")
 	}
 	plain, err := s.sealer.Open(ciphertext, aad)
 	if err != nil {
