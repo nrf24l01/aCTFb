@@ -303,9 +303,14 @@ fi
 
 # Playwright is also an owned process group: an interrupted run (INT/TERM)
 # cannot leave Chromium or Bun workers behind.
-playwright_args=()
+# Optional positional arguments are forwarded verbatim to `playwright test` as
+# spec filters. CI passes the two full-stack specs so the default-profile and
+# p1-core files are not collected twice; an operator running this script with no
+# arguments still gets the whole `e2e/tests` directory, unchanged.
+spec_args=("$@")
+playwright_args=(${spec_args[@]+"${spec_args[@]}"})
 if [[ -n "${E2E_GREP:-}" ]]; then
-  playwright_args=(--grep "$E2E_GREP")
+  playwright_args+=(--grep "$E2E_GREP")
 fi
 service_start playwright "$WORKDIR/playwright.log" \
   env -C "$ROOT/e2e" bun run test ${playwright_args[@]+"${playwright_args[@]}"} >/dev/null

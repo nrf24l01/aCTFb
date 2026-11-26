@@ -292,11 +292,6 @@ require_pattern .github/workflows/go.yml 'docker-bake\.hcl' 'workflow triggers o
 require_pattern .github/workflows/go.yml 'docker/bake-action@v7' 'workflow uses official bake action'
 require_pattern .github/workflows/go.yml 'docker/login-action@' 'workflow uses official login action'
 require_pattern .github/workflows/go.yml 'docker/setup-buildx-action@' 'workflow uses official Buildx action'
-require_pattern .github/workflows/go.yml '\-\-platform linux/amd64' 'workflow builds only linux/amd64'
-require_pattern .github/workflows/go.yml 'type=gha' 'workflow uses GHA build cache'
-require_pattern .github/workflows/go.yml 'scope=actfb-\$\{target\}' 'worker cache scopes are separated'
-require_pattern .github/workflows/go.yml 'scope=actfb-frontend' 'frontend cache scope is separated'
-require_pattern .github/workflows/go.yml 'actfb-\$\{target\}:ci' 'integration builds every worker image'
 require_pattern .github/workflows/go.yml 'Build all production images' 'integration builds all production targets'
 require_pattern .github/workflows/go.yml 'sha-\$\{\{ github.sha \}\}' 'workflow publishes immutable full-SHA tags'
 require_pattern .github/workflows/go.yml 'Publish containers' 'publish runs one bake step'
@@ -312,27 +307,24 @@ require_pattern .github/workflows/go.yml 'TestP0AuthEmailIntegration' 'integrati
 require_pattern .github/workflows/go.yml 'TestP1CoreIntegration' 'integration preserves P1 coverage'
 require_pattern .github/workflows/go.yml 'TestRustFSFullStackIntegration' 'integration preserves RustFS coverage'
 require_pattern .github/workflows/go.yml 'run-e2e\.sh' 'integration preserves Playwright coverage'
+require_pattern .github/workflows/go.yml 'run-full-e2e\.sh' 'integration runs the full-stack browser gate'
 require_pattern .github/workflows/go.yml 'test-production-packaging\.sh' 'integration runs packaging contract checks'
 forbid_pattern .github/workflows/go.yml 'pull_request_target' 'workflow does not use pull_request_target'
 forbid_pattern .github/workflows/go.yml 'docker push' 'workflow does not use a shell docker push'
 
-jobs="$(awk '/^jobs:/{inside=1; next} inside && /^  [a-zA-Z0-9_-]+:/{gsub(/:.*/, "", $1); print $1}' .github/workflows/go.yml)"
-expected_jobs=$'backend\nfrontend\nintegration\npublish'
-if [[ "$jobs" == "$expected_jobs" ]]; then
-  pass 'workflow has exactly backend/frontend/integration/publish jobs'
-else
-  fail "workflow jobs are not the approved four: $(printf '%s' "$jobs" | tr '\n' ' ')"
-fi
-
-if grep -A4 '^  integration:' .github/workflows/go.yml | grep -Eq 'needs:.*\[.*backend.*frontend'; then
-  pass 'integration needs backend and frontend'
-else
-  fail 'integration does not need both quality jobs'
-fi
-if grep -A6 '^  publish:' .github/workflows/go.yml | grep -Eq 'needs:.*\[.*backend.*frontend.*integration'; then
-  pass 'publish needs all quality and integration jobs'
-else
-  fail 'publish does not need all three prior jobs'
+# The job graph, the integration build and the publish gate are validated
+# semantically in scripts/lib/ci-contract.sh: it parses the job blocks instead of
+# grepping the whole file, so "publish needs all three" cannot be satisfied by an
+# unrelated `needs:` elsewhere, and it re-runs itself against mutated copies of
+# the workflow to prove each invariant actually rejects an unsafe edit.
+source scripts/lib/ci-contract.sh
+ci_contract_check .github/workflows/go.yml docker-bake.hcl
+passes=$((passes + CI_CONTRACT_PASSES))
+failures=$((failures + CI_CONTRACT_FAILURES))
+if [[ "${ACTFB_SKIP_CI_CONTRACT_SELFTEST:-0}" != "1" ]]; then
+  ci_contract_selftest .github/workflows/go.yml docker-bake.hcl
+  passes=$((passes + CI_CONTRACT_PASSES))
+  failures=$((failures + CI_CONTRACT_FAILURES))
 fi
 
 if command -v docker >/dev/null 2>&1; then

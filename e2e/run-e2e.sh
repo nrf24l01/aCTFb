@@ -112,4 +112,8 @@ if [[ -z "${E2E_CHROMIUM_PATH:-}" && -x /usr/bin/chromium ]]; then
 fi
 
 cd "$ROOT/e2e"
-bun run test
+# Optional positional arguments are forwarded verbatim to `playwright test` as
+# spec filters, so CI can run only the specs it has not already covered. With no
+# arguments the whole `e2e/tests` directory runs exactly as before.
+spec_args=("$@")
+bun run test ${spec_args[@]+"${spec_args[@]}"}

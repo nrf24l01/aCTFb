@@ -131,7 +131,14 @@ jobs:
 
   integration:
     name: Integration
-    needs: [backend, frontend]
+    # Independent of the quality jobs on purpose. This job checks out, installs
+    # Go and Bun, and builds the ten images itself, so it consumes no artifact
+    # from `backend` or `frontend`; the old `needs` only serialised it behind
+    # them and left ~3m of the runner idle on a green commit. The trade-off is
+    # that a quality failure is reported after integration has already started,
+    # which costs runner minutes on a red commit but never delays the verdict.
+    # `publish` still needs all three jobs, so nothing is pushed unless every
+    # gate passes.
     runs-on: ubuntu-latest
     # Raised from 75 after the default-profile browser suite was added: the
     # serial Docker full-stack run (~40m), the isolated integration tests and the
@@ -257,7 +264,7 @@ jobs:
 
       - name: Run real-browser acceptance
         timeout-minutes: 40
-        run: ./e2e/run-e2e.sh
+        run: ./e2e/run-e2e.sh p1-core.spec.ts
 
       # The full-stack suite forces every optional feature on, which is exactly
       # how the default-profile regressions escaped. This run boots the real
@@ -270,38 +277,53 @@ jobs:
           E2E_PG_DSN: ${{ env.ACTFB_TEST_POSTGRES_DSN }}
         run: ./e2e/run-default-profile-e2e.sh
 
+      # Coverage gate, not a speed optimisation: these are the specs the default
+      # `run-e2e.sh` collects and then skips because they require
+      # E2E_FULL_STACK=1. The runner owns its ephemeral PostgreSQL/NATS/RustFS/
+      # ClamAV/nginx fixtures and never touches operator data, so the extra
+      # containers are CI-only. It costs wall clock and is expected to.
+      - name: Run full-stack browser acceptance
+        timeout-minutes: 45
+        run: ./e2e/run-full-e2e.sh full-stage.spec.ts organizer-ux.spec.ts
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+        with:
+          # The shared `build` stage compiles the nine commands once; this bounds
+          # how many of the ten image exports run at the same time so a 4-core
+          # runner does not try to hold all ten layers in memory at once.
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 2
 
+      # Official action on purpose: `docker/bake-action` receives the Actions
+      # cache credentials that a plain `run:` step does not, so the ten
+      # `type=gha` scopes already declared in docker-bake.hcl are finally read
+      # and written across runs. The tag overrides keep the `actfb-<target>:ci`
+      # names that the packaging, runtime and auth/proxy smokes inspect, and the
+      # bake is load-only and never pushes: every image stays on the runner.
       - name: Build all production images (no push)
-        run: |
-          set -euo pipefail
-          for target in \
-            backend notification retention events-dispatcher file-scanner \
-            storage-init plugin-runner ad-worker instance-worker; do
-            docker buildx build \
-              --platform linux/amd64 \
-              --load \
-              --target "$target" \
-              --tag "actfb-${target}:ci" \
-              --build-arg GIT_SHA="${{ github.sha }}" \
-              --build-arg IMAGE_TAG="sha-${{ github.sha }}" \
-              --cache-from "type=gha,scope=actfb-${target}" \
-              --cache-to "type=gha,mode=max,scope=actfb-${target}" \
-              --file Dockerfile \
-              .
-          done
-          docker buildx build \
-            --platform linux/amd64 \
-            --load \
-            --tag actfb-frontend:ci \
-            --build-arg VITE_API_BASE_URL=/api \
-            --build-arg GIT_SHA="${{ github.sha }}" \
-            --build-arg IMAGE_TAG="sha-${{ github.sha }}" \
-            --cache-from type=gha,scope=actfb-frontend \
-            --cache-to type=gha,mode=max,scope=actfb-frontend \
-            --file frontend/Dockerfile \
-            frontend
+        uses: docker/bake-action@v7
+        with:
+          files: docker-bake.hcl
+          source: .
+          push: false
+          load: true
+          provenance: false
+          set: |
+            backend.tags=actfb-backend:ci
+            notification.tags=actfb-notification:ci
+            retention.tags=actfb-retention:ci
+            events-dispatcher.tags=actfb-events-dispatcher:ci
+            file-scanner.tags=actfb-file-scanner:ci
+            storage-init.tags=actfb-storage-init:ci
+            plugin-runner.tags=actfb-plugin-runner:ci
+            ad-worker.tags=actfb-ad-worker:ci
+            instance-worker.tags=actfb-instance-worker:ci
+            frontend.tags=actfb-frontend:ci
+        env:
+          SHA_TAG: sha-${{ github.sha }}
+          GIT_SHA: ${{ github.sha }}
 
       - name: Packaging contract checks
         env:
