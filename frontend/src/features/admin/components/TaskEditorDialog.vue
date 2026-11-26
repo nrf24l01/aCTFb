@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -34,7 +33,6 @@ import {
 } from '@/features/admin/taskParameters'
 import { isApiError } from '@/shared/api/errors'
 import { useDiscardGuard } from '@/features/admin/useDiscardGuard'
-import { renderMarkdown } from '@/shared/lib/markdown'
 import { DESCRIPTION_MAX_CHARACTERS, validateDescriptionLength } from '@/shared/lib/text'
 import { MarkdownEditorLazy } from '@/shared/components/MarkdownEditorLazy'
 import { taskTypeLabel } from '@/features/boards/format'
@@ -127,9 +125,8 @@ const problems = ref<Record<string, string | undefined>>({})
 const error = ref<unknown>(null)
 const pending = ref(false)
 const isEdit = computed(() => Boolean(props.task))
-const preview = computed(() => renderMarkdown(form.description))
-// One live message, owned by the form: it stays visible on both tabs, so an
-// over-limit save from Preview is never a silent no-op.
+// One live message, owned by the form and rendered outside the editor, so an
+// over-limit save is never a silent no-op in either editor mode.
 const descriptionError = computed(() =>
   validateDescriptionLength(form.description, DESCRIPTION_MAX_CHARACTERS),
 )
@@ -472,7 +469,7 @@ async function submit() {
 
 <template>
   <Dialog :open="open" @update:open="(value) => { if (!value) attemptClose() }">
-    <DialogContent class="flex max-h-[92dvh] flex-col rounded-none border-border bg-black max-md:h-dvh max-md:max-h-dvh max-md:max-w-none sm:max-w-2xl">
+    <DialogContent class="authoring-dialog authoring-dialog--wide flex max-h-[92dvh] flex-col rounded-none border-border bg-black max-md:h-dvh max-md:max-h-dvh">
       <DialogHeader>
         <DialogTitle>{{ isEdit ? 'Edit task' : 'Create task' }}</DialogTitle>
         <DialogDescription>
@@ -481,49 +478,25 @@ async function submit() {
       </DialogHeader>
 
       <form class="flex min-h-0 flex-1 flex-col" novalidate @submit.prevent="submit">
-        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+        <div class="authoring-body min-h-0 flex-1 overflow-y-auto md:pr-1" data-slot="authoring-scroll">
           <ErrorAlert v-if="error" :error="error" title="Could not save task" />
 
-          <div class="flex flex-wrap items-center gap-2 text-sm">
-            <span class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Format</span>
-            <span class="border border-border px-2 py-1">{{ taskTypeLabel(form.type) }}</span>
-          </div>
+          <div class="authoring-layout" data-slot="authoring-layout">
+            <div class="authoring-main space-y-4" data-slot="authoring-main">
+              <FormField label="Title" for-id="task-title" :error="problems.title">
+                <Input id="task-title" v-model="form.title" />
+              </FormField>
 
-          <div v-if="isLegacyChoice && !isEdit" class="space-y-2 border border-gold/60 p-3">
-            <p class="text-xs text-gold">This module mixes task types. Choose the task type for this new task.</p>
-            <select v-model="form.type" class="h-9 w-full border border-border bg-black px-2 text-sm">
-              <option v-for="type in availableTypes" :key="type" :value="type">{{ taskTypeLabel(type) }}</option>
-            </select>
-          </div>
-
-          <div class="grid gap-3 sm:grid-cols-3">
-            <FormField label="Title" for-id="task-title" :error="problems.title" class="sm:col-span-2">
-              <Input id="task-title" v-model="form.title" />
-            </FormField>
-            <FormField label="Points" for-id="task-points" :error="problems.points">
-              <Input id="task-points" v-model.number="form.points" type="number" min="0" step="1" />
-            </FormField>
-          </div>
-          <FormField label="Category" for-id="task-category" :error="problems.category">
-            <Input id="task-category" v-model="form.category" />
-          </FormField>
-
-          <div class="space-y-2">
-            <p class="text-sm font-medium">Content</p>
-            <p
-              v-if="descriptionError"
-              id="task-description-error"
-              role="alert"
-              class="text-xs text-status-error-ink"
-            >
-              {{ descriptionError }}
-            </p>
-            <Tabs default-value="write">
-              <TabsList variant="line">
-                <TabsTrigger value="write">Write</TabsTrigger>
-                <TabsTrigger value="preview">Preview</TabsTrigger>
-              </TabsList>
-              <TabsContent value="write">
+              <div class="space-y-2">
+                <p class="text-sm font-medium">Content</p>
+                <p
+                  v-if="descriptionError"
+                  id="task-description-error"
+                  role="alert"
+                  class="text-xs text-status-error-ink"
+                >
+                  {{ descriptionError }}
+                </p>
                 <MarkdownEditorLazy
                   id="task-description"
                   v-model="form.description"
@@ -533,291 +506,304 @@ async function submit() {
                   :invalid="Boolean(descriptionError)"
                   :described-by="descriptionError ? 'task-description-error' : undefined"
                 />
-              </TabsContent>
-              <TabsContent value="preview">
-                <div class="min-h-28 border border-border px-3 py-2">
-                  <!-- Sanitised by renderMarkdown. -->
-                  <article class="markdown-body space-y-2 text-sm" v-html="preview" />
-                  <p v-if="!form.description.trim()" class="text-sm text-muted-foreground">Nothing to preview yet.</p>
-                </div>
-              </TabsContent>
-            </Tabs>
-            <p class="text-xs text-muted-foreground">Attachments are added from the task editor after the draft is saved.</p>
-          </div>
-
-          <FormField
-            v-if="form.type === 'FLAG'"
-            label="Accepted answers"
-            for-id="task-answers"
-            :error="problems.answers"
-            :hint="isEdit
-              ? `Write-only. ${task?.answerConfiguration.configured ? task.answerConfiguration.acceptedAnswersCount : 0} configured. Leave blank to keep them.`
-              : 'One answer per line. Never returned by the API.'"
-          >
-            <Textarea
-              id="task-answers"
-              v-model="form.acceptedAnswers"
-              rows="4"
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="flag{...}"
-            />
-          </FormField>
-
-          <fieldset v-if="form.type !== 'FLAG'" class="space-y-3 border border-border p-3">
-            <legend class="px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Submission</legend>
-            <FormField label="What participants submit" for-id="task-choice">
-              <select id="task-choice" v-model="form.choice" class="h-9 w-full border border-border bg-black px-2 text-sm">
-                <option value="TEXT">Text answer</option>
-                <option value="FILES">Files</option>
-                <option value="BOTH">Text and files</option>
-                <option value="EITHER">Text or files</option>
-              </select>
-            </FormField>
-
-            <template v-if="form.choice !== 'FILES'">
-              <label class="flex min-h-11 items-center gap-2 text-sm">
-                <Checkbox v-model="form.textRequired" />
-                Text is required
-              </label>
-              <div class="grid gap-3 sm:grid-cols-2">
-                <FormField label="Minimum characters" for-id="task-text-min">
-                  <Input id="task-text-min" v-model.number="form.textMinLength" type="number" min="0" max="1000000" />
-                </FormField>
-                <FormField label="Maximum characters" for-id="task-text-max">
-                  <Input id="task-text-max" v-model.number="form.textMaxLength" type="number" min="1" max="1000000" />
-                </FormField>
+                <p class="text-xs text-muted-foreground">Attachments are added from the task editor after the draft is saved.</p>
               </div>
-            </template>
 
-            <template v-if="form.choice !== 'TEXT'">
-              <label class="flex min-h-11 items-center gap-2 text-sm">
-                <Checkbox v-model="form.filesRequired" />
-                Files are required
-              </label>
-              <div class="grid gap-3 sm:grid-cols-3">
-                <FormField label="Minimum files" for-id="task-files-min">
-                  <Input id="task-files-min" v-model.number="form.filesMinCount" type="number" min="0" max="100" />
-                </FormField>
-                <FormField label="Maximum files" for-id="task-files-max">
-                  <Input id="task-files-max" v-model.number="form.filesMaxCount" type="number" min="1" max="100" />
-                </FormField>
-                <FormField label="Max size (MiB)" for-id="task-files-size">
-                  <Input id="task-files-size" v-model.number="form.filesMaxSizeMiB" type="number" min="1" max="1024" />
-                </FormField>
+              <div v-if="form.type === 'INSTANCE'" class="space-y-3 border border-border p-3">
+                <template v-if="isEdit">
+                  <p class="text-xs text-muted-foreground">
+                    The instance template binding is immutable after creation. Secret values are never shown; leaving them blank keeps them.
+                  </p>
+                </template>
+                <template v-else>
+                  <ErrorAlert v-if="templatesError" :error="templatesError" title="Could not load approved templates">
+                    <Button type="button" variant="ghost" class="mt-2" @click="loadApprovedTemplates">Retry</Button>
+                  </ErrorAlert>
+                  <p v-else-if="templatesLoading" class="text-xs text-muted-foreground">Loading approved templates…</p>
+                  <div v-else-if="approvedTemplates.length === 0" class="space-y-2 text-sm">
+                    <p class="text-muted-foreground">No approved template version is available for this module.</p>
+                    <Button as-child variant="outline" size="sm">
+                      <RouterLink to="/admin/templates">Open deployment templates</RouterLink>
+                    </Button>
+                  </div>
+                  <template v-else>
+                    <FormField label="Approved template" for-id="task-instance-approved">
+                      <select
+                        id="task-instance-approved"
+                        :value="`${form.deploymentTemplateUuid}:${form.templateVersion}`"
+                        class="h-9 w-full border border-border bg-black px-2 text-sm"
+                        @change="selectApprovedTemplate(($event.target as HTMLSelectElement).value)"
+                      >
+                        <option value="">Choose an approved version</option>
+                        <option
+                          v-for="template in approvedTemplates"
+                          :key="`${template.templateUuid}:${template.version}`"
+                          :value="`${template.templateUuid}:${template.version}`"
+                        >
+                          {{ template.name }} v{{ template.version }} ({{ template.slug }})
+                        </option>
+                      </select>
+                    </FormField>
+
+                    <div v-if="unsupportedPolicy" class="space-y-2 border border-gold/60 p-3">
+                      <p class="text-xs text-gold">
+                        This template's allowlist declares a parameter restriction that is not supported yet, so the task
+                        cannot bind. Ask an operator to clear <code>parametersPolicy</code> on the allowlist: template
+                        parameters are validated from the published manifest instead.
+                      </p>
+                    </div>
+                    <div v-else-if="parameterFields.length > 0" class="space-y-3 border-t border-border pt-3">
+                      <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Template parameters</p>
+                      <FormField
+                        v-for="field in parameterFields.filter((entry) => !entry.secret)"
+                        :key="field.key"
+                        :label="field.label + (field.required ? ' *' : '')"
+                        :for-id="`param-${field.key}`"
+                      >
+                        <select
+                          v-if="field.type === 'select'"
+                          :id="`param-${field.key}`"
+                          v-model="form.parameters[field.key]"
+                          class="h-9 w-full border border-border bg-black px-2 text-sm"
+                        >
+                          <option value="">Choose…</option>
+                          <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
+                        </select>
+                        <label v-else-if="field.type === 'boolean'" class="flex min-h-9 items-center gap-2 text-sm">
+                          <input v-model="form.parameters[field.key]" type="checkbox" true-value="true" false-value="false" />
+                          {{ field.defaultValue === 'true' ? 'Enabled' : 'Toggle' }}
+                        </label>
+                        <Textarea
+                          v-else-if="field.type === 'textarea'"
+                          :id="`param-${field.key}`"
+                          v-model="form.parameters[field.key]"
+                          rows="3"
+                        />
+                        <Input
+                          v-else
+                          :id="`param-${field.key}`"
+                          v-model="form.parameters[field.key]"
+                          :type="field.type === 'number' ? 'number' : 'text'"
+                        />
+                      </FormField>
+
+                      <template v-if="parameterFields.some((entry) => entry.secret)">
+                        <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Secret parameters</p>
+                        <FormField
+                          v-for="field in parameterFields.filter((entry) => entry.secret)"
+                          :key="field.key"
+                          :label="field.label + (field.required ? ' *' : '')"
+                          :for-id="`secret-${field.key}`"
+                          hint="Write-only. Never displayed again."
+                        >
+                          <Input
+                            :id="`secret-${field.key}`"
+                            v-model="form.secretParameters[field.key]"
+                            type="password"
+                            autocomplete="new-password"
+                            spellcheck="false"
+                          />
+                        </FormField>
+                      </template>
+                    </div>
+                    <p v-else-if="templateHasNoParameters" class="text-xs text-muted-foreground">
+                      This template declares no parameters, so the task binds with its defaults.
+                    </p>
+                  </template>
+                </template>
               </div>
-              <FormField label="Allowed content types" for-id="task-files-types" hint="Comma-separated MIME types.">
-                <Input id="task-files-types" v-model="form.filesAllowedContentTypes" />
+            </div>
+
+            <div class="authoring-settings space-y-4" data-slot="authoring-settings">
+              <div class="flex flex-wrap items-center gap-2 text-sm">
+                <span class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Format</span>
+                <span class="border border-border px-2 py-1">{{ taskTypeLabel(form.type) }}</span>
+              </div>
+
+              <div v-if="isLegacyChoice && !isEdit" class="space-y-2 border border-gold/60 p-3">
+                <p class="text-xs text-gold">This module mixes task types. Choose the task type for this new task.</p>
+                <select v-model="form.type" class="h-9 w-full border border-border bg-black px-2 text-sm">
+                  <option v-for="type in availableTypes" :key="type" :value="type">{{ taskTypeLabel(type) }}</option>
+                </select>
+              </div>
+
+              <FormField label="Points" for-id="task-points" :error="problems.points">
+                <Input id="task-points" v-model.number="form.points" type="number" min="0" step="1" />
               </FormField>
-            </template>
-            <p v-if="problems.policy" class="text-xs text-love">{{ problems.policy }}</p>
-          </fieldset>
+              <FormField label="Category" for-id="task-category" :error="problems.category">
+                <Input id="task-category" v-model="form.category" />
+              </FormField>
 
-          <div v-if="form.type === 'INSTANCE'" class="space-y-3 border border-border p-3">
-            <template v-if="isEdit">
-              <p class="text-xs text-muted-foreground">
-                The instance template binding is immutable after creation. Secret values are never shown; leaving them blank keeps them.
-              </p>
-            </template>
-            <template v-else>
-              <ErrorAlert v-if="templatesError" :error="templatesError" title="Could not load approved templates">
-                <Button type="button" variant="ghost" class="mt-2" @click="loadApprovedTemplates">Retry</Button>
-              </ErrorAlert>
-              <p v-else-if="templatesLoading" class="text-xs text-muted-foreground">Loading approved templates…</p>
-              <div v-else-if="approvedTemplates.length === 0" class="space-y-2 text-sm">
-                <p class="text-muted-foreground">No approved template version is available for this module.</p>
-                <Button as-child variant="outline" size="sm">
-                  <RouterLink to="/admin/templates">Open deployment templates</RouterLink>
-                </Button>
-              </div>
-              <template v-else>
-                <FormField label="Approved template" for-id="task-instance-approved">
-                  <select
-                    id="task-instance-approved"
-                    :value="`${form.deploymentTemplateUuid}:${form.templateVersion}`"
-                    class="h-9 w-full border border-border bg-black px-2 text-sm"
-                    @change="selectApprovedTemplate(($event.target as HTMLSelectElement).value)"
-                  >
-                    <option value="">Choose an approved version</option>
-                    <option
-                      v-for="template in approvedTemplates"
-                      :key="`${template.templateUuid}:${template.version}`"
-                      :value="`${template.templateUuid}:${template.version}`"
-                    >
-                      {{ template.name }} v{{ template.version }} ({{ template.slug }})
-                    </option>
+              <FormField
+                v-if="form.type === 'FLAG'"
+                label="Accepted answers"
+                for-id="task-answers"
+                :error="problems.answers"
+                :hint="isEdit
+                  ? `Write-only. ${task?.answerConfiguration.configured ? task.answerConfiguration.acceptedAnswersCount : 0} configured. Leave blank to keep them.`
+                  : 'One answer per line. Never returned by the API.'"
+              >
+                <Textarea
+                  id="task-answers"
+                  v-model="form.acceptedAnswers"
+                  rows="4"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="flag{...}"
+                />
+              </FormField>
+
+              <fieldset v-if="form.type !== 'FLAG'" class="space-y-3 border border-border p-3">
+                <legend class="px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Submission</legend>
+                <FormField label="What participants submit" for-id="task-choice">
+                  <select id="task-choice" v-model="form.choice" class="h-9 w-full border border-border bg-black px-2 text-sm">
+                    <option value="TEXT">Text answer</option>
+                    <option value="FILES">Files</option>
+                    <option value="BOTH">Text and files</option>
+                    <option value="EITHER">Text or files</option>
                   </select>
                 </FormField>
 
-                <div v-if="unsupportedPolicy" class="space-y-2 border border-gold/60 p-3">
-                  <p class="text-xs text-gold">
-                    This template's allowlist declares a parameter restriction that is not supported yet, so the task
-                    cannot bind. Ask an operator to clear <code>parametersPolicy</code> on the allowlist: template
-                    parameters are validated from the published manifest instead.
-                  </p>
-                </div>
-                <div v-else-if="parameterFields.length > 0" class="space-y-3 border-t border-border pt-3">
-                  <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Template parameters</p>
-                  <FormField
-                    v-for="field in parameterFields.filter((entry) => !entry.secret)"
-                    :key="field.key"
-                    :label="field.label + (field.required ? ' *' : '')"
-                    :for-id="`param-${field.key}`"
-                  >
-                    <select
-                      v-if="field.type === 'select'"
-                      :id="`param-${field.key}`"
-                      v-model="form.parameters[field.key]"
-                      class="h-9 w-full border border-border bg-black px-2 text-sm"
-                    >
-                      <option value="">Choose…</option>
-                      <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
-                    </select>
-                    <label v-else-if="field.type === 'boolean'" class="flex min-h-9 items-center gap-2 text-sm">
-                      <input v-model="form.parameters[field.key]" type="checkbox" true-value="true" false-value="false" />
-                      {{ field.defaultValue === 'true' ? 'Enabled' : 'Toggle' }}
-                    </label>
-                    <Textarea
-                      v-else-if="field.type === 'textarea'"
-                      :id="`param-${field.key}`"
-                      v-model="form.parameters[field.key]"
-                      rows="3"
-                    />
-                    <Input
-                      v-else
-                      :id="`param-${field.key}`"
-                      v-model="form.parameters[field.key]"
-                      :type="field.type === 'number' ? 'number' : 'text'"
-                    />
-                  </FormField>
-
-                  <template v-if="parameterFields.some((entry) => entry.secret)">
-                    <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Secret parameters</p>
-                    <FormField
-                      v-for="field in parameterFields.filter((entry) => entry.secret)"
-                      :key="field.key"
-                      :label="field.label + (field.required ? ' *' : '')"
-                      :for-id="`secret-${field.key}`"
-                      hint="Write-only. Never displayed again."
-                    >
-                      <Input
-                        :id="`secret-${field.key}`"
-                        v-model="form.secretParameters[field.key]"
-                        type="password"
-                        autocomplete="new-password"
-                        spellcheck="false"
-                      />
+                <template v-if="form.choice !== 'FILES'">
+                  <label class="flex min-h-11 items-center gap-2 text-sm">
+                    <Checkbox v-model="form.textRequired" />
+                    Text is required
+                  </label>
+                  <div class="grid gap-3 sm:grid-cols-2">
+                    <FormField label="Minimum characters" for-id="task-text-min">
+                      <Input id="task-text-min" v-model.number="form.textMinLength" type="number" min="0" max="1000000" />
                     </FormField>
-                  </template>
-                </div>
-                <p v-else-if="templateHasNoParameters" class="text-xs text-muted-foreground">
-                  This template declares no parameters, so the task binds with its defaults.
-                </p>
-              </template>
-            </template>
-
-            <div class="space-y-3 border-t border-border pt-3">
-              <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Lifetime</p>
-              <div class="flex flex-wrap gap-2" role="group" aria-label="Lifetime policy">
-                <Button
-                  type="button"
-                  size="sm"
-                  :variant="form.lifetimeMode === 'INHERIT' ? 'default' : 'outline'"
-                  @click="form.lifetimeMode = 'INHERIT'"
-                >
-                  Inherit module defaults
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  :variant="form.lifetimeMode === 'CUSTOM' ? 'default' : 'outline'"
-                  @click="form.lifetimeMode = 'CUSTOM'"
-                >
-                  Custom
-                </Button>
-              </div>
-              <p class="text-xs text-muted-foreground">{{ inheritedSummary }}</p>
-              <p class="text-xs text-muted-foreground">
-                Lifetime begins when the environment is requested; startup time is included.
-              </p>
-
-              <template v-if="form.lifetimeMode === 'CUSTOM'">
-                <FormField label="Initial lifetime" for-id="task-lifetime-initial">
-                  <div class="flex gap-2">
-                    <Input
-                      id="task-lifetime-initial"
-                      v-model.number="form.lifetimeInitial"
-                      type="number"
-                      min="1"
-                      step="1"
-                    />
-                    <select
-                      :value="form.lifetimeUnit"
-                      class="h-9 border border-border bg-black px-2 text-sm"
-                      aria-label="Lifetime unit"
-                      @change="setLifetimeUnit(($event.target as HTMLSelectElement).value as 'minutes' | 'hours')"
-                    >
-                      <option value="minutes">minutes</option>
-                      <option value="hours">hours</option>
-                    </select>
+                    <FormField label="Maximum characters" for-id="task-text-max">
+                      <Input id="task-text-max" v-model.number="form.textMaxLength" type="number" min="1" max="1000000" />
+                    </FormField>
                   </div>
-                </FormField>
+                </template>
 
-                <details class="border border-border">
-                  <summary class="cursor-pointer px-3 py-2 text-sm font-medium">Advanced</summary>
-                  <div class="space-y-3 border-t border-border p-3">
-                    <FormField label="Maximum total lifetime" for-id="task-lifetime-max">
+                <template v-if="form.choice !== 'TEXT'">
+                  <label class="flex min-h-11 items-center gap-2 text-sm">
+                    <Checkbox v-model="form.filesRequired" />
+                    Files are required
+                  </label>
+                  <div class="grid gap-3 sm:grid-cols-2">
+                    <FormField label="Minimum files" for-id="task-files-min">
+                      <Input id="task-files-min" v-model.number="form.filesMinCount" type="number" min="0" max="100" />
+                    </FormField>
+                    <FormField label="Maximum files" for-id="task-files-max">
+                      <Input id="task-files-max" v-model.number="form.filesMaxCount" type="number" min="1" max="100" />
+                    </FormField>
+                    <FormField label="Max size (MiB)" for-id="task-files-size">
+                      <Input id="task-files-size" v-model.number="form.filesMaxSizeMiB" type="number" min="1" max="1024" />
+                    </FormField>
+                  </div>
+                  <FormField label="Allowed content types" for-id="task-files-types" hint="Comma-separated MIME types.">
+                    <Input id="task-files-types" v-model="form.filesAllowedContentTypes" />
+                  </FormField>
+                </template>
+                <p v-if="problems.policy" class="text-xs text-love">{{ problems.policy }}</p>
+              </fieldset>
+
+              <label class="flex min-h-11 items-center gap-2 text-sm">
+                <Checkbox v-model="form.visible" />
+                Visible to participants
+              </label>
+
+              <div v-if="form.type === 'INSTANCE'" class="space-y-3 border border-border p-3">
+                <p v-if="problems.instance" class="text-xs text-love">{{ problems.instance }}</p>
+                <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Lifetime</p>
+                <div class="flex flex-wrap gap-2" role="group" aria-label="Lifetime policy">
+                  <Button
+                    type="button"
+                    size="sm"
+                    :variant="form.lifetimeMode === 'INHERIT' ? 'default' : 'outline'"
+                    @click="form.lifetimeMode = 'INHERIT'"
+                  >
+                    Inherit module defaults
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    :variant="form.lifetimeMode === 'CUSTOM' ? 'default' : 'outline'"
+                    @click="form.lifetimeMode = 'CUSTOM'"
+                  >
+                    Custom
+                  </Button>
+                </div>
+                <p class="text-xs text-muted-foreground">{{ inheritedSummary }}</p>
+                <p class="text-xs text-muted-foreground">
+                  Lifetime begins when the environment is requested; startup time is included.
+                </p>
+
+                <template v-if="form.lifetimeMode === 'CUSTOM'">
+                  <FormField label="Initial lifetime" for-id="task-lifetime-initial">
+                    <div class="flex gap-2">
                       <Input
-                        id="task-lifetime-max"
-                        v-model.number="form.lifetimeMaxTotal"
+                        id="task-lifetime-initial"
+                        v-model.number="form.lifetimeInitial"
                         type="number"
                         min="1"
                         step="1"
                       />
-                    </FormField>
-                    <label class="flex min-h-11 items-center gap-2 text-sm">
-                      <Checkbox v-model="form.extendEnabled" />
-                      Allow student extensions
-                    </label>
-                    <div class="grid gap-3 sm:grid-cols-2">
-                      <FormField label="One extension step" for-id="task-extension-step">
+                      <select
+                        :value="form.lifetimeUnit"
+                        class="h-9 border border-border bg-black px-2 text-sm"
+                        aria-label="Lifetime unit"
+                        @change="setLifetimeUnit(($event.target as HTMLSelectElement).value as 'minutes' | 'hours')"
+                      >
+                        <option value="minutes">minutes</option>
+                        <option value="hours">hours</option>
+                      </select>
+                    </div>
+                  </FormField>
+
+                  <details class="border border-border">
+                    <summary class="cursor-pointer px-3 py-2 text-sm font-medium">Advanced</summary>
+                    <div class="space-y-3 border-t border-border p-3">
+                      <FormField label="Maximum total lifetime" for-id="task-lifetime-max">
                         <Input
-                          id="task-extension-step"
-                          v-model.number="form.extendStep"
+                          id="task-lifetime-max"
+                          v-model.number="form.lifetimeMaxTotal"
                           type="number"
                           min="1"
                           step="1"
-                          :disabled="!form.extendEnabled"
                         />
                       </FormField>
-                      <FormField label="Max extensions" for-id="task-extension-count">
-                        <Input
-                          id="task-extension-count"
-                          v-model.number="form.extendMaxCount"
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="1"
-                          :disabled="!form.extendEnabled"
-                        />
-                      </FormField>
+                      <label class="flex min-h-11 items-center gap-2 text-sm">
+                        <Checkbox v-model="form.extendEnabled" />
+                        Allow student extensions
+                      </label>
+                      <div class="grid gap-3 sm:grid-cols-2">
+                        <FormField label="One extension step" for-id="task-extension-step">
+                          <Input
+                            id="task-extension-step"
+                            v-model.number="form.extendStep"
+                            type="number"
+                            min="1"
+                            step="1"
+                            :disabled="!form.extendEnabled"
+                          />
+                        </FormField>
+                        <FormField label="Max extensions" for-id="task-extension-count">
+                          <Input
+                            id="task-extension-count"
+                            v-model.number="form.extendMaxCount"
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="1"
+                            :disabled="!form.extendEnabled"
+                          />
+                        </FormField>
+                      </div>
+                      <p class="text-xs text-muted-foreground">
+                        Participants extend by the step you set; they never choose a duration. The maximum total
+                        lifetime is a hard cap measured from the request time.
+                      </p>
                     </div>
-                    <p class="text-xs text-muted-foreground">
-                      Participants extend by the step you set; they never choose a duration. The maximum total
-                      lifetime is a hard cap measured from the request time.
-                    </p>
-                  </div>
-                </details>
-              </template>
+                  </details>
+                </template>
+              </div>
             </div>
-
-            <p v-if="problems.instance" class="text-xs text-love">{{ problems.instance }}</p>
           </div>
-
-          <label class="flex min-h-11 items-center gap-2 text-sm">
-            <Checkbox v-model="form.visible" />
-            Visible to participants
-          </label>
         </div>
 
         <DialogFooter class="mt-4 border-t border-border pt-4">

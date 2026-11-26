@@ -3,7 +3,6 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -19,7 +18,6 @@ import { boardsApi } from '@/features/boards/api/boards'
 import { accessApi } from '@/features/access/api'
 import { parseDateWindow, validateBoardName, validateSlug } from '@/features/admin/validation'
 import { formatDateTimeLocal } from '@/shared/lib/format'
-import { renderMarkdown } from '@/shared/lib/markdown'
 import { DESCRIPTION_MAX_CHARACTERS, validateDescriptionLength } from '@/shared/lib/text'
 import { isApiError } from '@/shared/api/errors'
 import { useDiscardGuard } from '@/features/admin/useDiscardGuard'
@@ -108,9 +106,8 @@ const gateChangeNeedsConfirm = computed(() => {
 })
 const showAudience = computed(() => form.accessMode === 'AUDIENCE')
 const showInvite = computed(() => form.accessMode === 'INVITE')
-const preview = computed(() => renderMarkdown(form.description))
-// One live message, owned by the form: it stays visible on both tabs, so an
-// over-limit save from Preview is never a silent no-op.
+// One live message, owned by the form and rendered outside the editor, so an
+// over-limit save is never a silent no-op in either editor mode.
 const descriptionError = computed(() =>
   validateDescriptionLength(form.description, DESCRIPTION_MAX_CHARACTERS),
 )
@@ -275,7 +272,7 @@ async function save(window: { startsAt: string | null; endsAt: string | null }) 
 
 <template>
   <Dialog :open="open" @update:open="(value) => { if (!value) attemptClose() }">
-    <DialogContent class="flex max-h-[90dvh] flex-col rounded-none border-border bg-black max-md:h-dvh max-md:max-h-dvh max-md:max-w-none sm:max-w-xl">
+    <DialogContent class="authoring-dialog flex max-h-[90dvh] flex-col rounded-none border-border bg-black max-md:h-dvh max-md:max-h-dvh">
       <DialogHeader>
         <DialogTitle>{{ isEdit ? 'Edit board' : 'Create board' }}</DialogTitle>
         <DialogDescription>
@@ -284,29 +281,25 @@ async function save(window: { startsAt: string | null; endsAt: string | null }) 
       </DialogHeader>
 
       <form class="flex min-h-0 flex-1 flex-col" novalidate @submit.prevent="submit">
-        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+        <div class="authoring-body min-h-0 flex-1 overflow-y-auto md:pr-1" data-slot="authoring-scroll">
           <ErrorAlert v-if="error" :error="error" title="Could not save board" />
 
-          <FormField label="Name" for-id="board-name" :error="problems.name">
-            <Input id="board-name" v-model="form.name" autocomplete="off" />
-          </FormField>
+          <div class="authoring-layout" data-slot="authoring-layout">
+            <div class="authoring-main space-y-4" data-slot="authoring-main">
+              <FormField label="Name" for-id="board-name" :error="problems.name">
+                <Input id="board-name" v-model="form.name" autocomplete="off" />
+              </FormField>
 
-          <div class="space-y-2">
-            <p class="text-sm font-medium">Description</p>
-            <p
-              v-if="descriptionError"
-              id="board-description-error"
-              role="alert"
-              class="text-xs text-status-error-ink"
-            >
-              {{ descriptionError }}
-            </p>
-            <Tabs default-value="write">
-              <TabsList variant="line">
-                <TabsTrigger value="write">Write</TabsTrigger>
-                <TabsTrigger value="preview">Preview</TabsTrigger>
-              </TabsList>
-              <TabsContent value="write">
+              <div class="space-y-2">
+                <p class="text-sm font-medium">Description</p>
+                <p
+                  v-if="descriptionError"
+                  id="board-description-error"
+                  role="alert"
+                  class="text-xs text-status-error-ink"
+                >
+                  {{ descriptionError }}
+                </p>
                 <MarkdownEditorLazy
                   id="board-description"
                   v-model="form.description"
@@ -316,128 +309,123 @@ async function save(window: { startsAt: string | null; endsAt: string | null }) 
                   :invalid="Boolean(descriptionError)"
                   :described-by="descriptionError ? 'board-description-error' : undefined"
                 />
-              </TabsContent>
-              <TabsContent value="preview">
-                <div class="min-h-24 border border-border px-3 py-2">
-                  <!-- Sanitised by renderMarkdown. -->
-                  <article class="markdown-body space-y-2 text-sm" v-html="preview" />
-                  <p v-if="!form.description.trim()" class="text-sm text-muted-foreground">Nothing to preview yet.</p>
-                </div>
-              </TabsContent>
-            </Tabs>
-          </div>
-
-          <fieldset class="space-y-2 border border-border p-3">
-            <legend class="px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Access</legend>
-            <p v-if="legacyMode" class="border border-gold/60 px-3 py-2 text-xs text-gold">
-              This board uses a legacy access combination, so none of the three modes is selected. Its current read and
-              join behaviour is preserved when you save the name, dates or other details. Choosing a mode below is an
-              explicit change; it replaces the old access rules.
-            </p>
-            <label
-              v-for="mode in modes"
-              :key="mode.value"
-              class="flex cursor-pointer items-start gap-3 border border-border p-3 text-sm"
-              :class="form.accessMode === mode.value ? 'border-primary bg-muted' : ''"
-            >
-              <input
-                v-model="form.accessMode"
-                type="radio"
-                name="board-access-mode"
-                :value="mode.value"
-                class="mt-1"
-              />
-              <span>
-                <span class="block font-medium">{{ mode.label }}</span>
-                <span class="mt-0.5 block text-xs text-muted-foreground">{{ mode.description }}</span>
-              </span>
-            </label>
-
-            <div v-if="showAudience" class="space-y-2 border-t border-border pt-3">
-              <p class="text-sm font-medium">Choose access groups</p>
-              <ErrorAlert v-if="accessGroupsError" :error="accessGroupsError" title="Could not load access groups">
-                <Button type="button" variant="ghost" class="mt-2" @click="loadAccessGroups">Retry</Button>
-              </ErrorAlert>
-              <p v-else-if="accessGroupsLoading" class="text-xs text-muted-foreground">Loading access groups…</p>
-              <template v-else-if="canManageAccessGroups">
-                <Input
-                  v-model="accessGroupQuery"
-                  placeholder="Search groups"
-                  aria-label="Search access groups"
-                  @update:model-value="loadAccessGroups"
-                />
-                <label v-for="group in accessGroups" :key="group.uuid" class="flex min-h-10 items-center gap-2 text-sm">
-                  <Checkbox
-                    :model-value="form.accessGroupUuids.includes(group.uuid)"
-                    @update:model-value="toggleAccessGroup(group.uuid)"
-                  />
-                  {{ group.name }} <span class="text-xs text-muted-foreground">({{ group.usersCount }} members)</span>
-                </label>
-                <p v-if="accessGroups.length === 0" class="text-xs text-muted-foreground">No access groups exist yet.</p>
-              </template>
-              <p v-else class="text-xs text-muted-foreground">
-                {{ form.accessGroupUuids.length }} group(s) currently gate this board. Only a global admin can change them.
-              </p>
-            </div>
-
-            <div v-if="showInvite" class="space-y-2 border-t border-border pt-3">
-              <p class="text-sm font-medium">Join code</p>
-              <p class="text-xs text-muted-foreground">
-                Participants join with the board join code, managed in the Join code panel on this board's admin
-                page after saving. Nothing is generated automatically: use Generate join code or Set a custom
-                code there, and copy the code once.
-              </p>
-            </div>
-          </fieldset>
-
-          <div class="grid gap-3 sm:grid-cols-2">
-            <FormField label="Participation" for-id="board-participation">
-              <select id="board-participation" v-model="form.participationMode" class="h-9 w-full border border-border bg-black px-2 text-sm">
-                <option value="INDIVIDUAL">Individual</option>
-                <option value="TEAM">Teams</option>
-              </select>
-            </FormField>
-            <FormField label="Starts at (optional)" for-id="board-starts" :hint="`Your timezone: ${timezone}`">
-              <Input id="board-starts" v-model="form.startsAt" type="datetime-local" />
-            </FormField>
-          </div>
-          <FormField label="Ends at (optional)" for-id="board-ends" :error="problems.window" :hint="`Your timezone: ${timezone}`">
-            <Input id="board-ends" v-model="form.endsAt" type="datetime-local" />
-          </FormField>
-
-          <details class="border border-border p-3">
-            <summary class="cursor-pointer text-sm font-medium">Advanced</summary>
-            <div class="mt-3 space-y-3">
-              <FormField label="URL slug" for-id="board-slug" hint="Lowercase letters, digits and hyphens." :error="problems.slug">
-                <Input id="board-slug" v-model="form.slug" autocomplete="off" spellcheck="false" @input="slugTouched = true" />
-              </FormField>
-              <FormField label="Rating" for-id="board-rating">
-                <select id="board-rating" v-model="form.rating" class="h-9 w-full border border-border bg-black px-2 text-sm">
-                  <option value="PUBLIC">Public scoreboard</option>
-                  <option value="HIDDEN">Hidden scores</option>
-                </select>
-              </FormField>
-              <div v-if="form.participationMode === 'TEAM'" class="space-y-3 border-t border-border pt-3">
-                <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Team settings</p>
-                <div class="grid gap-3 sm:grid-cols-2">
-                  <FormField label="Minimum members" for-id="team-min">
-                    <Input id="team-min" v-model.number="form.teamMinMembers" type="number" min="1" max="100" />
-                  </FormField>
-                  <FormField label="Maximum members" for-id="team-max">
-                    <Input id="team-max" v-model.number="form.teamMaxMembers" type="number" min="1" max="100" />
-                  </FormField>
-                </div>
-                <label class="flex min-h-11 items-center gap-2 text-sm">
-                  <Checkbox v-model="form.teamAllowSelfCreate" />
-                  Allow participants to create teams
-                </label>
-                <label class="flex min-h-11 items-center gap-2 text-sm">
-                  <Checkbox v-model="form.teamAllowLeaveAfterStart" />
-                  Allow leaving a team after the board starts
-                </label>
               </div>
             </div>
-          </details>
+
+            <div class="authoring-settings space-y-4" data-slot="authoring-settings">
+              <fieldset class="space-y-2 border border-border p-3">
+                <legend class="px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Access</legend>
+                <p v-if="legacyMode" class="border border-gold/60 px-3 py-2 text-xs text-gold">
+                  This board uses a legacy access combination, so none of the three modes is selected. Its current read and
+                  join behaviour is preserved when you save the name, dates or other details. Choosing a mode below is an
+                  explicit change; it replaces the old access rules.
+                </p>
+                <label
+                  v-for="mode in modes"
+                  :key="mode.value"
+                  class="flex cursor-pointer items-start gap-3 border border-border p-3 text-sm"
+                  :class="form.accessMode === mode.value ? 'border-primary bg-muted' : ''"
+                >
+                  <input
+                    v-model="form.accessMode"
+                    type="radio"
+                    name="board-access-mode"
+                    :value="mode.value"
+                    class="mt-1"
+                  />
+                  <span>
+                    <span class="block font-medium">{{ mode.label }}</span>
+                    <span class="mt-0.5 block text-xs text-muted-foreground">{{ mode.description }}</span>
+                  </span>
+                </label>
+
+                <div v-if="showAudience" class="space-y-2 border-t border-border pt-3">
+                  <p class="text-sm font-medium">Choose access groups</p>
+                  <ErrorAlert v-if="accessGroupsError" :error="accessGroupsError" title="Could not load access groups">
+                    <Button type="button" variant="ghost" class="mt-2" @click="loadAccessGroups">Retry</Button>
+                  </ErrorAlert>
+                  <p v-else-if="accessGroupsLoading" class="text-xs text-muted-foreground">Loading access groups…</p>
+                  <template v-else-if="canManageAccessGroups">
+                    <Input
+                      v-model="accessGroupQuery"
+                      placeholder="Search groups"
+                      aria-label="Search access groups"
+                      @update:model-value="loadAccessGroups"
+                    />
+                    <label v-for="group in accessGroups" :key="group.uuid" class="flex min-h-10 items-center gap-2 text-sm">
+                      <Checkbox
+                        :model-value="form.accessGroupUuids.includes(group.uuid)"
+                        @update:model-value="toggleAccessGroup(group.uuid)"
+                      />
+                      {{ group.name }} <span class="text-xs text-muted-foreground">({{ group.usersCount }} members)</span>
+                    </label>
+                    <p v-if="accessGroups.length === 0" class="text-xs text-muted-foreground">No access groups exist yet.</p>
+                  </template>
+                  <p v-else class="text-xs text-muted-foreground">
+                    {{ form.accessGroupUuids.length }} group(s) currently gate this board. Only a global admin can change them.
+                  </p>
+                </div>
+
+                <div v-if="showInvite" class="space-y-2 border-t border-border pt-3">
+                  <p class="text-sm font-medium">Join code</p>
+                  <p class="text-xs text-muted-foreground">
+                    Participants join with the board join code, managed in the Join code panel on this board's admin
+                    page after saving. Nothing is generated automatically: use Generate join code or Set a custom
+                    code there, and copy the code once.
+                  </p>
+                </div>
+              </fieldset>
+
+              <div class="grid gap-3">
+                <FormField label="Participation" for-id="board-participation">
+                  <select id="board-participation" v-model="form.participationMode" class="h-9 w-full border border-border bg-black px-2 text-sm">
+                    <option value="INDIVIDUAL">Individual</option>
+                    <option value="TEAM">Teams</option>
+                  </select>
+                </FormField>
+                <FormField label="Starts at (optional)" for-id="board-starts" :hint="`Your timezone: ${timezone}`">
+                  <Input id="board-starts" v-model="form.startsAt" type="datetime-local" />
+                </FormField>
+                <FormField label="Ends at (optional)" for-id="board-ends" :error="problems.window" :hint="`Your timezone: ${timezone}`">
+                  <Input id="board-ends" v-model="form.endsAt" type="datetime-local" />
+                </FormField>
+              </div>
+
+              <details class="border border-border p-3">
+                <summary class="cursor-pointer text-sm font-medium">Advanced</summary>
+                <div class="mt-3 space-y-3">
+                  <FormField label="URL slug" for-id="board-slug" hint="Lowercase letters, digits and hyphens." :error="problems.slug">
+                    <Input id="board-slug" v-model="form.slug" autocomplete="off" spellcheck="false" @input="slugTouched = true" />
+                  </FormField>
+                  <FormField label="Rating" for-id="board-rating">
+                    <select id="board-rating" v-model="form.rating" class="h-9 w-full border border-border bg-black px-2 text-sm">
+                      <option value="PUBLIC">Public scoreboard</option>
+                      <option value="HIDDEN">Hidden scores</option>
+                    </select>
+                  </FormField>
+                  <div v-if="form.participationMode === 'TEAM'" class="space-y-3 border-t border-border pt-3">
+                    <p class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Team settings</p>
+                    <div class="grid gap-3 sm:grid-cols-2">
+                      <FormField label="Minimum members" for-id="team-min">
+                        <Input id="team-min" v-model.number="form.teamMinMembers" type="number" min="1" max="100" />
+                      </FormField>
+                      <FormField label="Maximum members" for-id="team-max">
+                        <Input id="team-max" v-model.number="form.teamMaxMembers" type="number" min="1" max="100" />
+                      </FormField>
+                    </div>
+                    <label class="flex min-h-11 items-center gap-2 text-sm">
+                      <Checkbox v-model="form.teamAllowSelfCreate" />
+                      Allow participants to create teams
+                    </label>
+                    <label class="flex min-h-11 items-center gap-2 text-sm">
+                      <Checkbox v-model="form.teamAllowLeaveAfterStart" />
+                      Allow leaving a team after the board starts
+                    </label>
+                  </div>
+                </div>
+              </details>
+            </div>
+          </div>
         </div>
 
         <DialogFooter class="mt-4 border-t border-border pt-4">

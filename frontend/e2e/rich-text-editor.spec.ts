@@ -232,27 +232,26 @@ test.describe('rich-text authoring acceptance', () => {
     await moduleDialog.getByRole('button', { name: 'Visual mode' }).click()
     await expect(moduleDialog.locator('.ProseMirror h2')).toBeVisible()
 
-    // The organizer Preview tab must show the published formatting, not flat
-    // text: same `.markdown-body` typography as the reader, including a styled
-    // code block, a real heading and a bordered table.
-    await moduleDialog.getByRole('tab', { name: 'Preview' }).click()
-    const modulePreview = moduleDialog.locator('.markdown-body')
-    await expect(modulePreview.locator('pre').first()).toBeVisible()
-    expect(await modulePreview.locator('pre').first().evaluate((element) =>
+    // Direct authoring: the Visual editor itself must show the published
+    // formatting (the shared `.markdown-editor .ProseMirror` typography),
+    // including a styled code block, a real heading and a bordered table. There
+    // is no outer Preview tab any more.
+    await expect(moduleDialog.getByRole('tab')).toHaveCount(0)
+    const moduleEditor = moduleDialog.locator('.ProseMirror')
+    await expect(moduleEditor.locator('pre').first()).toBeVisible()
+    expect(await moduleEditor.locator('pre').first().evaluate((element) =>
       getComputedStyle(element).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
-    expect(await modulePreview.locator('pre').first().evaluate((element) =>
+    expect(await moduleEditor.locator('pre').first().evaluate((element) =>
       Number.parseFloat(getComputedStyle(element).paddingLeft))).toBeGreaterThan(0)
-    expect(await modulePreview.locator('strong').first().evaluate((element) =>
+    expect(await moduleEditor.locator('strong').first().evaluate((element) =>
       Number.parseInt(getComputedStyle(element).fontWeight, 10))).toBeGreaterThanOrEqual(600)
-    const previewHeadingSize = await modulePreview.locator('h2').first().evaluate((element) =>
+    const editorHeadingSize = await moduleEditor.locator('h2').first().evaluate((element) =>
       Number.parseFloat(getComputedStyle(element).fontSize))
-    const previewBodySize = await modulePreview.locator('p').first().evaluate((element) =>
+    const editorBodySize = await moduleEditor.locator('p').first().evaluate((element) =>
       Number.parseFloat(getComputedStyle(element).fontSize))
-    expect(previewHeadingSize).toBeGreaterThan(previewBodySize)
-    expect(await modulePreview.locator('td').first().evaluate((element) =>
+    expect(editorHeadingSize).toBeGreaterThan(editorBodySize)
+    expect(await moduleEditor.locator('td').first().evaluate((element) =>
       Number.parseFloat(getComputedStyle(element).borderTopWidth))).toBeGreaterThanOrEqual(1)
-    await moduleDialog.getByRole('tab', { name: 'Write' }).click()
-    await expect(moduleDialog.locator('.ProseMirror')).toBeVisible()
 
     await moduleDialog.getByRole('button', { name: 'Create module' }).click()
     await expect(moduleDialog).toBeHidden()
@@ -350,8 +349,9 @@ test.describe('rich-text authoring acceptance', () => {
     await expect(limitDialog.locator(`#${describedBy}`)).toContainText('at most 50,000 characters')
     expect(await limitDialog.locator('#module-description').getAttribute('aria-invalid')).toBe('true')
 
-    // The same message stays visible while the Preview tab is active.
-    await limitDialog.getByRole('tab', { name: 'Preview' }).click()
+    // The form-owned message stays visible while the author is in Source mode,
+    // and the editor does not duplicate it.
+    await expect(limitDialog.getByRole('tab')).toHaveCount(0)
     let modulePatches = 0
     page.on('request', (request) => {
       if (request.method() === 'PATCH' && request.url().includes(`/modules/${fixture.moduleUuid}`)) {
@@ -376,12 +376,11 @@ test.describe('rich-text authoring acceptance', () => {
     await page.keyboard.press('Control+b')
     await page.keyboard.type('bold')
     await page.keyboard.press('Control+b')
-    await page.getByRole('tab', { name: 'Preview' }).click()
-    await expect(page.locator('.markdown-body strong').first()).toHaveText('bold')
-    expect(await page.locator('.markdown-body strong').first().evaluate((element) =>
+    // The direct Visual editor shows the formatted result; no Preview tab.
+    await expect(page.getByRole('tab')).toHaveCount(0)
+    await expect(page.locator('.ProseMirror strong').first()).toHaveText('bold')
+    expect(await page.locator('.ProseMirror strong').first().evaluate((element) =>
       Number.parseInt(getComputedStyle(element).fontWeight, 10))).toBeGreaterThanOrEqual(600)
-    await page.getByRole('tab', { name: 'Write' }).click()
-    await expect(page.locator('.ProseMirror')).toBeVisible()
     await page.getByRole('button', { name: 'Save changes' }).click()
     await expect(page.getByText('Saved.')).toBeVisible()
     await page.goto('/')

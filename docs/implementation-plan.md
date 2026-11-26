@@ -1000,3 +1000,60 @@ gates and CI wiring.
   round-trip corpus and Source fallback remain mandatory; sanitisation and selection are proved
   in Chromium (happy-dom cannot exercise DOMPurify/ProseMirror selection); the authoring browser
   gate requires the real backend/PG stack and is not part of the frontend-only job.
+
+**Desktop workspaces and direct authoring (2026-11-26):** status **partial** — Task 1 is
+implemented and locally verified; Tasks 2 and 3 are not started and no publication is claimed.
+
+- Spec: `docs/superpowers/specs/2026-11-26-desktop-workspaces-design.md`.
+- Plan: `docs/superpowers/plans/2026-11-26-desktop-workspaces.md` (base `0da549e`).
+- Task 1 scope: `BoardSettingsDialog`, `ModuleEditorDialog`, `TaskEditorDialog`, `AdminSitePage`,
+  their four unit test files, `frontend/e2e/rich-text-editor.spec.ts`,
+  `frontend/e2e/desktop-workspaces.spec.ts` and narrowly scoped authoring geometry in
+  `frontend/src/style.css`.
+- Direct authoring: the obsolete outer Write/Preview `Tabs` markup, imports, `renderMarkdown`
+  preview state and preview-only branches are removed from all four surfaces. Each form mounts
+  exactly one `MarkdownEditorLazy` (one Tiptap instance) when it opens. Visual/Source switching,
+  source-byte preservation, the unsupported-content notice and confirmation, the counter, the
+  single form-owned over-limit message, `aria-invalid`/`aria-describedby` and the unchanged save
+  payloads remain. Unrelated `components/ui/tabs` primitives were not deleted.
+- Authoring arrangements (approved spec table): board/module main = name + description, rail =
+  access/format, audiences, participation/schedule and Advanced; task main = title, content,
+  template/parameters, rail = format/type, points, category, answers or submission policy,
+  visibility and lifetime. The former shared INSTANCE block is presented as two sibling regions
+  (template/parameters in main, lifetime in the rail) without changing state or payload semantics.
+- Geometry: board/module dialogs cap at 1200px, task at 1360px, with 24px viewport clearance.
+  One dialog-body vertical scroller; header and footer stay outside it. A named inline-size
+  container (`authoring`, 1040px body threshold) switches `minmax(0, 1fr) 320px` with a 24px gap.
+  The site form uses a `home-authoring` container at the shared 1100px usable-width threshold.
+  At phone width the dialog is exactly `100dvw`/`100dvh` with 16px padding (343px body at 375px).
+- Evidence actually run (2026-11-26):
+  - baseline before changes: `cd frontend && bun run test:unit -- --maxWorkers=1` — 42 files / 391
+    tests passed;
+  - RED after the test updates: 4 files failed, 7 tests failed / 16 passed (outer tabs found where
+    zero were expected);
+  - GREEN targeted: 4 files / 23 tests passed; full unit: 42 files / **391 tests** passed;
+  - `bun run typecheck` clean; `bun run build` clean (`MarkdownEditor` 503.77 kB / 159.05 kB gzip,
+    reader `markdown` 154.50 kB / 51.39 kB gzip; public readers still do not load the editor chunk);
+  - owned native PostgreSQL 18 + real Go backend (default feature profile) + real Vite stack:
+    `desktop-workspaces.spec.ts` 5 passed / 5 expected project skips; combined
+    `markdown-render.spec.ts` + `rich-text-editor.spec.ts` + `desktop-workspaces.spec.ts`
+    **53 passed, 5 expected skips** in 1.8 min (46 renderer tests, 2 authoring projects, 5
+    desktop/phone geometry tests).
+- Measured geometry (real DOM, committed browser assertions with ±1px tolerance): board/module at
+  1440px → dialog 1200, body 1152, layout 1148, main 804, rail 320, gap 24, equal column tops;
+  task at 1920px → dialog 1360, body 1312, layout 1308, main 964, rail 320; task at 1100px →
+  dialog 1052, layout 1000, stacked; phone 375px → dialog 375, body/layout 343, stacked, 44px
+  input/button controls; site form 1104px at 1440/1920 with a 320px rail, 764px and stacked at
+  1024, 343px and stacked at 375.
+- Screenshots (main assistant inspection pending): `/tmp/opencode/desktop-workspaces/task1/` —
+  `board-dialog-1440.png`, `module-dialog-1440.png`, `task-dialog-1920.png`,
+  `task-dialog-1440.png`, `task-dialog-manual-1920.png`, `task-dialog-instance-1920.png`,
+  `site-introduction-1440.png`, `site-introduction-1920.png`, `board-dialog-375.png`,
+  `module-dialog-375.png`, `task-dialog-375.png`, `site-introduction-375.png`.
+- Task 1 limitations, stated honestly: the global `PageContainer` cap is still 1152px (1104px
+  usable), so the homepage remains 1104px wide at 1920 and Task 2 owns the wider page shell; the
+  pre-existing 7px document overflow at 375px from the legacy invite button is unchanged and was
+  not hidden with `overflow-x: hidden` (Task 2 owns it); the INSTANCE browser check is a layout
+  check under a profile where deployment templates are disabled, not provider execution; the root
+  default-profile 5-test suite was not rerun in this task; independent review and main screenshot
+  inspection are still required before publication.

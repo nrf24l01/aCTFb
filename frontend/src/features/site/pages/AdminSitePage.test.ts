@@ -35,12 +35,19 @@ describe('AdminSitePage Markdown authoring', () => {
     const wrapper = mount(AdminSitePage, { attachTo: document.body })
     await waitForEditor()
 
+    // Direct authoring: no outer Write/Preview tabs, one editor instance.
+    expect(document.querySelectorAll('[role="tab"]')).toHaveLength(0)
+    expect(document.querySelectorAll('.ProseMirror')).toHaveLength(1)
     expect(document.querySelector('[aria-label="Bold"]')).not.toBeNull()
     expect(document.querySelector('#site-intro')).not.toBeNull()
 
     await (document.querySelector('[aria-label="Source mode"]') as HTMLButtonElement).click()
     await flushPromises()
     expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe('**bold**')
+
+    await (document.querySelector('[aria-label="Visual mode"]') as HTMLButtonElement).click()
+    await waitForEditor()
+    expect(document.querySelectorAll('.ProseMirror')).toHaveLength(1)
 
     document.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
     await flushPromises()
@@ -76,13 +83,13 @@ describe('AdminSitePage Markdown authoring', () => {
     expect(describedBy).toBeTruthy()
     expect(document.getElementById(describedBy!)?.textContent).toContain('at most 131,072 characters')
 
-    const previewTab = Array.from(document.querySelectorAll('[role="tab"]'))
-      .find((element) => element.textContent?.trim() === 'Preview') as HTMLElement
-    previewTab.click()
+    // The form owns the message outside the editor, so it stays visible while
+    // the author works in Source mode as well.
+    await (document.querySelector('[aria-label="Source mode"]') as HTMLButtonElement).click()
     await flushPromises()
-    const previewAlerts = Array.from(document.querySelectorAll('[role="alert"]'))
+    const sourceAlerts = Array.from(document.querySelectorAll('[role="alert"]'))
       .filter((element) => element.textContent?.includes('at most 131,072 characters'))
-    expect(previewAlerts).toHaveLength(1)
+    expect(sourceAlerts).toHaveLength(1)
     wrapper.unmount()
   })
 })

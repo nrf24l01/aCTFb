@@ -593,3 +593,89 @@ body {
     font-size: 16px;
   }
 }
+
+/*
+ * Desktop authoring workspaces.
+ *
+ * The four Markdown authoring surfaces share one bounded geometry. Widths are
+ * capped for a readable main column with explicit viewport clearance; the
+ * main/settings split is driven by the actual dialog-body width through a
+ * named inline-size container, never by `window.innerWidth`. The dialog body
+ * stays the single vertical scroller: header and footer sit outside it.
+ */
+.authoring-dialog {
+  width: min(1200px, calc(100vw - 48px));
+  max-width: calc(100vw - 48px);
+}
+
+.authoring-dialog--wide {
+  width: min(1360px, calc(100vw - 48px));
+  max-width: calc(100vw - 48px);
+}
+
+.authoring-body {
+  container-type: inline-size;
+  container-name: authoring;
+}
+
+.authoring-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.authoring-main,
+.authoring-settings {
+  min-width: 0;
+}
+
+@container authoring (min-width: 1040px) {
+  .authoring-layout {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+}
+
+/*
+ * The site introduction is a page form, not a dialog. It uses the same
+ * main/settings shape but switches at the shared 1100px usable-width
+ * threshold. The global PageContainer cap is unchanged in this task.
+ */
+.authoring-home {
+  container-type: inline-size;
+  container-name: home-authoring;
+}
+
+.authoring-home-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+@container home-authoring (min-width: 1100px) {
+  .authoring-home-layout {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+}
+
+/*
+ * Phone dialogs keep the full-height presentation but must be exactly one
+ * viewport wide. `100dvw` is independent of a document that itself overflows;
+ * the 16px padding gives the form body the measured 343px at a 375px viewport.
+ * This does not hide the document-level overflow, which is a separate defect.
+ */
+@media (max-width: 767.98px) {
+  .authoring-dialog,
+  .authoring-dialog--wide {
+    top: 0;
+    left: 0;
+    width: 100dvw;
+    max-width: 100dvw;
+    height: 100dvh;
+    max-height: 100dvh;
+    padding: 16px;
+    transform: none;
+    translate: none;
+  }
+}

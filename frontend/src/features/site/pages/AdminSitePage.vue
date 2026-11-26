@@ -3,7 +3,6 @@ import { computed, reactive, ref } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import ErrorAlert from '@/components/layout/ErrorAlert.vue'
 import FormField from '@/components/layout/FormField.vue'
 import LoadingState from '@/components/layout/LoadingState.vue'
@@ -11,7 +10,6 @@ import PageContainer from '@/components/layout/PageContainer.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import { useSession } from '@/features/auth/session'
 import { siteApi } from '@/features/site/api'
-import { renderMarkdown } from '@/shared/lib/markdown'
 import { SITE_INTRO_MAX_CHARACTERS, validateDescriptionLength } from '@/shared/lib/text'
 import { MarkdownEditorLazy } from '@/shared/components/MarkdownEditorLazy'
 import { isApiError } from '@/shared/api/errors'
@@ -30,9 +28,8 @@ const saveError = ref<unknown>(null)
 const problems = ref<Record<string, string | undefined>>({})
 const pending = ref(false)
 const saved = ref(false)
-const preview = computed(() => renderMarkdown(form.introMarkdown))
-// One live message, owned by the page form: it stays visible on both tabs, so
-// an over-limit save from Preview is never a silent no-op.
+// One live message, owned by the page form and rendered outside the editor, so
+// an over-limit save is never a silent no-op in either editor mode.
 const descriptionError = computed(() =>
   validateDescriptionLength(form.introMarkdown, SITE_INTRO_MAX_CHARACTERS),
 )
@@ -103,29 +100,25 @@ void load()
         <Button variant="ghost" class="mt-2" @click="load">Retry</Button>
       </ErrorAlert>
 
-      <form v-else class="max-w-3xl space-y-5" novalidate @submit.prevent="save">
+      <form v-else class="authoring-home" novalidate @submit.prevent="save">
         <ErrorAlert v-if="saveError" :error="saveError" title="Could not save site settings" />
 
-        <FormField label="Title" for-id="site-title" :error="problems.title">
-          <Input id="site-title" v-model="form.title" maxlength="128" />
-        </FormField>
+        <div class="authoring-home-layout" data-slot="authoring-layout">
+          <div class="authoring-main space-y-5" data-slot="authoring-main">
+            <FormField label="Title" for-id="site-title" :error="problems.title">
+              <Input id="site-title" v-model="form.title" maxlength="128" />
+            </FormField>
 
-        <div class="space-y-2">
-          <p class="text-sm font-medium">Introduction</p>
-          <p
-            v-if="descriptionError"
-            id="site-intro-error"
-            role="alert"
-            class="text-xs text-status-error-ink"
-          >
-            {{ descriptionError }}
-          </p>
-          <Tabs default-value="write">
-            <TabsList variant="line">
-              <TabsTrigger value="write">Write</TabsTrigger>
-              <TabsTrigger value="preview">Preview</TabsTrigger>
-            </TabsList>
-            <TabsContent value="write">
+            <div class="space-y-2">
+              <p class="text-sm font-medium">Introduction</p>
+              <p
+                v-if="descriptionError"
+                id="site-intro-error"
+                role="alert"
+                class="text-xs text-status-error-ink"
+              >
+                {{ descriptionError }}
+              </p>
               <MarkdownEditorLazy
                 id="site-intro"
                 v-model="form.introMarkdown"
@@ -139,25 +132,20 @@ void load()
               <p class="mt-1 text-xs text-muted-foreground">
                 Markdown only. Raw HTML is escaped and links are limited to http, https, mailto and relative paths.
               </p>
-            </TabsContent>
-            <TabsContent value="preview">
-              <div class="min-h-40 border border-border px-4 py-3">
-                <!-- Sanitised by renderMarkdown. -->
-                <article class="markdown-body space-y-3 text-sm" v-html="preview" />
-                <p v-if="!form.introMarkdown.trim()" class="text-sm text-muted-foreground">Nothing to preview yet.</p>
-              </div>
-            </TabsContent>
-          </Tabs>
-        </div>
+            </div>
+          </div>
 
-        <label class="flex min-h-11 items-center gap-2 text-sm">
-          <Checkbox v-model="form.published" />
-          Published on the public landing page
-        </label>
+          <div class="authoring-settings space-y-4" data-slot="authoring-settings">
+            <label class="flex min-h-11 items-center gap-2 text-sm">
+              <Checkbox v-model="form.published" />
+              Published on the public landing page
+            </label>
 
-        <div class="flex flex-wrap items-center gap-3">
-          <Button type="submit" :disabled="pending">{{ pending ? 'Saving…' : 'Save changes' }}</Button>
-          <span v-if="saved" class="text-xs text-muted-foreground">Saved.</span>
+            <div class="flex flex-wrap items-center gap-3">
+              <Button type="submit" :disabled="pending">{{ pending ? 'Saving…' : 'Save changes' }}</Button>
+              <span v-if="saved" class="text-xs text-muted-foreground">Saved.</span>
+            </div>
+          </div>
         </div>
       </form>
     </template>
