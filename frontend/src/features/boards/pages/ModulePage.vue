@@ -15,6 +15,7 @@ import TaskCard from '@/features/boards/components/TaskCard.vue'
 import { boardsApi } from '@/features/boards/api/boards'
 import { isApiError } from '@/shared/api/errors'
 import { formatDateTime } from '@/shared/lib/format'
+import { renderMarkdown } from '@/shared/lib/markdown'
 import type { Board, Module, TaskListItem } from '@/shared/types/api'
 
 const route = useRoute()
@@ -85,7 +86,16 @@ void load()
     </ErrorAlert>
 
     <template v-else-if="module">
-      <PageHeader :title="module.name" :description="module.description || 'Tasks module'">
+      <PageHeader :title="module.name">
+        <template #description>
+          <!-- Sanitised by renderMarkdown; description-only, same subtitle slot. -->
+          <div
+            v-if="module.description"
+            class="markdown-body markdown-body-inline"
+            v-html="renderMarkdown(module.description)"
+          />
+          <span v-else>Tasks module</span>
+        </template>
         <template #actions>
           <Button variant="outline" :disabled="loading" @click="load">Refresh</Button>
         </template>

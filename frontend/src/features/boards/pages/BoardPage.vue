@@ -24,6 +24,7 @@ import {
 } from '@/features/boards/permissions'
 import { isApiError } from '@/shared/api/errors'
 import { formatDateTime, plural } from '@/shared/lib/format'
+import { renderMarkdown } from '@/shared/lib/markdown'
 import { accessModeLabel, participationLabel } from '@/features/boards/accessMode'
 import type { Board, BoardJoinResponse, BoardMe, BoardPermissionsResponse, ModuleListItem } from '@/shared/types/api'
 
@@ -173,7 +174,16 @@ void load()
     </ErrorAlert>
 
     <template v-else-if="board">
-      <PageHeader :title="board.name" :description="board.description || board.slug">
+      <PageHeader :title="board.name">
+        <template #description>
+          <!-- Sanitised by renderMarkdown; description-only, same subtitle slot. -->
+          <div
+            v-if="board.description"
+            class="markdown-body markdown-body-inline"
+            v-html="renderMarkdown(board.description)"
+          />
+          <span v-else>{{ board.slug }}</span>
+        </template>
         <template #actions>
           <Button v-if="canManageBoard" as-child variant="outline">
             <RouterLink :to="`/admin/boards/${board.uuid}`">Manage board</RouterLink>

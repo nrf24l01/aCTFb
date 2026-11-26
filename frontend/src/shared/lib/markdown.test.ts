@@ -66,6 +66,32 @@ const parseRendered = (html: string): HTMLElement => {
   return host
 }
 
+describe('renderMarkdown table alignment', () => {
+  it('keeps validated GFM alignment on th and td cells only', () => {
+    const html = renderMarkdown('Intro\n\n| l | c | r |\n| :-- | :-: | --: |\n| 1 | 2 | 3 |')
+    expect(html).toContain('align="left"')
+    expect(html).toContain('align="center"')
+    expect(html).toContain('align="right"')
+
+    const host = parseRendered(html)
+    const aligned = Array.from(host.querySelectorAll('[align]'))
+    expect(aligned.length).toBe(6)
+    for (const cell of aligned) {
+      expect(['TH', 'TD']).toContain(cell.tagName)
+      expect(['left', 'center', 'right']).toContain(cell.getAttribute('align'))
+    }
+  })
+
+  it('never turns a crafted align in raw HTML into an attribute', () => {
+    const html = renderMarkdown('<table><tr><td align="evil" style="color:red">x</td></tr></table>')
+    const host = parseRendered(html)
+    expect(host.querySelector('[align]')).toBeNull()
+    expect(host.querySelector('[style]')).toBeNull()
+    expect(host.querySelector('table')).toBeNull()
+    expect(html).toContain('&lt;table')
+  })
+})
+
 describe('renderMarkdown syntax highlighting', () => {
   it('highlights a fenced block with a registered language', () => {
     const html = renderMarkdown('```python\ndef f():\n  return 1\n```')

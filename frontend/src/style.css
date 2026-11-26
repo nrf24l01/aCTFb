@@ -282,6 +282,49 @@ body {
 }
 
 /*
+ * A description rendered inside the page-header subtitle. Formatting and
+ * highlighted code stay visible, but the block rhythm is compact so the header
+ * never grows into a card. Scoped to the inline variant only.
+ */
+.markdown-body-inline > * {
+  margin: 0;
+}
+
+.markdown-body-inline > * + * {
+  margin-top: 0.35rem;
+}
+
+.markdown-body-inline h1,
+.markdown-body-inline h2,
+.markdown-body-inline h3,
+.markdown-body-inline h4,
+.markdown-body-inline h5,
+.markdown-body-inline h6 {
+  font-size: 1em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.markdown-body-inline ul,
+.markdown-body-inline ol {
+  padding-left: 1.25rem;
+  list-style: revert;
+}
+
+.markdown-body-inline a {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.markdown-body-inline table {
+  width: auto;
+}
+
+.markdown-body-inline code {
+  font-size: 0.95em;
+}
+
+/*
  * Markdown editor surface (visual mode).
  *
  * ProseMirror generates the content nodes, so they cannot carry utility

@@ -137,3 +137,31 @@ describe('ModulePage staff preview', () => {
     wrapper.unmount()
   })
 })
+
+describe('ModulePage description rendering', () => {
+  it('renders the stored description as safe Markdown in the header', async () => {
+    getModule.mockResolvedValue({
+      ...moduleItem,
+      description: '**bold** and\n\n```python\ndef f():\n  return 1\n```',
+    })
+    listTasks.mockResolvedValue({ items: [], limit: 100, offset: 0, total: 0 })
+    const wrapper = await mountPage()
+
+    expect(wrapper.find('.markdown-body').exists()).toBe(true)
+    expect(wrapper.find('strong').exists()).toBe(true)
+    expect(wrapper.find('.hljs-keyword').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('**bold**')
+    expect(wrapper.text()).not.toContain('```')
+    wrapper.unmount()
+  })
+
+  it('escapes raw HTML in the description instead of rendering it', async () => {
+    getModule.mockResolvedValue({ ...moduleItem, description: '<script>alert(1)</script>' })
+    listTasks.mockResolvedValue({ items: [], limit: 100, offset: 0, total: 0 })
+    const wrapper = await mountPage()
+
+    expect(wrapper.find('script').exists()).toBe(false)
+    expect(wrapper.text()).toContain('<script>alert(1)</script>')
+    wrapper.unmount()
+  })
+})

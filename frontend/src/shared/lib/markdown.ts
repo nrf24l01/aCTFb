@@ -26,7 +26,7 @@ const ALLOWED_TAGS = [
   'a', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img', 'span',
 ]
 
-const ALLOWED_ATTR = ['href', 'title', 'alt', 'src', 'colspan', 'rowspan', 'class']
+const ALLOWED_ATTR = ['href', 'title', 'alt', 'src', 'colspan', 'rowspan', 'class', 'align']
 
 const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
@@ -40,8 +40,17 @@ const LANGUAGE_CLASS_VALUE = /^language-[a-z0-9+#.-]+$/
 const purifier = DOMPurify(window)
 
 purifier.addHook('uponSanitizeAttribute', (node, data) => {
-  if (data.attrName !== 'class') return
   const tagName = node.nodeName.toLowerCase()
+  if (data.attrName === 'align') {
+    // GFM table alignment is rendered semantics, not styling. Allow only the
+    // three values marked emits, only on table cells. `style` stays forbidden,
+    // so a crafted table can never smuggle CSS through this attribute.
+    const allowed =
+      (tagName === 'th' || tagName === 'td') && /^(?:left|center|right)$/i.test(data.attrValue)
+    if (!allowed) data.keepAttr = false
+    return
+  }
+  if (data.attrName !== 'class') return
   const allowed =
     (tagName === 'span' && HLJS_CLASS_VALUE.test(data.attrValue)) ||
     (tagName === 'code' && LANGUAGE_CLASS_VALUE.test(data.attrValue))

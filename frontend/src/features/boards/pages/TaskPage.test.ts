@@ -152,3 +152,31 @@ describe('TaskPage staff preview', () => {
     wrapper.unmount()
   })
 })
+
+describe('TaskPage description rendering', () => {
+  it('renders the description through the Markdown token styles', async () => {
+    getTask.mockResolvedValue({
+      ...task,
+      description: '**bold** and\n\n```python\ndef f():\n  return 1\n```',
+    })
+    const wrapper = await mountPage()
+
+    const article = wrapper.get('section[aria-labelledby="description-heading"] article')
+    expect(article.classes()).toContain('markdown-body')
+    expect(article.find('strong').exists()).toBe(true)
+    expect(article.find('.hljs-keyword').exists()).toBe(true)
+    expect(article.text()).not.toContain('**bold**')
+    expect(article.text()).not.toContain('```')
+    wrapper.unmount()
+  })
+
+  it('escapes raw HTML in the description instead of rendering it', async () => {
+    getTask.mockResolvedValue({ ...task, description: '<script>alert(1)</script>' })
+    const wrapper = await mountPage()
+
+    const article = wrapper.get('section[aria-labelledby="description-heading"] article')
+    expect(article.find('script').exists()).toBe(false)
+    expect(article.text()).toContain('<script>alert(1)</script>')
+    wrapper.unmount()
+  })
+})
