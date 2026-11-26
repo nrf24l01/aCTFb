@@ -570,7 +570,13 @@ async function submit() {
                           <option v-for="option in field.options" :key="option" :value="option">{{ option }}</option>
                         </select>
                         <label v-else-if="field.type === 'boolean'" class="flex min-h-9 items-center gap-2 text-sm">
-                          <input v-model="form.parameters[field.key]" type="checkbox" true-value="true" false-value="false" />
+                          <input
+                            :id="`param-${field.key}`"
+                            v-model="form.parameters[field.key]"
+                            type="checkbox"
+                            true-value="true"
+                            false-value="false"
+                          />
                           {{ field.defaultValue === 'true' ? 'Enabled' : 'Toggle' }}
                         </label>
                         <Textarea
