@@ -906,5 +906,17 @@ normal boot migration, exactly as before.
 
 Known limitations unchanged and restated: only the board adapter records a request cause (other features keep
 the single-line log and the 5xx `ERROR` level but not a cause); the admin legacy invite panel is an explicit
-advanced action rather than capability-gated, because legacy credential presence is not in any DTO. The
-Markdown editor remains a separate decision and is not implemented.
+advanced action rather than capability-gated, because legacy credential presence is not in any DTO.
+
+**Rich-text Markdown editor + syntax highlighting (planned 2026-11-26):** status **missing** —
+planning artifacts only, no product code, dependency or migration change in this range.
+
+- Spec: `docs/superpowers/specs/2026-11-26-rich-text-editor-design.md`.
+- Plan: `docs/superpowers/plans/2026-11-26-rich-text-editor.md` (three tasks: safe highlighting in
+  the shared renderer; Tiptap editor with Markdown round-trip and Source fallback; integration of
+  board/module/task/site-intro authoring plus browser verification).
+- Contract: descriptions stay Markdown strings; `/api/v2`, migrations and `deploy/` are unchanged.
+- Proposed pins: `@tiptap/*` 3.35.0, `lowlight` 3.3.0, `highlight.js` 11.11.2, `marked` 17.0.6.
+- Known blockers to acceptance: the Tiptap Markdown extension is documented as an early release, so
+  the semantic round-trip corpus and the Source fallback for raw HTML, task lists and unsafe URLs are
+  mandatory gates, not optional hardening.
