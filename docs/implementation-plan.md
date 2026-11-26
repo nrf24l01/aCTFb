@@ -1001,8 +1001,9 @@ gates and CI wiring.
   in Chromium (happy-dom cannot exercise DOMPurify/ProseMirror selection); the authoring browser
   gate requires the real backend/PG stack and is not part of the frontend-only job.
 
-**Desktop workspaces and direct authoring (2026-11-26):** status **partial** — Task 1 is
-implemented and locally verified; Tasks 2 and 3 are not started and no publication is claimed.
+**Desktop workspaces and direct authoring (2026-11-26):** status **partial** — Task 1 and Task 2 are
+implemented and locally verified; Task 3 (full responsive acceptance and CI coverage) is not
+started, so the whole feature is not complete and no publication is claimed.
 
 - Spec: `docs/superpowers/specs/2026-11-26-desktop-workspaces-design.md`.
 - Plan: `docs/superpowers/plans/2026-11-26-desktop-workspaces.md` (base `0da549e`).
@@ -1050,10 +1051,68 @@ implemented and locally verified; Tasks 2 and 3 are not started and no publicati
   `task-dialog-1440.png`, `task-dialog-manual-1920.png`, `task-dialog-instance-1920.png`,
   `site-introduction-1440.png`, `site-introduction-1920.png`, `board-dialog-375.png`,
   `module-dialog-375.png`, `task-dialog-375.png`, `site-introduction-375.png`.
-- Task 1 limitations, stated honestly: the global `PageContainer` cap is still 1152px (1104px
-  usable), so the homepage remains 1104px wide at 1920 and Task 2 owns the wider page shell; the
-  pre-existing 7px document overflow at 375px from the legacy invite button is unchanged and was
-  not hidden with `overflow-x: hidden` (Task 2 owns it); the INSTANCE browser check is a layout
-  check under a profile where deployment templates are disabled, not provider execution; the root
-  default-profile 5-test suite was not rerun in this task; independent review and main screenshot
-  inspection are still required before publication.
+- Task 1 limitations, stated honestly: the global `PageContainer` cap was still 1152px (1104px
+  usable) in Task 1, so the homepage stayed 1104px wide at 1920; Task 2 now raises it to 1600px
+  outer / 1552px usable and the site form measures 1552 at 1920 and 1180 at 1440. The pre-existing
+  7px document overflow at 375px from the legacy invite button was not hidden with
+  `overflow-x: hidden`; Task 2 fixes the button wrapping and the document is 375px wide. The
+  INSTANCE browser check is a layout check under a profile where deployment templates are
+  disabled, not provider execution; the root default-profile 5-test suite was not rerun in Task 1;
+  independent review and main screenshot inspection are still required before publication.
+
+**Task 2 — shared workspace and reader/organizer views (2026-11-26):** implemented, pending
+independent review. Base `9c4466b`; source and tests in `006809d`. Frontend-only; no backend, API,
+migration, dependency or provider change and no new fetch/mutation call.
+
+- Scope: `PageContainer`, `AppShell`, `style.css`, `BoardsPage`, `BoardPage`, `ModulePage`,
+  `TaskPage`, `AdminBoardPage`, `AdminHubPage`, `AdminTemplatesPage`, `AdminInstancesPage`,
+  `ProfilePage` (bounded simple form), the five relevant page unit tests and
+  `frontend/e2e/desktop-workspaces.spec.ts`. `AdminModuleSection` was left unchanged because its
+  header already wraps and its table already keeps local overflow.
+- Geometry: the shared page cap is 1600px outer (1552px usable at 1920, 1180 at 1440, 764 at 1024
+  with the persistent 212px sidebar). A named `workspace` inline-size container switches
+  `minmax(0, 1fr) 320px` at 1100px usable, or `360px` for the task reader, with a 24px gap. Card
+  collections count their own width: board modules two columns at 760px; module tasks and the
+  admin hub/templates two at 720px and three at 1200px. Normal row order, no masonry. Reader prose
+  text blocks keep an 80ch measure while code and tables use the panel and scroll locally.
+- Admin board: header and all alerts stay full width; the DOM is module work first, then the
+  320px rail with Join code, the existing status/visibility information and a labelled Lifecycle
+  disclosure that starts collapsed. Publish/Unpublish/Archive/Delete keep their existing
+  permissions and confirmation dialogs; action errors stay outside the collapsed region. The
+  duplicate section-level Create module button is removed. The canonical Join code panel remains
+  the automatic primary surface; the legacy invite toggle is explicit, wraps at 375px and still
+  performs no automatic legacy GET.
+- Task reader: description and attachments in main, participant submission/instance controls in
+  the 360px rail at 1100px usable, full-width history below the workspace, no sticky or
+  independently scrolling rail. Preview keeps the existing no-participant-controls/no-own-history
+  predicates; no request is added by resizing.
+- Evidence actually run (2026-11-26):
+  - RED: targeted unit 5 files failed, 10 tests failed / 22 passed; real Chromium at 1920 measured
+    the old 1104px page width (expected 1552), missing workspace regions, and a 366.4px legacy
+    button at 375 (expected ≤343).
+  - GREEN: `bun run test:unit -- --maxWorkers=1` — 42 files / **402 tests** passed (391 + 11 new);
+    `bun run typecheck` clean; `bun run build` clean (same editor/reader chunks as Task 1).
+  - Owned native PostgreSQL 18 + real Go backend (default feature profile) + real Vite + Chromium:
+    `desktop-workspaces.spec.ts` chromium 10 passed / 2 phone-only skips; phone 2 passed / 10
+    desktop-only skips; combined `markdown-render.spec.ts` + `rich-text-editor.spec.ts` +
+    `desktop-workspaces.spec.ts` **60 passed, 12 expected project skips** (3.4 min final run;
+    2.0 min on the preceding clean run). One earlier
+    combined run flaked in the pre-existing rich-text `Code language` step and passed alone and on
+    rerun; not hidden or skip-gated.
+- Measured geometry (real DOM, ±1px assertions): task participant 1920 → 1168 main + 360 rail,
+  1440 → 796 + 360, 1024 → 764 stacked; board participant 1920 → 1208 main + 320 rail with four
+  modules in 2 columns × 2 rows; module tasks 1920 → three columns × two rows, 1440 → two × three;
+  admin board 1920 → 1208 main + 320 rail, 1440 → 836 main with the ordinary table fitting, 1024
+  → 764 stacked with a long token scrolling only inside its table; admin hub eight cards 3×3 at
+  1920 and 2×4 at 1440; admin users table >1200 with a ≤384 search input; profile remains 1104
+  bounded; site form 1552/1180/764/343 and stacked below 1100; 375px admin board document width
+  375 with a wrapping, ≥44px legacy button.
+- Screenshots (main assistant inspection pending): `/tmp/opencode/desktop-workspaces/task2/screenshots/`
+  — task participant 1920/1440/1024, task preview 1920, board participant 1920/1440, module
+  participant 1920/1440, admin board 1920 (closed and open lifecycle)/1440/1024/375, admin users
+  1920, site introduction 1920/1440/375, plus the Task 1 dialogs re-captured in the same run.
+- Task 2 limitations: the default profile disables the deployment-template catalog, so the
+  templates card grid is proved by the shared admin-card rule on the hub plus a unit structure
+  test, not by a browser-measured catalog; the root default-profile 5-test suite and CI wiring of
+  the new spec remain Task 3; independent review and main screenshot inspection are still
+  required. Full details: `.superpowers/sdd/2026-11-26-desktop-workspaces/task-2-report.md`.
