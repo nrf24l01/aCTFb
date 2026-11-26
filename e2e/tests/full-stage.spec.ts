@@ -70,7 +70,7 @@ test.describe('full-stage acceptance', () => {
     await page.goto('/admin/plugins')
     await page.getByRole('row', { name: /Example Hello/ }).getByRole('button', { name: 'Manage' }).click()
     await page.getByRole('button', { name: 'Disable' }).click()
-    await expect(page.getByText('disabled', { exact: true }).first()).toBeVisible()
+    await expect(page.getByText('Disabled', { exact: true }).first()).toBeVisible()
     await page.goto(`${pluginPath}?boardUuid=${boardUuid}`)
     await expect(page.getByText('Plugin not visible')).toBeVisible()
 
@@ -121,7 +121,7 @@ test.describe('full-stage acceptance', () => {
     )
     await page.getByRole('button', { name: 'Enable' }).click()
     expect((await enableResponse).status()).toBe(200)
-    await expect(page.getByRole('row', { name: /Example Trusted/ })).toContainText('enabled')
+    await expect(page.getByRole('row', { name: /Example Trusted/ })).toContainText('Enabled')
 
     const adminPlugin = await api(page, token, 'GET', '/api/v2/admin/plugins/example.trusted')
     expect(adminPlugin.status).toBe('enabled')
