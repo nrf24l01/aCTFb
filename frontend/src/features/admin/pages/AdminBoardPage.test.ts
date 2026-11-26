@@ -174,8 +174,11 @@ describe('AdminBoardPage desktop workspace', () => {
     const wrapper = await mountPage()
 
     const disclosure = wrapper.get('[data-slot="lifecycle-disclosure"]')
-    const toggle = disclosure.get('button[aria-controls="lifecycle-body"]')
+    const toggle = disclosure.get('button[aria-label="Show lifecycle actions"]')
     expect(toggle.attributes('aria-expanded')).toBe('false')
+    // The referenced body is removed by v-if while collapsed, so the control
+    // must not advertise an IDREF that does not resolve.
+    expect(toggle.attributes('aria-controls')).toBeUndefined()
     expect(wrapper.find('#lifecycle-body').exists()).toBe(false)
     expect(buttonByText(wrapper, 'Publish')).toBeUndefined()
     expect(buttonByText(wrapper, 'Archive board')).toBeUndefined()
@@ -184,6 +187,7 @@ describe('AdminBoardPage desktop workspace', () => {
     await toggle.trigger('click')
 
     expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(toggle.attributes('aria-controls')).toBe('lifecycle-body')
     const body = wrapper.get('#lifecycle-body')
     expect(body.text()).toContain('Only a global admin can archive or delete a board.')
     expect(buttonByText(wrapper, 'Publish')).toBeDefined()
@@ -197,7 +201,7 @@ describe('AdminBoardPage desktop workspace', () => {
     withModule()
     const wrapper = await mountPage()
 
-    await wrapper.get('[data-slot="lifecycle-disclosure"] button[aria-controls="lifecycle-body"]').trigger('click')
+    await wrapper.get('[data-slot="lifecycle-disclosure"] button[aria-label="Show lifecycle actions"]').trigger('click')
     await buttonByText(wrapper, 'Archive board')!.trigger('click')
     await flushPromises()
 
@@ -213,7 +217,7 @@ describe('AdminBoardPage desktop workspace', () => {
     boardAction.mockRejectedValue(new Error('server refused'))
     const wrapper = await mountPage()
 
-    await wrapper.get('[data-slot="lifecycle-disclosure"] button[aria-controls="lifecycle-body"]').trigger('click')
+    await wrapper.get('[data-slot="lifecycle-disclosure"] button[aria-label="Show lifecycle actions"]').trigger('click')
     await buttonByText(wrapper, 'Publish')!.trigger('click')
     await flushPromises()
 

@@ -269,7 +269,7 @@ void load()
                 variant="ghost"
                 size="sm"
                 :aria-expanded="lifecycleOpen"
-                aria-controls="lifecycle-body"
+                :aria-controls="lifecycleOpen ? 'lifecycle-body' : undefined"
                 :aria-label="lifecycleOpen ? 'Hide lifecycle actions' : 'Show lifecycle actions'"
                 @click="lifecycleOpen = !lifecycleOpen"
               >
