@@ -179,23 +179,23 @@ func TestP1RHTTPRoutes(t *testing.T) {
 		t.Fatalf("adjustments total=%v, want 1", adjustments.Total)
 	}
 
-	// INVITE_ONLY board code round trip.
+	// INVITE_ONLY board: creation stores no credential, the organizer issues the
+	// canonical hash-only code explicitly, and a participant enrolls with it.
 	inviteBoard := decode[oapimodels.AdminBoard](t, doJSON(t, router, http.MethodPost, "/api/v2/admin/boards", adminToken, map[string]any{
 		"slug": "p1r-http-invite", "name": "P1R Invite", "participationMode": "INDIVIDUAL",
 		"registrationMode": "INVITE_ONLY", "visibility": "PRIVATE",
 		"startsAt": start, "endsAt": end, "rating": map[string]any{"visibility": "PUBLIC"},
 	}, nil, http.StatusCreated), http.StatusCreated)
 	inviteBoardID := string(*inviteBoard.UUID)
-	code := decode[oapimodels.BoardInviteResponse](t, doJSON(t, router, http.MethodGet,
-		"/api/v2/admin/boards/"+inviteBoardID+"/invite-code", adminToken, nil, nil, http.StatusOK), http.StatusOK)
-	if code.InviteCode == nil || len(*code.InviteCode) < 16 {
-		t.Fatalf("board invite code = %+v", code)
+	joinCode := issueJoinCode(t, router, inviteBoardID, adminToken)
+	if len(joinCode) != 26 {
+		t.Fatalf("board join code = %q, want 26 Crockford characters", joinCode)
 	}
 	if _, err := db.Pool.Exec(ctx, `UPDATE boards SET status='ACTIVE' WHERE id=$1`, inviteBoardID); err != nil {
 		t.Fatalf("activate invite board: %v", err)
 	}
 	doJSON(t, router, http.MethodPost, "/api/v2/boards/"+inviteBoardID+"/join", p1Token,
-		map[string]any{"inviteCode": *code.InviteCode}, nil, http.StatusOK)
+		map[string]any{"code": joinCode}, nil, http.StatusOK)
 
 	// Anonymous browse: only published PUBLIC boards are listed/readable.
 	publicList := decode[oapimodels.BoardListResponse](t, doJSON(t, router, http.MethodGet,

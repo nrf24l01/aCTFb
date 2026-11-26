@@ -251,21 +251,18 @@ func TestLegacyInviteWithGroupsSurvivesUnrelatedSave(t *testing.T) {
 	}
 
 	// A non-member holding the invite code alone is still denied: the group gate
-	// must survive, so the hybrid board keeps requiring both.
-	code, _, _, err := service.store.GetBoardInvite(ctx, boardID)
-	if err != nil {
-		// No invite has been generated yet; generate one through the service.
-		if _, genErr := service.AdminUpdateBoard(ctx, admin, boardID, UpdateBoardInput{
-			RegistrationMode: OptionalString{Set: true, Value: strPtr(RegistrationInviteOnly)},
-		}); genErr != nil {
-			t.Fatalf("generate invite: %v", genErr)
-		}
-		code, _, _, err = service.store.GetBoardInvite(ctx, boardID)
-		if err != nil {
-			t.Fatalf("read invite: %v", err)
-		}
+	// must survive, so the hybrid board keeps requiring both. Creation no longer
+	// mints a legacy invite, so the pre-020 row is seeded exactly as an older
+	// deployment stored it.
+	legacyCode := "Legacy-Hybrid-Code-0001"
+	sealed, sealErr := service.sealer.Seal([]byte(legacyCode), boardInviteAAD(boardID))
+	if sealErr != nil {
+		t.Fatalf("seal legacy invite: %v", sealErr)
 	}
-	_ = code
+	if err := service.store.SetBoardInvite(ctx, boardID, hashInviteCode(legacyCode), sealed,
+		nil, AuditEventParams{ActorUserID: adminID, Action: "test.legacy_invite", ResourceType: "board"}); err != nil {
+		t.Fatalf("seed legacy invite: %v", err)
+	}
 	if _, err := service.JoinBoard(ctx, outsider, boardID, "not-the-real-code"); !errors.Is(err, ErrInvalidInviteCode) {
 		t.Fatalf("outsider join err = %v, want invalid invite code", err)
 	}

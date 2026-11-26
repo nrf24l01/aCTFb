@@ -2,7 +2,6 @@ package boards
 
 import (
 	"context"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -69,29 +68,17 @@ func (s *Service) AdminCreateBoard(ctx context.Context, principal authorization.
 		return nil, err
 	}
 	boardID := uuid.New()
-	var inviteHash string
-	var inviteCiphertext []byte
-	var inviteExpiresAt *time.Time
-	if board.RegistrationMode == RegistrationInviteOnly {
-		code, err := newInviteCode()
-		if err != nil {
-			return nil, err
-		}
-		inviteHash = hashInviteCode(code)
-		sealed, err := s.sealInvite(code, boardInviteAAD(boardID))
-		if err != nil {
-			return nil, err
-		}
-		inviteCiphertext = sealed
-		inviteExpiresAt = inviteExpiry(s.clock.Now())
-	}
+	// Board creation never mints a credential. The canonical enrollment code is
+	// hash-only and issued explicitly by the organizer through the join-code
+	// route, so the default profile (no deployment credential key, no sealer)
+	// can create every access mode. The obsolete legacy sealed invite is only
+	// ever read for boards that already carry one.
 	created, err := s.store.CreateBoard(ctx, CreateBoardParams{
 		ID: boardID, Slug: board.Slug, Name: board.Name, Description: board.Description,
 		ParticipationMode: board.ParticipationMode, RegistrationMode: board.RegistrationMode,
 		Visibility: board.Visibility, Status: BoardStatusDraft, RatingVisibility: rating,
 		StartsAt: board.StartsAt, EndsAt: board.EndsAt, CreatedBy: principal.UserID,
 		TeamSettings: board.TeamSettings, AccessGroupUUIDs: board.AccessGroupUUIDs,
-		InviteHash: inviteHash, InviteCiphertext: inviteCiphertext, InviteExpiresAt: inviteExpiresAt,
 	}, auditEvent(principal, nil, nil, "board.create", "board", nil, map[string]any{"slug": board.Slug}))
 	if err != nil {
 		return nil, err
@@ -210,20 +197,9 @@ func (s *Service) AdminUpdateBoard(
 		TeamSettings: merged.TeamSettings, TeamSettingsSet: input.TeamSettings != nil || input.ClearTeamSettings,
 		AccessGroupUUIDs: merged.AccessGroupUUIDs, ReplaceAccessGroups: replaceGroups,
 	}
-	if (input.RegistrationMode.Set || input.AccessMode.Set) && merged.RegistrationMode == RegistrationInviteOnly {
-		if _, _, _, err := s.store.GetBoardInvite(ctx, boardID); err != nil {
-			code, genErr := newInviteCode()
-			if genErr != nil {
-				return nil, genErr
-			}
-			expires := inviteExpiry(s.clock.Now())
-			sealed, sealErr := s.sealInvite(code, boardInviteAAD(boardID))
-			if sealErr != nil {
-				return nil, sealErr
-			}
-			params.SetInvite, params.InviteHash, params.InviteCiphertext, params.InviteExpiresAt = true, hashInviteCode(code), sealed, expires
-		}
-	}
+	// Switching a board to INVITE mode never mints a credential either: the
+	// organizer issues the canonical hash-only join code explicitly. Only a
+	// board that already has a sealed legacy invite keeps it, untouched.
 	updated, err := s.store.UpdateBoard(ctx, boardID, params,
 		auditEvent(principal, &boardID, nil, "board.update", "board", &boardID, map[string]any{}))
 	if err != nil {

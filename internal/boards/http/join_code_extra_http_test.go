@@ -2,6 +2,8 @@ package http
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -13,6 +15,26 @@ import (
 	"github.com/nrf24l01/actfb/internal/boards"
 	oapimodels "github.com/nrf24l01/actfb/internal/generated/openapi/models"
 )
+
+// seedLegacyInvite writes the pre-020 sealed invite row directly. Board
+// creation no longer mints a legacy invite (it would need the credential
+// sealer), so legacy compatibility is covered by seeding exactly the row an
+// older deployment stored.
+func (f joinCodeHTTPFixture) seedLegacyInvite(t *testing.T, code string) {
+	t.Helper()
+	sum := sha256.Sum256([]byte(code))
+	sealed, err := f.sealer.Seal([]byte(code), []byte("actfb.board.invite.v1:"+f.boardID))
+	if err != nil {
+		t.Fatalf("seal legacy invite: %v", err)
+	}
+	if _, err := f.db.Pool.Exec(f.ctx, `
+		UPDATE boards SET invite_code_hash=$2, invite_code_ciphertext=$3,
+			invite_code_expires_at=NOW()+interval '30 days'
+		WHERE id=$1
+	`, f.boardID, hex.EncodeToString(sum[:]), sealed); err != nil {
+		t.Fatalf("seed legacy invite: %v", err)
+	}
+}
 
 // TestJoinCodeOptimisticConcurrency covers the revision precondition: a replace
 // must name the revision it read, a stale revision is a conflict, and an
@@ -246,13 +268,11 @@ func TestJoinCodePaddedAndCaseNormalized(t *testing.T) {
 func TestCanonicalJoinWithHintResolvesLegacyInviteCode(t *testing.T) {
 	f := newJoinCodeHTTPFixture(t, "PRIVATE", "INVITE_ONLY", "", false)
 
-	// Issue a legacy sealed invite code through the existing admin route.
-	legacy := decode[oapimodels.BoardInviteResponse](t, doJSON(t, f.router, http.MethodGet,
-		"/api/v2/admin/boards/"+f.boardID+"/invite-code", f.admin, nil, nil, http.StatusOK), http.StatusOK)
-	if legacy.InviteCode == nil || *legacy.InviteCode == "" {
-		t.Fatalf("legacy invite code missing: %+v", legacy)
-	}
-	code := *legacy.InviteCode
+	// A pre-020 board still carries its sealed legacy invite. Creation no
+	// longer mints one, so the legacy row is seeded exactly as an older
+	// deployment stored it.
+	const code = "Legacy-Hint-Code-0001"
+	f.seedLegacyInvite(t, code)
 
 	// Canonical join without the hint cannot resolve a legacy code: there is no
 	// global legacy directory.
@@ -295,9 +315,8 @@ func TestCanonicalJoinWithHintResolvesLegacyInviteCode(t *testing.T) {
 // resolve it.
 func TestLegacyInviteCodeIsCaseSensitive(t *testing.T) {
 	f := newJoinCodeHTTPFixture(t, "PRIVATE", "INVITE_ONLY", "", false)
-	legacy := decode[oapimodels.BoardInviteResponse](t, doJSON(t, f.router, http.MethodGet,
-		"/api/v2/admin/boards/"+f.boardID+"/invite-code", f.admin, nil, nil, http.StatusOK), http.StatusOK)
-	code := *legacy.InviteCode
+	const code = "Legacy-Case-Code-0001"
+	f.seedLegacyInvite(t, code)
 	flipped := []byte(code)
 	for index := range flipped {
 		switch {
@@ -308,7 +327,7 @@ func TestLegacyInviteCodeIsCaseSensitive(t *testing.T) {
 		}
 	}
 	if string(flipped) == code {
-		t.Skip("legacy code has no letters to flip")
+		t.Fatal("legacy test code has no letters to flip")
 	}
 	_, token := f.newUser(t, "legacy_case")
 	doJSON(t, f.router, http.MethodPost, "/api/v2/boards/join", token,

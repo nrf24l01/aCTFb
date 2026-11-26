@@ -36,6 +36,7 @@ type joinCodeHTTPFixture struct {
 	admin   string
 	boardID string
 	groupID string
+	sealer  secrets.Sealer
 }
 
 func newJoinCodeHTTPFixture(t *testing.T, visibility, registration, accessMode string, withGroup bool) joinCodeHTTPFixture {
@@ -59,9 +60,9 @@ func newJoinCodeHTTPFixture(t *testing.T, visibility, registration, accessMode s
 	userService := users.NewUserService(db, cfg, nil)
 	authz := authorization.NewAuthorizer(db)
 	accessSvc := access.NewService(db, authz)
-	// A sealer is installed so the legacy sealed-invite path (and INVITE_ONLY
-	// board creation) behaves exactly as in production. Join codes themselves
-	// never use it.
+	// A sealer is installed so the legacy sealed-invite path behaves exactly as
+	// on a deployment that has a credential key. Board creation and join codes
+	// themselves never use it.
 	sealer, sealerErr := secrets.NewCipher(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32)), 1)
 	if sealerErr != nil {
 		t.Fatalf("sealer: %v", sealerErr)
@@ -106,7 +107,7 @@ func newJoinCodeHTTPFixture(t *testing.T, visibility, registration, accessMode s
 
 	return joinCodeHTTPFixture{
 		db: db, router: router, ctx: ctx, users: userService,
-		admin: adminToken, boardID: boardID, groupID: groupID,
+		admin: adminToken, boardID: boardID, groupID: groupID, sealer: sealer,
 	}
 }
 
