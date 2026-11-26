@@ -53,16 +53,9 @@ test.describe('organizer UX acceptance', () => {
     await page.getByRole('button', { name: 'Source mode' }).click()
     await page.locator('#site-intro').fill(intro)
 
-    // Preview tab: real sanitised DOM elements inside the preview panel.
-    await page.getByRole('tab', { name: 'Preview' }).click()
-    const previewPanel = page.locator('[role="tabpanel"]').filter({ has: page.getByRole('heading', { name: 'Rendered heading' }) })
-    await expect(previewPanel.getByRole('heading', { name: 'Rendered heading' })).toBeVisible()
-    await expect(previewPanel.locator('strong')).toContainText('bold')
-    await expect(previewPanel.locator('a[href="/boards"]')).toHaveCount(1)
-    expect(await previewPanel.locator('script').count()).toBe(0)
-    expect(await previewPanel.locator('[onerror]').count()).toBe(0)
-
-    await page.getByRole('tab', { name: 'Write' }).click()
+    // The editor no longer has Write/Preview tabs: the sanitised rendering is
+    // asserted on the real published page below, in a fresh anonymous context,
+    // which is the stronger check (no script, no inline handler, no execution).
     await page.getByRole('button', { name: 'Save changes' }).click()
     await expect(page.getByText('Saved.')).toBeVisible({ timeout: 15_000 })
 
@@ -351,10 +344,7 @@ test.describe('organizer UX acceptance', () => {
     // `##`/`**` into the visual editor is plain text by design.
     await dialog.getByRole('button', { name: 'Source mode' }).click()
     await dialog.locator('#task-description').fill('## Mission brief\n\nFind the **flag** in the lab.')
-    await dialog.getByRole('tab', { name: 'Preview' }).click()
-    await expect(dialog.getByRole('heading', { name: 'Mission brief' })).toBeVisible()
-    await expect(dialog.locator('strong')).toContainText('flag')
-    await dialog.getByRole('tab', { name: 'Write' }).click()
+    // The rendered Markdown is asserted on the participant task page below.
     await dialog.locator('#task-answers').fill(flag)
     await dialog.getByRole('button', { name: 'Save draft' }).click()
     await expect(dialog).toHaveCount(0, { timeout: 15_000 })

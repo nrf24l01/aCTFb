@@ -66,8 +66,10 @@ test.describe('P1 board to flag to score', () => {
       // name until the organizer edits it.
       await boardDialog.getByText('Advanced', { exact: true }).click()
       await boardDialog.locator('#board-slug').fill(slug)
-      // The description lives in the Write tab of the Markdown editor.
-      await boardDialog.getByRole('tab', { name: 'Write' }).click()
+      // The description is raw Markdown, so it is authored in the editor's
+      // Source mode. The visual editor parses formatting and does not accept
+      // Markdown syntax typed as plain text.
+      await boardDialog.getByRole('button', { name: 'Source mode' }).click()
       await boardDialog.locator('#board-description').fill('Private individual board created by real-browser E2E.')
       // Exactly one access control: choose the audience mode and its group.
       await boardDialog.getByRole('radio', { name: /Selected audiences/ }).check()
@@ -105,13 +107,21 @@ test.describe('P1 board to flag to score', () => {
       await expect(taskDialog).toBeHidden()
       await expect(adminPage.getByText(taskTitle, { exact: true })).toBeVisible()
 
-      // Publishing the task is the separate, explicit step.
+      // Publishing the task is the separate, explicit step. `exact` matters: the
+      // row swaps to "Unpublish" afterwards, and the default accessible-name
+      // match is a case-insensitive substring, so a loose 'Publish' would match
+      // both controls.
       const taskRow = adminPage.getByRole('row', { name: new RegExp(taskTitle) })
       await expect(taskRow).toContainText('No')
-      await taskRow.getByRole('button', { name: 'Publish' }).click()
+      await taskRow.getByRole('button', { name: 'Publish', exact: true }).click()
       await expect(taskRow).toContainText('Yes')
 
-      await adminPage.getByRole('button', { name: 'Publish' }).first().click()
+      // Board lifecycle actions sit behind a collapsed disclosure by design, and
+      // must be scoped to it: the task row's "Unpublish" also contains the
+      // substring "publish".
+      await adminPage.getByRole('button', { name: 'Show lifecycle actions' }).click()
+      const lifecycle = adminPage.getByRole('region', { name: 'Lifecycle' })
+      await lifecycle.getByRole('button', { name: 'Publish', exact: true }).click()
       await expect(adminPage.getByText('Active', { exact: true }).first()).toBeVisible()
 
       // Enrollment is code-only: the organizer issues one code for the solvers.
