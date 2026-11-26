@@ -219,6 +219,41 @@ test.describe('rich-text authoring acceptance', () => {
     await page.keyboard.type('  return 1')
     await moduleDialog.getByRole('combobox', { name: 'Code language' }).click()
     await page.getByRole('option', { name: 'Python', exact: true }).click()
+
+    // Add a heading and a GFM table through Source mode; both are supported
+    // Markdown, so returning to Visual keeps them.
+    await moduleDialog.getByRole('button', { name: 'Source mode' }).click()
+    const moduleSourceBox = moduleDialog.locator('#module-description')
+    const moduleSourceText = await moduleSourceBox.inputValue()
+    expect(moduleSourceText).toContain('```python')
+    await moduleSourceBox.fill(
+      `${moduleSourceText}\n\n## Module heading\n\n| name | value |\n| :-- | --: |\n| a | b |`,
+    )
+    await moduleDialog.getByRole('button', { name: 'Visual mode' }).click()
+    await expect(moduleDialog.locator('.ProseMirror h2')).toBeVisible()
+
+    // The organizer Preview tab must show the published formatting, not flat
+    // text: same `.markdown-body` typography as the reader, including a styled
+    // code block, a real heading and a bordered table.
+    await moduleDialog.getByRole('tab', { name: 'Preview' }).click()
+    const modulePreview = moduleDialog.locator('.markdown-body')
+    await expect(modulePreview.locator('pre').first()).toBeVisible()
+    expect(await modulePreview.locator('pre').first().evaluate((element) =>
+      getComputedStyle(element).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+    expect(await modulePreview.locator('pre').first().evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).paddingLeft))).toBeGreaterThan(0)
+    expect(await modulePreview.locator('strong').first().evaluate((element) =>
+      Number.parseInt(getComputedStyle(element).fontWeight, 10))).toBeGreaterThanOrEqual(600)
+    const previewHeadingSize = await modulePreview.locator('h2').first().evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).fontSize))
+    const previewBodySize = await modulePreview.locator('p').first().evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).fontSize))
+    expect(previewHeadingSize).toBeGreaterThan(previewBodySize)
+    expect(await modulePreview.locator('td').first().evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).borderTopWidth))).toBeGreaterThanOrEqual(1)
+    await moduleDialog.getByRole('tab', { name: 'Write' }).click()
+    await expect(moduleDialog.locator('.ProseMirror')).toBeVisible()
+
     await moduleDialog.getByRole('button', { name: 'Create module' }).click()
     await expect(moduleDialog).toBeHidden()
     await expect(page.getByRole('heading', { name: 'Rich module' })).toBeVisible()
@@ -301,11 +336,22 @@ test.describe('rich-text authoring acceptance', () => {
     await taskEdit.getByRole('button', { name: 'Cancel' }).click()
     await expect(taskEdit).toBeHidden()
 
-    // ---- Over-limit description cannot be saved ----------------------------
+    // ---- Over-limit description cannot be saved, and the error is visible ---
     await openModuleEditor(page)
     const limitDialog = page.getByRole('dialog')
     await limitDialog.getByRole('button', { name: 'Source mode' }).click()
     await limitDialog.locator('#module-description').fill('x'.repeat(50_001))
+
+    // One owner for the message: the editor does not duplicate the parent alert.
+    const limitAlert = limitDialog.getByRole('alert').filter({ hasText: 'at most 50,000 characters' })
+    await expect(limitAlert).toHaveCount(1)
+    const describedBy = await limitDialog.locator('#module-description').getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    await expect(limitDialog.locator(`#${describedBy}`)).toContainText('at most 50,000 characters')
+    expect(await limitDialog.locator('#module-description').getAttribute('aria-invalid')).toBe('true')
+
+    // The same message stays visible while the Preview tab is active.
+    await limitDialog.getByRole('tab', { name: 'Preview' }).click()
     let modulePatches = 0
     page.on('request', (request) => {
       if (request.method() === 'PATCH' && request.url().includes(`/modules/${fixture.moduleUuid}`)) {
@@ -313,7 +359,7 @@ test.describe('rich-text authoring acceptance', () => {
       }
     })
     await limitDialog.getByRole('button', { name: 'Save changes' }).click()
-    await expect(limitDialog.getByRole('alert').filter({ hasText: 'at most 50,000 characters' }).first()).toBeVisible()
+    await expect(limitAlert).toHaveCount(1)
     await page.waitForTimeout(300)
     expect(modulePatches).toBe(0)
     await limitDialog.getByRole('button', { name: 'Cancel' }).click()
@@ -330,6 +376,12 @@ test.describe('rich-text authoring acceptance', () => {
     await page.keyboard.press('Control+b')
     await page.keyboard.type('bold')
     await page.keyboard.press('Control+b')
+    await page.getByRole('tab', { name: 'Preview' }).click()
+    await expect(page.locator('.markdown-body strong').first()).toHaveText('bold')
+    expect(await page.locator('.markdown-body strong').first().evaluate((element) =>
+      Number.parseInt(getComputedStyle(element).fontWeight, 10))).toBeGreaterThanOrEqual(600)
+    await page.getByRole('tab', { name: 'Write' }).click()
+    await expect(page.locator('.ProseMirror')).toBeVisible()
     await page.getByRole('button', { name: 'Save changes' }).click()
     await expect(page.getByText('Saved.')).toBeVisible()
     await page.goto('/')
@@ -356,6 +408,15 @@ test.describe('rich-text authoring acceptance', () => {
       await expect(participant.locator('.markdown-body')).toContainText('Module bold')
       await expect(participant.locator('.markdown-body strong').first()).toHaveText('bold')
       await expect(participant.locator('.markdown-body .hljs-keyword').first()).toBeVisible()
+      expect(await participant.locator('.markdown-body pre').first().evaluate((element) =>
+        getComputedStyle(element).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+      const readerHeadingSize = await participant.locator('.markdown-body h2').first().evaluate((element) =>
+        Number.parseFloat(getComputedStyle(element).fontSize))
+      const readerBodySize = await participant.locator('.markdown-body p').first().evaluate((element) =>
+        Number.parseFloat(getComputedStyle(element).fontSize))
+      expect(readerHeadingSize).toBeGreaterThan(readerBodySize)
+      expect(await participant.locator('.markdown-body td').first().evaluate((element) =>
+        Number.parseFloat(getComputedStyle(element).borderTopWidth))).toBeGreaterThanOrEqual(1)
       expect(await participant.locator('body').innerText()).not.toContain('```')
 
       await participant.goto(
@@ -365,6 +426,10 @@ test.describe('rich-text authoring acceptance', () => {
       await expect(description).toHaveClass(/markdown-body/)
       await expect(description.locator('.hljs-keyword').first()).toBeVisible()
       await expect(description).toContainText('Paste x')
+      expect(await description.locator('pre').first().evaluate((element) =>
+        getComputedStyle(element).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+      expect(await description.locator('strong').first().evaluate((element) =>
+        Number.parseInt(getComputedStyle(element).fontWeight, 10))).toBeGreaterThanOrEqual(600)
       expect(await description.innerText()).not.toContain('```')
       expect(await description.innerText()).not.toContain('**x**')
       expect(await description.locator('[style], [onclick], script').count()).toBe(0)

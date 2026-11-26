@@ -49,6 +49,39 @@ async function sourceValue(page: Page): Promise<string> {
   return page.locator('textarea').inputValue()
 }
 
+/** Seed the fixture's real reader (`.markdown-body`) and wait for it. */
+async function openReader(page: Page, content: string): Promise<void> {
+  await page.goto(fixtureUrl(content))
+  await expect(page.locator('#fixture-reader')).toBeVisible()
+  await expect(page.locator('#fixture-reader > *').first()).toBeVisible()
+}
+
+const READER_CONTENT = [
+  '# Reader heading',
+  '',
+  'Body paragraph with a [link](https://example.com) and `inline code`.',
+  '',
+  '## Second heading',
+  '',
+  '- bullet one',
+  '- bullet two',
+  '  - nested bullet',
+  '',
+  '1. first',
+  '2. second',
+  '',
+  '> quoted text',
+  '',
+  '| left | middle | right |',
+  '| :-- | :-: | --: |',
+  '| a | b | c |',
+  '',
+  '```python',
+  'def f():',
+  '  return 1',
+  '```',
+].join('\n')
+
 function srgbToLinear(channel: number): number {
   const c = channel / 255
   return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
@@ -184,8 +217,148 @@ test.describe('shared Markdown renderer', () => {
       document.body.innerHTML = `<div class="markdown-body">${markup}</div>`
     }, html)
 
+    // Raw HTML is escaped by `marked` before the sanitiser runs, so this is a
+    // raw-HTML-escaping proof, not an alignment-hook proof. The hook itself is
+    // covered by the direct sanitiser test below.
     expect(await page.locator('.markdown-body table, .markdown-body [align], .markdown-body [style]').count()).toBe(0)
     await expect(page.locator('.markdown-body')).toContainText('<table>')
+  })
+
+  test('sanitiser hook keeps only validated table alignment on real cells', async ({ page }) => {
+    await page.goto(FIXTURE)
+    const sanitized = await page.evaluate(async () => {
+      const mod = await import('/src/shared/lib/markdown.ts')
+      // Sanitising markup directly (not through `marked`) is the only way the
+      // hook sees a crafted `align`: the renderer never emits an invalid one.
+      return mod.sanitizeMarkdownHtml([
+        '<table><tbody><tr>',
+        '<td align="evil" style="color:red">x</td>',
+        '<td align="center">y</td>',
+        '<td align="right">z</td>',
+        '<th align="left" onclick="alert(1)">h</th>',
+        '</tr></tbody></table>',
+        '<p align="center">not a cell</p>',
+        '<span align="left" class="evil">span</span>',
+        '<div class="markdown-table-scroll" style="color:red">generated wrapper</div>',
+        '<div class="evil">crafted div</div>',
+      ].join(''))
+    })
+
+    await page.evaluate((markup) => {
+      document.body.innerHTML = `<div class="markdown-body">${markup}</div>`
+    }, sanitized)
+
+    // Invalid value, non-cell tag, style and event handler are all removed.
+    expect(await page.locator('.markdown-body [align="evil"]').count()).toBe(0)
+    expect(await page.locator('.markdown-body [style], .markdown-body [onclick]').count()).toBe(0)
+    expect(await page.locator('.markdown-body p[align]').count()).toBe(0)
+    expect(await page.locator('.markdown-body span[align]').count()).toBe(0)
+    expect(await page.locator('.markdown-body .evil').count()).toBe(0)
+    // The only class the sanitiser keeps on a div is our own generated wrapper,
+    // and even that div cannot carry a style attribute.
+    expect(await page.locator('.markdown-body div.markdown-table-scroll').count()).toBe(1)
+    expect(await page.locator('.markdown-body div[style]').count()).toBe(0)
+    // Valid cell alignment survives the same pass.
+    expect(await page.locator('.markdown-body td[align="center"]').count()).toBe(1)
+    expect(await page.locator('.markdown-body td[align="right"]').count()).toBe(1)
+    expect(await page.locator('.markdown-body th[align="left"]').count()).toBe(1)
+  })
+
+  test('gives the reader real block typography, not flat text', async ({ page }) => {
+    await openReader(page, READER_CONTENT)
+
+    const size = async (selector: string): Promise<number> =>
+      page.locator(`#fixture-reader ${selector}`).first().evaluate((element) =>
+        Number.parseFloat(getComputedStyle(element).fontSize),
+      )
+    const body = await size('p')
+    const h1 = await size('h1')
+    const h2 = await size('h2')
+
+    // Headings are distinguishable from body text, scaled h1 > h2 > body.
+    expect(h1).toBeGreaterThan(body)
+    expect(h2).toBeGreaterThan(body)
+    expect(h1).toBeGreaterThan(h2)
+    expect(await page.locator('#fixture-reader h1').first().evaluate((element) =>
+      Number.parseInt(getComputedStyle(element).fontWeight, 10))).toBeGreaterThanOrEqual(600)
+    expect(await page.locator('#fixture-reader h2').first().evaluate((element) =>
+      Number.parseInt(getComputedStyle(element).fontWeight, 10))).toBeGreaterThanOrEqual(600)
+
+    // Body rhythm: line height above 1.4 and block spacing between paragraphs.
+    const lineHeightRatio = await page.locator('#fixture-reader p').first().evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).lineHeight) / Number.parseFloat(getComputedStyle(element).fontSize))
+    expect(lineHeightRatio).toBeGreaterThanOrEqual(1.4)
+    expect(await page.locator('#fixture-reader h2').first().evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).marginTop))).toBeGreaterThan(0)
+
+    // Lists keep visible markers and an indent; nested lists are indented too.
+    const ul = page.locator('#fixture-reader ul').first()
+    expect(await ul.evaluate((element) => getComputedStyle(element).listStyleType)).toBe('disc')
+    expect(await ul.evaluate((element) => Number.parseFloat(getComputedStyle(element).paddingLeft))).toBeGreaterThan(0)
+    expect(await page.locator('#fixture-reader ol').first().evaluate((element) =>
+      getComputedStyle(element).listStyleType)).toBe('decimal')
+    expect(await page.locator('#fixture-reader li ul').first().evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).paddingLeft))).toBeGreaterThan(0)
+
+    // Blockquote and links are visually distinct without relying on colour alone.
+    expect(await page.locator('#fixture-reader blockquote').first().evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).borderLeftWidth))).toBeGreaterThanOrEqual(2)
+    const link = page.locator('#fixture-reader a').first()
+    expect(await link.evaluate((element) => getComputedStyle(element).textDecorationLine)).toContain('underline')
+    expect(await link.evaluate((element) => getComputedStyle(element).color)).toBe('rgb(156, 207, 216)')
+
+    // Inline code and fenced blocks keep their own surface, and code scrolls
+    // locally instead of widening the document.
+    const inlineCode = page.locator('#fixture-reader p code').first()
+    expect(await inlineCode.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+    expect(await inlineCode.evaluate((element) => Number.parseFloat(getComputedStyle(element).paddingLeft))).toBeGreaterThan(0)
+    const pre = page.locator('#fixture-reader pre').first()
+    expect(await pre.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+    expect(await pre.evaluate((element) => getComputedStyle(element).overflowX)).toBe('auto')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
+  })
+
+  test('renders GFM table cells with borders, padding and aligned columns', async ({ page }) => {
+    await openReader(page, READER_CONTENT)
+
+    const cell = page.locator('#fixture-reader td').first()
+    expect(await cell.evaluate((element) => Number.parseFloat(getComputedStyle(element).borderTopWidth))).toBeGreaterThanOrEqual(1)
+    expect(await cell.evaluate((element) => Number.parseFloat(getComputedStyle(element).paddingLeft))).toBeGreaterThanOrEqual(6)
+    const header = page.locator('#fixture-reader th').first()
+    expect(await header.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+    expect(await header.evaluate((element) => Number.parseInt(getComputedStyle(element).fontWeight, 10))).toBeGreaterThanOrEqual(600)
+
+    // Header and body columns line up: the same column has the same width in
+    // the header row and the body row.
+    const widths = await page.locator('#fixture-reader table').first().evaluate((table) => {
+      const headerCells = Array.from(table.querySelectorAll('thead th')).map((element) => element.getBoundingClientRect().width)
+      const bodyCells = Array.from(table.querySelectorAll('tbody td')).map((element) => element.getBoundingClientRect().width)
+      return { headerCells, bodyCells }
+    })
+    expect(widths.headerCells.length).toBeGreaterThan(0)
+    expect(widths.bodyCells.length).toBe(widths.headerCells.length)
+    widths.headerCells.forEach((width, index) => {
+      expect(Math.abs(width - widths.bodyCells[index])).toBeLessThanOrEqual(1)
+    })
+  })
+
+  test('scrolls a wide table locally instead of widening the page', async ({ page }) => {
+    // Many columns: `overflow-wrap` prevents one long word from widening the
+    // table, so the width has to come from real column content.
+    const columns = Array.from({ length: 16 }, (_, index) => `column-${index}`)
+    const wide = [
+      'Intro',
+      '',
+      `| ${columns.join(' | ')} |`,
+      `| ${columns.map(() => ':--').join(' | ')} |`,
+      `| ${columns.map((column) => `${column}-value`).join(' | ')} |`,
+    ].join('\n')
+    await openReader(page, wide)
+
+    const wrapper = page.locator('#fixture-reader .markdown-table-scroll').first()
+    expect(await wrapper.evaluate((element) => getComputedStyle(element).overflowX)).toBe('auto')
+    expect(await wrapper.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
   })
 })
 

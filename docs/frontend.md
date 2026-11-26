@@ -146,22 +146,39 @@ migrations and `deploy/` are unchanged.
   never become links or image sources. Source and Visual share one model, so switching modes does not
   lose edits.
 - **Limits.** `DESCRIPTION_MAX_CHARACTERS` is 50,000 and `SITE_INTRO_MAX_CHARACTERS` is 131,072,
-  matching the Go rune limits. The counter uses code points (`Array.from`), not UTF-16 units, and each
-  dialog blocks submit with the stable "at most 50,000 characters" / "at most 131,072 characters"
-  message instead of truncating.
+  matching the Go rune limits. The counter uses code points (`Array.from`), not UTF-16 units. Each
+  dialog owns exactly one live error message, rendered outside the Write/Preview tabs next to the
+  field label, so an over-limit save from either tab shows the stable "at most 50,000 characters" /
+  "at most 131,072 characters" message instead of silently doing nothing. The editor passes
+  `show-length-error="false"` there (it would otherwise repeat the same sentence) and mirrors the
+  state with `aria-invalid`/`aria-describedby`; the counter stays visible and turns red over the
+  limit. Standalone use of the editor keeps its own inline message.
 - **Lazy loading.** Authoring surfaces import `MarkdownEditorLazy` (`defineAsyncComponent`), whose
   loading state is a small non-editable "Loading editor…" notice. The Tiptap bundle is fetched only
   when an organizer opens a Write tab; public readers import only `renderMarkdown`. The built editor
-  chunk is `MarkdownEditor-*.js` at 503.17 kB / **158.89 kB gzip**; the async wrapper is 9.55 kB /
-  3.27 kB gzip, and the shared reader `markdown-*.js` stays 154.27 kB / 51.29 kB gzip. The
+  chunk is `MarkdownEditor-*.js` at 503.77 kB / **159.06 kB gzip**; the async wrapper is 10.10 kB /
+  3.49 kB gzip, the shared reader `markdown-*.js` is 154.50 kB / 51.39 kB gzip, and the
+  stylesheet is 75.60 kB / 13.77 kB gzip. The
   highlighter registry and editor features were kept rather than reduced.
 - **Reader rendering.** `BoardPage` and `ModulePage` render their description through
   `renderMarkdown` inside the existing `PageHeader` subtitle slot (`.markdown-body.markdown-body-inline`,
-  compact spacing, no page redesign). `TaskPage`, `LandingPage`, the site preview and every dialog
-  preview use `.markdown-body`. Raw HTML is escaped; DOMPurify keeps only the allowlisted tags and
-  attributes. GFM table `align` is allowed only on `th`/`td` and only for `left`, `center` or `right`;
-  `style`, arbitrary `class` and event handlers stay blocked. Unknown fence languages render as
-  escaped plain text and are never auto-detected.
+  compact spacing, no page redesign). `TaskPage`, `LandingPage`, the site page and all three dialog
+  Preview tabs use `.markdown-body`, so what an organizer previews is what a participant reads.
+- **Reader typography.** `src/style.css` defines one shared block for `.markdown-body` and
+  `.markdown-editor .ProseMirror`: headings h1 1.5em / h2 1.3em / h3 1.15em / h4–h6 1em at weight
+  600 and line-height 1.3, body line-height 1.5 with 0.75em block spacing, visible `disc`/`decimal`
+  list markers with 2ex indent and nested-list spacing, blockquote rule, `--foam` underlined links
+  with a visible keyboard focus ring, inline `code` and fenced `pre` on the existing `--base`
+  surface, and `th`/`td` borders with 4px/8px padding and a `--base` header. Tailwind preflight is
+  therefore restored only inside the Markdown containers; no global element rules are added. The
+  `LandingPage`/`AdminSitePage` scoped duplicates were removed in favour of this single definition.
+- **Wide tables.** The renderer wraps every GFM table in `<div class="markdown-table-scroll">`
+  (`max-width: 100%`, `overflow-x: auto`), and the table keeps its intrinsic `max-content` width, so
+  a wide table scrolls inside its own box instead of widening the page. Header and body cells remain
+  one table, so columns stay aligned. The sanitiser keeps the wrapper class only on a generated
+  `div` and keeps no other `div` class; cell `align` is allowed only on `th`/`td` and only for
+  `left`, `center` or `right`. Raw HTML is escaped, `style`/event handlers stay blocked, and unknown
+  fence languages render as escaped plain text and are never auto-detected.
 
 ### Syntax highlighting registry
 
@@ -186,15 +203,18 @@ the same registry through `safeLowlight`, so an unknown language stays plain in 
 
 - `cd frontend && bun run test:unit -- --maxWorkers=1` — 42 files / 390 tests.
 - `bun run typecheck`, `bun run build` — clean; chunk sizes above.
-- `bun run test:e2e -- markdown-render.spec.ts` — 16 tests per project in real Chromium (`chromium`
-  and a 375 px Chromium `phone` project): highlighting/contrast, DOMPurify removal, table alignment,
-  paste filtering, source fallback, link row, limits and toolbar wrapping.
+- `bun run test:e2e -- markdown-render.spec.ts` — 20 tests per project in real Chromium (`chromium`
+  and a 375 px Chromium `phone` project): highlighting/contrast, DOMPurify removal and a direct
+  sanitiser-hook test, computed reader typography (heading size/weight, list markers, blockquote
+  rule, link underline/colour, inline-code surface, block spacing), table cell borders/padding and
+  column alignment, local wide-table scrolling without page overflow, paste filtering, source
+  fallback, link row, limits and toolbar wrapping.
 - The CI default-profile runner (`e2e/run-default-profile-e2e.sh`) sets `ACTFB_E2E=1` and executes
   `rich-text-editor.spec.ts` against the real backend and Vite app; it is not left as a conditional
-  skip. The spec authors all four surfaces through the real dialogs, asserts exact Markdown
-  round-trips, blocks an over-limit save, and reads the saved content as a participant.
-
-
+  skip. The spec authors all four surfaces through the real dialogs, asserts computed formatting in
+  the module Preview tab and on the participant board/module/task readers, keeps exact Markdown
+  round-trips, checks that the single over-limit message stays visible on the Preview tab with no
+  API call, and reads the saved content as a participant.
 
 ## Scoped authority in the UI
 

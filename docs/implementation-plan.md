@@ -927,13 +927,21 @@ gates and CI wiring.
   submit guard uses `validateDescriptionLength` with 50,000 runes (board/module/task) or 131,072
   runes (site intro) and blocks before the API call.
 - Reader surfaces: `BoardPage` and `ModulePage` render the stored description through
-  `renderMarkdown` inside the existing `PageHeader` subtitle slot; `TaskPage`'s description
-  container now carries `.markdown-body`. GFM table `align` is allowed only on `th`/`td` for
-  `left`/`center`/`right`; arbitrary `style`, `class` and event handlers remain blocked.
+  `renderMarkdown` inside the existing `PageHeader` subtitle slot; `TaskPage`, `LandingPage` and all
+  three dialog Preview tabs carry `.markdown-body`, so preview and reader match. One shared
+  typography block in `src/style.css` restores headings, list markers, blockquote, links, inline
+  code, fenced blocks and table borders/padding for both `.markdown-body` and the visual editor;
+  the duplicated `LandingPage`/`AdminSitePage` scoped rules were removed. GFM tables are wrapped in
+  a generated `.markdown-table-scroll` box so a wide table scrolls locally, never widening the page.
+  Cell `align` is allowed only on `th`/`td` for `left`/`center`/`right`; arbitrary `style`, `class`
+  and event handlers remain blocked.
+- Validation ownership: each dialog renders exactly one live over-limit message outside the
+  Write/Preview tabs (visible on both), passes `show-length-error="false"` to the editor to avoid a
+  duplicate alert, and mirrors validity with `aria-invalid`/`aria-describedby`.
 - Lazy loading and bundle: public readers import only `renderMarkdown`; the editor chunk is
-  fetched on Write-tab use. Built chunks: `MarkdownEditor-*.js` 503.17 kB / **158.89 kB gzip**,
-  the async wrapper `MarkdownEditorLazy-*.js` 9.55 kB / 3.27 kB gzip, and the shared reader
-  `markdown-*.js` 154.27 kB / 51.29 kB gzip. The 17-id highlighting registry and all editor
+  fetched on Write-tab use. Built chunks: `MarkdownEditor-*.js` 503.77 kB / **159.06 kB gzip**,
+  the async wrapper `MarkdownEditorLazy-*.js` 10.10 kB / 3.49 kB gzip, and the shared reader
+  `markdown-*.js` 154.50 kB / 51.39 kB gzip. The 17-id highlighting registry and all editor
   features were kept; the editor chunk remains above the ~150 kB gzip guide and is accepted
   because it is lazy and not on the public path.
 - Task 1 evidence: 36 files / 202 tests; `bun run typecheck` and `bun run build` pass; the
@@ -943,17 +951,24 @@ gates and CI wiring.
 - Task 3 / final evidence (2026-11-26):
   - `cd frontend && bun run test:unit -- --maxWorkers=1` — **42 files / 390 tests passed**.
   - `bun run typecheck` — clean; `bun run build` — passed with the chunks above.
-  - `bun run test:e2e -- markdown-render.spec.ts` — **16 tests passed in each project**
+  - `bun run test:e2e -- markdown-render.spec.ts` — **20 tests passed in each project**
     (`chromium` and a 375 px Chromium `phone` project), covering highlighted/escaped code,
-    DOMPurify attribute/class removal, 4.5:1 highlighter contrast, GFM table alignment,
-    crafted invalid align, paste filtering, source fallback, the visual-override Cancel/Escape
-    path, `Mod-k`, code-point limits and toolbar wrapping without document overflow.
-  - `e2e/run-default-profile-e2e.sh` — default-profile suite **5 passed**, then
-    `rich-text-editor.spec.ts` **2 passed** (chromium + phone) against the real native
-    PostgreSQL, real Go backend and real Vite app. The runner sets `ACTFB_E2E=1`, so the
+    DOMPurify attribute/class removal and a direct sanitiser-hook test, computed reader typography
+    (heading size/weight, list markers, blockquote, links, inline code, block spacing), table cell
+    borders/padding and column alignment, local wide-table scrolling with no page overflow, paste
+    filtering, source fallback, the visual-override Cancel/Escape path, `Mod-k`, code-point limits
+    and toolbar wrapping.
+  - `e2e/run-default-profile-e2e.sh` — default-profile suite **5 passed**, then the frontend
+    renderer and authoring specs **42 passed** (20 renderer tests × 2 projects + 2 authoring
+    projects) against the real native PostgreSQL, real Go backend and real Vite app. The runner sets `ACTFB_E2E=1`, so the
     authoring spec executes rather than skipping. The spec authors board/module/task/site
     content through the real dialogs, verifies exact stored Markdown on reopen, blocks an
     over-limit save, and reads the highlighted content as a participant.
+- Review round 1 (`cc73480..2eb68c8`) required changes: the reader `.markdown-body` had no block
+  typography, the three dialog Preview tabs lacked the class, no gate measured computed styles, and
+  the over-limit message was hidden on Preview and duplicated on Write. All four were fixed and the
+  gates above re-ran green. Status remains **implemented, pending independent re-review**; the
+  feature is not called fully done until that review is clean.
 - Remaining limitations: `@tiptap/markdown` is still documented as an early release, so the
   round-trip corpus and Source fallback remain mandatory; sanitisation and selection are proved
   in Chromium (happy-dom cannot exercise DOMPurify/ProseMirror selection); the authoring browser
