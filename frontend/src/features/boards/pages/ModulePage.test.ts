@@ -434,6 +434,54 @@ describe('ModulePage participant completion filters', () => {
     wrapper.unmount()
   })
 
+  it('retries a failed Load more at the same offset and filter without dropping loaded tasks', async () => {
+    getBoard.mockResolvedValue(participantBoard)
+    getModule.mockResolvedValue(participantModule)
+    const solvedFirst = Array.from({ length: 100 }, (_, index) => ({
+      ...task,
+      uuid: `solved-first-${index}`,
+      title: `Solved first ${index}`,
+      status: 'SOLVED' as const,
+      solved: true,
+    }))
+    const solvedSecond = Array.from({ length: 50 }, (_, index) => ({
+      ...task,
+      uuid: `solved-second-${index}`,
+      title: `Solved second ${index}`,
+      status: 'SOLVED' as const,
+      solved: true,
+    }))
+    listTasks
+      .mockResolvedValueOnce(page([task], 1, 0))
+      .mockResolvedValueOnce(page(solvedFirst, 150, 0))
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce(page(solvedSecond, 150, 100))
+
+    const wrapper = await mountPage()
+    await filterButton(wrapper, 'Solved')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-slot="module-tasks"]').findAll('a')).toHaveLength(100)
+
+    await filterButton(wrapper, 'Load more')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Could not load tasks')
+    expect(wrapper.get('[data-slot="module-tasks"]').findAll('a')).toHaveLength(100)
+    expect(filterButton(wrapper, 'Solved')!.attributes('aria-pressed')).toBe('true')
+
+    await filterButton(wrapper, 'Retry')!.trigger('click')
+    await flushPromises()
+    expect(listTasks).toHaveBeenLastCalledWith(
+      'board-1',
+      'module-1',
+      { limit: 100, offset: 100, completion: 'SOLVED' },
+      expect.any(AbortSignal),
+    )
+    expect(wrapper.text()).not.toContain('Could not load tasks')
+    expect(wrapper.get('[data-slot="module-tasks"]').findAll('a')).toHaveLength(150)
+    expect(filterButton(wrapper, 'Solved')!.attributes('aria-pressed')).toBe('true')
+    wrapper.unmount()
+  })
+
   it('keeps the unfiltered all-solved module total when a filtered page is empty', async () => {
     getBoard.mockResolvedValue(participantBoard)
     getModule.mockResolvedValue({
@@ -507,6 +555,57 @@ describe('ModulePage route changes', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('Second module')
     expect(wrapper.text()).not.toContain('First module')
+    wrapper.unmount()
+  })
+
+  it('drops a filtered second page when the route changes', async () => {
+    getBoard.mockResolvedValue(participantBoard)
+    getModule.mockResolvedValue(participantModule)
+    const allFirst = Array.from({ length: 100 }, (_, index) => ({
+      ...task,
+      uuid: `all-first-${index}`,
+      title: `All first ${index}`,
+    }))
+    const allSecond = Array.from({ length: 50 }, (_, index) => ({
+      ...task,
+      uuid: `all-second-${index}`,
+      title: `All second ${index}`,
+    }))
+    const solved = Array.from({ length: 40 }, (_, index) => ({
+      ...task,
+      uuid: `solved-${index}`,
+      title: `Solved ${index}`,
+      status: 'SOLVED' as const,
+      solved: true,
+    }))
+    listTasks
+      .mockResolvedValueOnce(page(allFirst, 150, 0))
+      .mockResolvedValueOnce(page(allSecond, 150, 100))
+      .mockResolvedValueOnce(page(solved, 40, 0))
+      .mockResolvedValueOnce(page([{ ...task, uuid: 'module-2-task', title: 'Second module task' }], 1, 0))
+
+    const wrapper = await mountPage()
+    await filterButton(wrapper, 'Load more')!.trigger('click')
+    await flushPromises()
+    await filterButton(wrapper, 'Solved')!.trigger('click')
+    await flushPromises()
+    expect(filterButton(wrapper, 'Solved')!.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-slot="module-tasks"]').findAll('a')).toHaveLength(40)
+
+    route.params.moduleUuid = 'module-2'
+    await nextTick()
+    await flushPromises()
+
+    expect(listTasks).toHaveBeenLastCalledWith(
+      'board-1',
+      'module-2',
+      { limit: 100, offset: 0 },
+      expect.any(AbortSignal),
+    )
+    expect(filterButton(wrapper, 'All')!.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-slot="module-tasks"]').findAll('a')).toHaveLength(1)
+    expect(wrapper.text()).toContain('Second module task')
+    expect(wrapper.text()).not.toContain('Solved 0')
     wrapper.unmount()
   })
 })

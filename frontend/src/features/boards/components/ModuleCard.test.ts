@@ -62,8 +62,23 @@ describe('ModuleCard task progress', () => {
     const wrapper = mountCard({ ...baseModule, taskProgress: { solvedTasks: 5, totalTasks: 5 } })
 
     expect(wrapper.text()).toContain('5/5 solved')
-    expect(wrapper.text()).toContain('Complete')
-    expect(wrapper.findAll('svg').length).toBeGreaterThanOrEqual(1)
+    // The Complete text itself is the assertion: an unrelated StatusBadge icon
+    // must not be able to satisfy it.
+    const complete = wrapper.findAll('span').find((span) => span.text() === 'Complete')
+    expect(complete).toBeDefined()
+    expect(complete!.find('svg').exists()).toBe(true)
     wrapper.unmount()
+  })
+
+  it('never labels a partially solved or empty module Complete', () => {
+    const partial = mountCard({ ...baseModule, taskProgress: { solvedTasks: 3, totalTasks: 8 } })
+    expect(partial.text()).toContain('3/8 solved')
+    expect(partial.text()).not.toContain('Complete')
+    partial.unmount()
+
+    const empty = mountCard({ ...baseModule, taskProgress: { solvedTasks: 0, totalTasks: 0 } })
+    expect(empty.text()).toContain('0/0 solved')
+    expect(empty.text()).not.toContain('Complete')
+    empty.unmount()
   })
 })

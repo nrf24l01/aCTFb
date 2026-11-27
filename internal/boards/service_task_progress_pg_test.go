@@ -393,6 +393,14 @@ func TestStudentTaskProgressTeamSubjectAndTeamChange(t *testing.T) {
 	if _, err := service.ListModules(ctx, third, board.ID, ListQuery{Limit: 50}); !errors.Is(err, ErrTeamRequired) {
 		t.Fatalf("no-team list modules error = %v, want ErrTeamRequired", err)
 	}
+	// The existing nonstaff TEAM-required reads stay unchanged. Under the live
+	// access policy a team-less participant is not participant-eligible, so the
+	// module read keeps its pre-existing denial instead of gaining progress.
+	// (The service's defensive "keep the metadata read" branch is unreachable
+	// with a live policy; this pins the actual shipped behaviour.)
+	if _, err := service.GetModule(ctx, third, board.ID, module.ID); !errors.Is(err, ErrModuleNotAvailable) {
+		t.Fatalf("no-team get module error = %v, want ErrModuleNotAvailable", err)
+	}
 
 	// Team change: the second member leaves and creates a fresh team. The old
 	// team keeps its accepted tasks; the new team starts at zero.
@@ -589,7 +597,10 @@ func TestStudentTaskProgressRevocationAndStaffScope(t *testing.T) {
 	}
 
 	// Access-group revocation keeps the participant row visible but removes all
-	// own progress (existing preview semantics, never a fabricated zero).
+	// own progress (existing preview semantics, never a fabricated zero). The
+	// player also holds a scoped editor binding so the management-preview read
+	// path is reachable; that preview must never publish their own solves.
+	grantBinding(t, ctx, db, board.ID, nil, playerID, adminID, "board_editor", nil)
 	if _, err := db.Pool.Exec(ctx, `DELETE FROM access_group_members WHERE group_id=$1 AND user_id=$2`,
 		group.ID, playerID); err != nil {
 		t.Fatalf("revoke group membership: %v", err)
@@ -601,6 +612,46 @@ func TestStudentTaskProgressRevocationAndStaffScope(t *testing.T) {
 	if !revoked.Joined || !revoked.Preview || revoked.TaskProgress != nil || revoked.Score != nil {
 		t.Fatalf("revoked board me = joined:%v preview:%v progress:%+v score:%v",
 			revoked.Joined, revoked.Preview, revoked.TaskProgress, revoked.Score)
+	}
+	previewModule, err := service.GetModule(ctx, player, board.ID, openModule.ID)
+	if err != nil {
+		t.Fatalf("revoked preview module: %v", err)
+	}
+	if !previewModule.Preview || previewModule.TaskProgress != nil {
+		t.Fatalf("revoked preview module = preview:%v progress:%+v, want preview without progress",
+			previewModule.Preview, previewModule.TaskProgress)
+	}
+	// Preview completion guard: the revoked participant-staff member has own
+	// ACCEPTED rows on this module, so SOLVED must be an empty page rather than
+	// a channel for publishing their own solved flags. UNSOLVED and the default
+	// list stay identical, with the same total.
+	previewAll, err := service.ListTasks(ctx, player, board.ID, openModule.ID, ListQuery{Limit: 50})
+	if err != nil {
+		t.Fatalf("revoked preview list all: %v", err)
+	}
+	previewSolved, err := service.ListTasks(ctx, player, board.ID, openModule.ID,
+		ListQuery{Limit: 50, Completion: TaskCompletionSolved})
+	if err != nil {
+		t.Fatalf("revoked preview list solved: %v", err)
+	}
+	if previewSolved.Total != 0 || len(previewSolved.Items) != 0 {
+		t.Fatalf("revoked preview SOLVED total=%d len=%d, want empty",
+			previewSolved.Total, len(previewSolved.Items))
+	}
+	previewUnsolved, err := service.ListTasks(ctx, player, board.ID, openModule.ID,
+		ListQuery{Limit: 50, Completion: TaskCompletionUnsolved})
+	if err != nil {
+		t.Fatalf("revoked preview list unsolved: %v", err)
+	}
+	if previewUnsolved.Total != previewAll.Total || len(previewUnsolved.Items) != len(previewAll.Items) {
+		t.Fatalf("revoked preview UNSOLVED total=%d len=%d, want default %d/%d",
+			previewUnsolved.Total, len(previewUnsolved.Items), previewAll.Total, len(previewAll.Items))
+	}
+	for index := range previewUnsolved.Items {
+		item := previewUnsolved.Items[index]
+		if item.ID != previewAll.Items[index].ID || item.Solved || !item.Preview || item.CanParticipate {
+			t.Fatalf("revoked preview UNSOLVED item = %+v, want the same unsolved preview row", item)
+		}
 	}
 }
 
@@ -699,6 +750,26 @@ func TestStudentTaskProgressLargeBoardNoPageCap(t *testing.T) {
 	}
 	if secondPage.Total != 102 || len(secondPage.Items) != 2 {
 		t.Fatalf("module page 2 total=%d len=%d, want 102/2", secondPage.Total, len(secondPage.Items))
+	}
+
+	// A >100-task module is also queried with the completion filter: the total
+	// is the filtered total computed before LIMIT/OFFSET, not the unfiltered 101
+	// and not the page size.
+	largeSolved, err := service.ListTasks(ctx, player, board.ID, firstModule,
+		ListQuery{Limit: 100, Offset: 0, Completion: TaskCompletionSolved})
+	if err != nil {
+		t.Fatalf("large solved filter: %v", err)
+	}
+	if largeSolved.Total != 1 || len(largeSolved.Items) != 1 || !largeSolved.Items[0].Solved {
+		t.Fatalf("large solved total=%d len=%d, want 1/1 solved", largeSolved.Total, len(largeSolved.Items))
+	}
+	largeUnsolved, err := service.ListTasks(ctx, player, board.ID, firstModule,
+		ListQuery{Limit: 100, Offset: 0, Completion: TaskCompletionUnsolved})
+	if err != nil {
+		t.Fatalf("large unsolved filter: %v", err)
+	}
+	if largeUnsolved.Total != 100 || len(largeUnsolved.Items) != 100 {
+		t.Fatalf("large unsolved total=%d len=%d, want 100/100", largeUnsolved.Total, len(largeUnsolved.Items))
 	}
 }
 

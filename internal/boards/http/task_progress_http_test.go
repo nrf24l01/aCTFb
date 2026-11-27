@@ -7,8 +7,13 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/go-openapi/loads"
+	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/validate"
 
 	"github.com/nrf24l01/actfb/internal/access"
 	"github.com/nrf24l01/actfb/internal/authorization"
@@ -107,8 +112,9 @@ func TestStudentTaskProgressHTTP(t *testing.T) {
 		t.Fatalf("HTTP board me progress = %+v, want 1/2", me.TaskProgress)
 	}
 
-	modules := decode[oapimodels.ModuleListResponse](t, doJSON(t, router, http.MethodGet,
-		"/api/v2/boards/"+boardID+"/modules?limit=50&offset=0", playerToken, nil, nil, http.StatusOK), http.StatusOK)
+	modulesBody := doJSON(t, router, http.MethodGet,
+		"/api/v2/boards/"+boardID+"/modules?limit=50&offset=0", playerToken, nil, nil, http.StatusOK)
+	modules := decode[oapimodels.ModuleListResponse](t, modulesBody, http.StatusOK)
 	if len(modules.Items) != 2 {
 		t.Fatalf("HTTP module list len = %d, want 2", len(modules.Items))
 	}
@@ -124,8 +130,9 @@ func TestStudentTaskProgressHTTP(t *testing.T) {
 			}
 		}
 	}
-	detail := decode[oapimodels.Module](t, doJSON(t, router, http.MethodGet,
-		"/api/v2/boards/"+boardID+"/modules/"+moduleID, playerToken, nil, nil, http.StatusOK), http.StatusOK)
+	detailBody := doJSON(t, router, http.MethodGet,
+		"/api/v2/boards/"+boardID+"/modules/"+moduleID, playerToken, nil, nil, http.StatusOK)
+	detail := decode[oapimodels.Module](t, detailBody, http.StatusOK)
 	if detail.TaskProgress == nil || *detail.TaskProgress.SolvedTasks != 1 || *detail.TaskProgress.TotalTasks != 2 {
 		t.Fatalf("HTTP module detail progress = %+v, want 1/2", detail.TaskProgress)
 	}
@@ -189,8 +196,9 @@ func TestStudentTaskProgressHTTP(t *testing.T) {
 		map[string]any{"action": "PUBLISH"}, nil, http.StatusOK)
 	doJSON(t, router, http.MethodPost, "/api/v2/boards/"+emptyBoardID+"/join", playerToken,
 		map[string]any{"code": issueJoinCode(t, router, emptyBoardID, adminToken)}, nil, http.StatusOK)
-	emptyMe := decode[oapimodels.BoardMe](t, doJSON(t, router, http.MethodGet,
-		"/api/v2/boards/"+emptyBoardID+"/me", playerToken, nil, nil, http.StatusOK), http.StatusOK)
+	emptyMeBody := doJSON(t, router, http.MethodGet,
+		"/api/v2/boards/"+emptyBoardID+"/me", playerToken, nil, nil, http.StatusOK)
+	emptyMe := decode[oapimodels.BoardMe](t, emptyMeBody, http.StatusOK)
 	if emptyMe.TaskProgress == nil || *emptyMe.TaskProgress.SolvedTasks != 0 || *emptyMe.TaskProgress.TotalTasks != 0 {
 		t.Fatalf("HTTP empty board progress = %+v, want explicit 0/0", emptyMe.TaskProgress)
 	}
@@ -202,13 +210,15 @@ func TestStudentTaskProgressHTTP(t *testing.T) {
 		boardID, adminUser.ID); err != nil {
 		t.Fatalf("grant staff: %v", err)
 	}
-	staffMe := decodeRawJSON(t, doJSON(t, router, http.MethodGet,
-		"/api/v2/boards/"+boardID+"/me", staffToken, nil, nil, http.StatusOK))
+	staffMeBody := doJSON(t, router, http.MethodGet,
+		"/api/v2/boards/"+boardID+"/me", staffToken, nil, nil, http.StatusOK)
+	staffMe := decodeRawJSON(t, staffMeBody)
 	if _, present := staffMe["taskProgress"]; present {
 		t.Fatalf("staff preview /me exposed taskProgress: %s", string(mustJSON(t, staffMe)))
 	}
-	staffModule := decodeRawJSON(t, doJSON(t, router, http.MethodGet,
-		"/api/v2/boards/"+boardID+"/modules/"+moduleID, staffToken, nil, nil, http.StatusOK))
+	staffModuleBody := doJSON(t, router, http.MethodGet,
+		"/api/v2/boards/"+boardID+"/modules/"+moduleID, staffToken, nil, nil, http.StatusOK)
+	staffModule := decodeRawJSON(t, staffModuleBody)
 	if _, present := staffModule["taskProgress"]; present {
 		t.Fatalf("staff preview module exposed taskProgress: %s", string(mustJSON(t, staffModule)))
 	}
@@ -218,6 +228,24 @@ func TestStudentTaskProgressHTTP(t *testing.T) {
 	doJSON(t, router, http.MethodGet, "/api/v2/boards/"+boardID+"/modules/"+moduleID, outsiderToken,
 		nil, nil, http.StatusForbidden)
 	doJSON(t, router, http.MethodGet, "/api/v2/boards", outsiderToken, nil, nil, http.StatusOK)
+
+	// The generated-model decode above ignores unknown fields, so validate the
+	// actual HTTP payloads against the expanded Swagger definitions as well.
+	// This catches a stray field, an explicit null or an extra property on the
+	// closed BoardMe/Module/ModuleListItem models at the HTTP boundary.
+	for _, payload := range []struct {
+		definition string
+		raw        []byte
+	}{
+		{"BoardMe", meBody},
+		{"ModuleListResponse", modulesBody},
+		{"Module", detailBody},
+		{"BoardMe", emptyMeBody},
+		{"BoardMe", staffMeBody},
+		{"Module", staffModuleBody},
+	} {
+		validateRawAgainstSchema(t, payload.definition, payload.raw)
+	}
 }
 
 func httpTestDSN() string {
@@ -225,6 +253,36 @@ func httpTestDSN() string {
 		return value
 	}
 	return os.Getenv("ACTFB_TEST_DATABASE_URL")
+}
+
+// validateRawAgainstSchema checks one raw HTTP response body against the
+// expanded Swagger definition. The generated-model decode deliberately ignores
+// unknown properties; this is the boundary check for closed response models.
+func validateRawAgainstSchema(t *testing.T, definition string, raw []byte) {
+	t.Helper()
+	specPath, err := filepath.Abs(filepath.Join("..", "..", "..", "docs", "swagger.yaml"))
+	if err != nil {
+		t.Fatalf("resolve Swagger path: %v", err)
+	}
+	doc, err := loads.Spec(specPath)
+	if err != nil {
+		t.Fatalf("load Swagger: %v", err)
+	}
+	expanded, err := doc.Expanded()
+	if err != nil {
+		t.Fatalf("expand Swagger: %v", err)
+	}
+	schema, ok := expanded.Spec().Definitions[definition]
+	if !ok {
+		t.Fatalf("definition %s missing from Swagger", definition)
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("decode raw %s: %v: %s", definition, err, string(raw))
+	}
+	if err := validate.AgainstSchema(&schema, decoded, strfmt.Default); err != nil {
+		t.Fatalf("raw HTTP %s failed expanded schema validation: %v: %s", definition, err, string(raw))
+	}
 }
 
 func decodeRawJSON(t *testing.T, raw []byte) map[string]any {
