@@ -1,8 +1,9 @@
 # Desktop workspaces verification (2026-11-26)
 
-Status: **reviewed and approved for the product; publication pending a green four-job CI run**.
-The whole-slice independent review is `docs/desktop-workspaces-review.md` and main has accepted the
-screenshot set. Nothing is published: GHCR `latest` remains the `0da549e` baseline until CI is green.
+Status: **reviewed, approved and PUBLISHED at `5ac573f`.** The whole-slice independent review is
+`docs/desktop-workspaces-review.md` and main has accepted the screenshot set. Both CI runs on that source
+are green — `45909528261` (push) and `45946460043` (warm repeat) — and GHCR `latest` now resolves to
+`sha-5ac573f…` for all ten images, digest-identical to the immutable tag.
 This file records what was actually executed, the numbers the browser measured, and what the evidence
 does *not* prove.
 

@@ -1001,11 +1001,11 @@ gates and CI wiring.
   in Chromium (happy-dom cannot exercise DOMPurify/ProseMirror selection); the authoring browser
   gate requires the real backend/PG stack and is not part of the frontend-only job.
 
-**Desktop workspaces and direct authoring (2026-11-26):** status **reviewed; publication pending CI**
+**Desktop workspaces and direct authoring (2026-11-26):** status **reviewed, approved and published**
 — Tasks 1, 2 and 3 are implemented, locally verified, independently reviewed
-(`docs/desktop-workspaces-review.md`) and main has accepted the screenshot set. Nothing is published:
-GHCR `latest` remains the `0da549e` baseline until the existing four-job CI run is green on the
-publication commit.
+(`docs/desktop-workspaces-review.md`) and main has accepted the screenshot set. Published at `5ac573f`:
+runs `45909528261` (push) and `45946460043` (warm) are both green 4/4, and GHCR `latest` resolves to
+`sha-5ac573f…` for all ten images with digests identical to the immutable tag.
 
 - Spec: `docs/superpowers/specs/2026-11-26-desktop-workspaces-design.md`.
 - Plan: `docs/superpowers/plans/2026-11-26-desktop-workspaces.md` (base `0da549e`).
@@ -1132,7 +1132,13 @@ API, migration, dependency or provider change and no new fetch/mutation call.
   `task-3-report.md`.
 ## CI optimisation pass (2026-11-26)
 
-Status: **pending CI — implemented locally, unpublished.** Evidence: `docs/ci-optimization-verification.md`.
+Status: **implemented, measured and published.** Evidence: `docs/ci-optimization-verification.md`.
+
+Two green runs on the published source `5ac573f`: `45909528261` (push, cold) and `45946460043` (manual,
+warm). Result: all three quality jobs start together, the integration image build drops from 93 s cold to
+**8 s warm** (82 cached steps) confirming the cache-credential fix, and the 18 previously skipped browser
+specs now execute. Net wall clock is **~7 minutes slower** (990 s → 1413 s warm) because that coverage
+costs ~350 s plus ~105 s of extra UI browser time; it is a coverage gain, not a speed claim.
 
 Measured baseline before touching anything: run
 https://github.com/nrf24l01/aCTFb/actions/runs/45889089999 at `0da549e`, success, **990 s (16 m 30 s)** —

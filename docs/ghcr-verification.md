@@ -1,11 +1,46 @@
 # GHCR publication verification
 
-Status: **published and verified from `main` at commit `034329b`** (rich-text Markdown editor with syntax
-highlighting across board, module, task and site authoring plus every reader). Ten separate images are publicly
-pullable without registry credentials, each with `latest` and an immutable `sha-<full-sha>` tag resolving to the
-same digest.
+Status: **published and verified from `main` at commit `5ac573f`** (desktop workspaces, direct authoring,
+plus the CI pipeline change). Ten separate images are publicly pullable without registry credentials, each
+with `latest` and an immutable `sha-<full-sha>` tag resolving to the same digest.
 
-## Current publication (`034329b`)
+## Current publication (`5ac573f`)
+
+| Field | Value |
+| --- | --- |
+| Workflow run (push) | https://github.com/nrf24l01/aCTFb/actions/runs/45909528261 |
+| Workflow run (warm repeat) | https://github.com/nrf24l01/aCTFb/actions/runs/45946460043 |
+| Commit (image source) | `5ac573fa864d456101242c866db18480243ca237` |
+| `main` HEAD at publication record | `5ac573f` — same commit; the docs update that records this publication touches only `docs/`, which the workflow path filter excludes, so no further run or image rebuild is expected |
+| Conclusion | success 4/4 on both runs |
+| Immutable tag | `sha-5ac573fa864d456101242c866db18480243ca237` |
+| Platform | `linux/amd64` only (read from each image config) |
+| Registry visibility | public; anonymous manifest + config-blob reads for all ten images (no stored credentials) |
+| `latest` vs `sha-*` | same manifest digest for every image, verified on all ten |
+| `org.opencontainers.image.revision` | `5ac573fa864d456101242c866db18480243ca237` |
+| `org.opencontainers.image.version` | `sha-5ac573f…` |
+| Provenance attestations | none; single OCI image manifests |
+
+| Image | Digest | Compressed |
+| --- | --- | --- |
+| `actfb-backend` | `sha256:cab864f0a7a1d80de97c6a4b8ad69f5c61b93c0abe5320f1dca1ecc23dc82b86` | 20,454,128 B |
+| `actfb-frontend` | `sha256:5b9d29288920ab302d2a08b7a95a40ded7bb7134b7ea38f106a9c11745b34a10` | 23,877,622 B |
+| `actfb-notification` | `sha256:a47145c9314dfdd60340115d324fc018182af0ef5e6e969964d90f69503ca763` | 12,342,732 B |
+| `actfb-retention` | `sha256:67d04b483ca0cc97c3a537a9ad111bbf90c173ee3464a0966bcb7e85d334cbba` | 10,940,563 B |
+| `actfb-events-dispatcher` | `sha256:da25c84752899ca7905ad3a00e0e1f789a206154a9136e56137b726623a4b0aa` | 12,001,243 B |
+| `actfb-file-scanner` | `sha256:9ddf45af3b8354b2f979a014696689cf3f68b892db6b9e52e129e466d09032be` | 13,359,289 B |
+| `actfb-storage-init` | `sha256:34c2b33ff5990b01ed73c8d20ed517c64fe713cf1c8292c41a3649f0495ba888` | 10,956,257 B |
+| `actfb-plugin-runner` | `sha256:20e20b82a4fc83f521e591f13519a9e6778e0b7639da8ca51bbdd188636c0e46` | 10,292,879 B |
+| `actfb-ad-worker` | `sha256:f6176cdc25d0b5e3a173cb5f52859e1551bf968d4942b63d32ce219873e5395d` | 27,023,886 B |
+| `actfb-instance-worker` | `sha256:a2454abf0c8b88d5dcf0df17992183a2c42b46887c8900bc9d993fd2020bdebc` | 13,932,167 B |
+
+Total compressed 155,180,766 B.
+
+This publication ships the desktop workspace and direct-authoring work. **There is no migration, no
+`config.yaml` and no `.env` change** in this range and no `/api/v2` contract change, so operators only need
+`docker compose pull && docker compose up -d` in `deploy/`; nothing new is applied on boot.
+
+## Previous publication (`034329b`)
 
 | Field | Value |
 | --- | --- |

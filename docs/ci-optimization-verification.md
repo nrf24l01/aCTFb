@@ -1,6 +1,44 @@
 # CI optimisation verification (2026-11-26)
 
-Status: **implemented locally, pending CI, not yet published.** The five code files are applied and validated
+Status: **published and verified from `main` at `5ac573f`.** Two full pipelines are green on that exact
+source: run `45909528261` (push, cold) and run `45946460043` (manual, warm). All ten images are publicly
+pullable with `latest` and `sha-5ac573f…` resolving to the same digest, `linux/amd64`, revision
+`5ac573f…`.
+
+## Measured result: before vs after
+
+Baseline `0da549e` (run `45889089999`) was the old scope: four sequential jobs, no full-stack browser gate.
+
+| Job | Baseline 990 s | Cold 45909528261 | Warm 45946460043 |
+| --- | --- | --- | --- |
+| Frontend quality | 36 s | 39 s | 51 s |
+| Backend quality | 188 s | 233 s | 184 s |
+| Integration | 738 s | **1417 s** | **1360 s** |
+| Publish images | 54 s | 54 s | 46 s |
+| **Wall clock** | **990 s (16 m 30 s)** | **1475 s (24 m 35 s)** | **1413 s (23 m 33 s)** |
+
+All three quality jobs start at the same second in both new runs, so the dependency removal works.
+
+### Where the time went — this is a coverage change, not a speed win
+
+| Step | Baseline | Cold | Warm |
+| --- | --- | --- | --- |
+| full-stack browser gate | did not exist | 349 s | 350 s |
+| default-profile browser | 173 s | 278 s | 279 s |
+| real-browser | 90 s | 121 s | 136 s |
+| build all production images | 72 s | 93 s | **8 s** |
+
+- **H1 (parallel jobs)** removed ~188 s of serial wait, as predicted.
+- **H2 (working gha cache)** is proven: the integration build went **93 s → 8 s** with **82 `CACHED`**
+  lines on the warm run versus 54 cold. The credential theory was correct — the same ten scopes now read
+  and write across runs.
+- **H3 (full-stack gate)** adds ~350 s plus ~105 s of extra browser time from the new UI geometry, i.e.
+  roughly +8 minutes of genuine coverage.
+
+Net wall clock is therefore **~7 minutes slower**, and that is the honest number. The added time buys 18
+previously-skipped specs that now execute on every run; it is not a regression in efficiency per unit of
+coverage, and no speed improvement is claimed.
+
 on this machine but has not been pushed, so `main` still carries the previous workflow and GHCR `latest`
 still points at the pre-change build.
 
@@ -44,27 +82,20 @@ passes.
 Critical path was `backend 188 s → integration 738 s → publish 54 s`. Frontend finished 152 s before backend,
 so it never gated anything.
 
-## Theoretical savings — not yet measured
+## Predictions vs what actually happened
 
-| Change | Basis | Theory |
+The predictions were made before the first run and are kept here so the comparison is honest.
+
+| Change | Predicted | Actual |
 | --- | --- | --- |
-| H1: integration independence | 188 s of dead wait removed from the serial path | **≈ −193 s (−19.5 %)** |
-| H2: working gha cache in the integration build | 37.6 s cold `go build` + 11.4 s `bun run build` | **≈ −40 to −50 s** |
+| H1: integration independence | ≈ −193 s of serial wait | ~188 s removed; all three quality jobs now start at the same second |
+| H2: working gha cache in the build | ≈ −40 to −50 s | **−85 s** (93 s → 8 s), 82 `CACHED` lines warm vs 54 cold |
+| H3: full-stack gate | unknown, expected to add time | **+350 s**, plus ~105 s extra browser time from new UI geometry |
+| Net wall clock | not claimed | **+~7 min** (990 s → 1413 s warm) |
 
-These are arithmetic on measured durations, **not** measurements. No second run has been performed.
-
-**Run 1 is expected to be slower, not merely "cold", for two concrete reasons.** Neither is a regression:
-
-1. The integration build now performs a real `mode=max` cache **export** that it previously skipped entirely —
-   without credentials the gha exporter silently no-oped, so that cost simply did not exist. The
-   `Build all production images` step may therefore exceed the 72 s baseline on run 1.
-2. `scripts/lib/ci-contract.sh` is a new file under `scripts/`, and `.dockerignore` does **not** exclude
-   `scripts/`, so `COPY . .` changes and the 37.6 s compile is cold for that reason as well. `.github/`,
-   `e2e/` and `docs/` *are* excluded, so future CI-only edits will not bust the image cache.
-
-The second pipeline is the first real signal for H2, and the two `Build all production images` durations
-should be compared before quoting any saving. No net improvement is claimed anywhere in this document: the
-full-stack gate adds wall clock and its cost is unknown.
+H2 overshot the estimate because the whole ten-target export collapses to cache hits, not just the compile.
+H3 dominates, exactly as flagged. The honest conclusion is unchanged: this is a coverage gain that costs
+wall clock, and the two effects must not be netted against each other.
 
 ## Cache shape: cold versus warm
 
@@ -98,7 +129,7 @@ Other cache facts, unchanged by this patch:
 Two jobs now restore the same `setup-go` key concurrently. That is safe: each job runs on its own runner, the
 cache is read-only at restore time, and no lock exists to contend on.
 
-## Full-stack gate: 18 new specs, runtime unknown
+## Full-stack gate: 18 new specs, now executing on every run
 
 Baseline `Run real-browser acceptance` collected 24 specs and reported **1 passed, 23 skipped**. That 23
 decomposes exactly:
@@ -152,10 +183,10 @@ The 18 tests:
 | 17 | organizer-ux | typed instance parameters bind a real task from the published manifest |
 | 18 | organizer-ux | instance task editor offers typed template parameters, not raw JSON |
 
-**Runtime of this gate is unknown.** It has never executed in CI, on any runner. The dominant cost is the
-ClamAV signature download plus its health wait (fresh volume every run), which is network-bound. It is
-expected to **add** wall clock, and must not be netted against the H1/H2 savings. The step is bounded at
-45 minutes inside a 120-minute job.
+**Runtime is now measured: 349 s cold, 350 s warm** — stable across both runs, so the ClamAV signature
+download plus health wait dominates and does not vary much between a cold and warm build cache. Both runs
+report `18 passed`, so no spec is silently skipped by a feature guard. The step stays bounded at 45 minutes
+inside a 120-minute job.
 
 ### Why it was not executed on this machine
 
@@ -163,8 +194,8 @@ The runner's cleanup force-removes any container created during its window. That
 CI VM and unsafe beside a live operator stack, so the removal is now gated (see "Cleanup ownership" below)
 and the run still belongs on the CI host rather than this machine, which has `actfb-prod-*` on 8080.
 
-The specs were not weakened to make them runnable in a smaller profile, and this document does not claim the
-gate passed anywhere. It has never executed, on any host.
+The specs were not weakened to make them runnable in a smaller profile. The gate now has three independent
+green executions: a local rehearsal (`18 passed`, 4.9 min) and both CI runs (`18 passed`, 5.1 min each).
 
 ## Cleanup ownership
 
@@ -395,40 +426,59 @@ so it was not added. Build memory is bounded by `max-parallelism = 2` plus the a
 
 ## Publication state
 
-Only the baseline is published. Run `45889089999` pushed ten images at
-`sha-0da549e35ba0fa4aab811abc96a0411a8482e966`, and all ten resolve anonymously (HTTP 200):
+Ten images are published at `sha-5ac573fa864d456101242c866db18480243ca237` from run `45909528261`, and the
+warm run `45946460043` pushed the same source again. For every image `latest` and the immutable SHA tag
+resolve to the **same digest**, confirmed by anonymous pull (no stored credentials):
 
-| Image | Digest |
-| --- | --- |
-| `actfb-backend` | `sha256:8e1669023b8c87cdbc7c47225da7dd427c33e102b512ec9e2ba8ebee068ef01f` |
-| `actfb-frontend` | `sha256:ab741340c28820179ebd666e04dd01b47ef32e9b3c7be5ccd7445cb132c684f9` |
-| `actfb-notification` | `sha256:85f7d486bcbebe10249fc380559bf61ad7797f43605fd84eca376bbbfaaf1d62` |
-| `actfb-retention` | `sha256:7230ac1c725159cc07d776a1ef1533085bc76c5d5be0bfe3b9aae20015d1cc5e` |
-| `actfb-events-dispatcher` | `sha256:ee6f71bf1b9b7f8cb74dcba3c374df7a22bc164a65604273c9368ee9732277da` |
-| `actfb-file-scanner` | `sha256:474ac2618c3d39e96bf89bad56b7264e26c77a2963b3a039fd101761e097a8b3` |
-| `actfb-storage-init` | `sha256:dc9efbd4ad038ea4044a5cfb9b88de7fc79a72eec765fb3fd25a118c2721da7d` |
-| `actfb-plugin-runner` | `sha256:fc2c330a1b1b648b46ef2aed49377d5154283b16cdb25a67bdcc3c4a6241f5ca` |
-| `actfb-ad-worker` | `sha256:ca39e387beeba8e4e5abe690b18639ed7efa72c4ac18358c8e279f4392739801` |
-| `actfb-instance-worker` | `sha256:2c98e57c2bf13247c0573c58b8c0df56d806f966c82f4f821b3d9a9c093c681f` |
-
-Total compressed 155,182,305 B. The new UI work is **not** published: `latest` will only move once this
-change reaches `main` and a new run passes.
-
-## Open risks
-
-| # | Risk | Handling |
+| Image | Digest (`latest` == `sha-5ac573f…`) | Compressed |
 | --- | --- | --- |
-| 1 | The full-stack gate has never run in CI; duration unknown, ClamAV download is a flake source | 45-minute step bound inside a 120-minute job. A real failure is a product finding, not something to loosen |
-| 2 | If the gate plus existing steps exceed 120 minutes, the job times out | Watch the first run; raising `timeout-minutes` is a one-line follow-up |
-| 3 | First pipeline after landing is cold and may be slower (first real cache export + new `scripts/` file busts the compile) | Expected, see above. Second pipeline is the first measurement of H2 |
-| 4 | H1 makes a red commit more expensive | Accepted and documented in the workflow comment. Green commits are strictly faster; `publish` still blocks on all three |
-| 5 | The integration independence assertion is a known-snapshot check | If a genuine artifact dependency is ever wanted, that assertion must change deliberately |
-| 6 | `bake-action` tag overrides verified from the action schema and `bake --print`, not yet observed on a real runner | If a tag were wrong, the packaging/runtime smokes fail loudly in the same job |
-| 7 | The contract is text matching, not a YAML or shell parser: the buildx forbid covers known invocation shapes only, and the independence check is a snapshot assertion | Deliberate. A real dependency or an obfuscated call must be changed on purpose, which is the point of the friction. Repository trust plus source review remains the control |
+| `actfb-backend` | `sha256:cab864f0a7a1d80de97c6a4b8ad69f5c61b93c0abe5320f1dca1ecc23dc82b86` | 20,454,128 B |
+| `actfb-frontend` | `sha256:5b9d29288920ab302d2a08b7a95a40ded7bb7134b7ea38f106a9c11745b34a10` | 23,877,622 B |
+| `actfb-notification` | `sha256:a47145c9314dfdd60340115d324fc018182af0ef5e6e969964d90f69503ca763` | 12,342,732 B |
+| `actfb-retention` | `sha256:67d04b483ca0cc97c3a537a9ad111bbf90c173ee3464a0966bcb7e85d334cbba` | 10,940,563 B |
+| `actfb-events-dispatcher` | `sha256:da25c84752899ca7905ad3a00e0e1f789a206154a9136e56137b726623a4b0aa` | 12,001,243 B |
+| `actfb-file-scanner` | `sha256:9ddf45af3b8354b2f979a014696689cf3f68b892db6b9e52e129e466d09032be` | 13,359,289 B |
+| `actfb-storage-init` | `sha256:34c2b33ff5990b01ed73c8d20ed517c64fe713cf1c8292c41a3649f0495ba888` | 10,956,257 B |
+| `actfb-plugin-runner` | `sha256:20e20b82a4fc83f521e591f13519a9e6778e0b7639da8ca51bbdd188636c0e46` | 10,292,879 B |
+| `actfb-ad-worker` | `sha256:f6176cdc25d0b5e3a173cb5f52859e1551bf968d4942b63d32ce219873e5395d` | 27,023,886 B |
+| `actfb-instance-worker` | `sha256:a2454abf0c8b88d5dcf0df17992183a2c42b46887c8900bc9d993fd2020bdebc` | 13,932,167 B |
+
+Total compressed 155,180,766 B. The backend config blob reports `os/arch = linux/amd64`,
+`org.opencontainers.image.revision = 5ac573fa864d456101242c866db18480243ca237` and
+`org.opencontainers.image.version = sha-5ac573f…`, so the tags and the embedded metadata agree.
+
+Operators need no migration, no `config.yaml` and no `.env` change for this range: the schema is unchanged
+and the workflow change is CI-only.
+
+## Resolved risks (now measured)
+
+| # | Was | Outcome |
+| --- | --- | --- |
+| 1 | Full-stack gate never run; duration unknown | **349 s cold / 350 s warm**, `18 passed` both times |
+| 2 | Gate might push the job past 120 min | Integration peaked at 1417 s (23 m 37 s), well inside the budget |
+| 3 | First pipeline cold and slower | Confirmed: build 93 s cold vs 8 s warm; the export cost is real but one-time |
+| 4 | H1 makes a red commit more expensive | Accepted; `publish` still blocks on all three jobs |
+| 5 | Independence is a snapshot assertion | Unchanged by design |
+| 6 | `bake-action` tag overrides unproven on a runner | Proven: the runtime/packaging smokes passed and the ten tags resolved |
+| 7 | Contract is text matching, not a parser | Unchanged by design |
+
+## Remaining limitations
+
+- **Net wall clock is ~7 minutes slower.** This is a coverage decision, not a speed claim. If the added
+  browser time is not wanted, the gate is one step to remove — but it would restore 18 silently skipped
+  specs.
+- The contract is pattern matching, not a YAML or shell parser. Obfuscated build calls are out of scope;
+  repository trust plus source review is the control there.
+- `actionlint` was never run (not installed on the authoring host). Not claimed as passing.
+- The RustFS workdir at the end of the gate emits `rm: Permission denied` for files owned by uid 10001. It is
+  `|| true`-guarded and cannot fail the job; it only leaves a directory on an ephemeral runner. Not fixed
+  here because the alternative is a broad `chmod`, which is worse.
+- `frontend/e2e/board-flow.spec.ts` still clicks the removed `Join this board` control. That spec is not
+  referenced by the workflow or any e2e script, so it is out of scope and untouched.
 
 ## Not verified here
 
 - `actionlint` (not installed).
-- The full-stack gate end to end (see above).
-- Anything about the desktop UI work committed by another agent — not in scope, not claimed.
-- Actual post-change run times. Nothing in this document beyond the baseline table is measured.
+- Anything about the desktop UI work beyond the fact that its browser specs pass in CI.
+- Operator production containers were never touched: no pull, no restart, no deploy. `latest` moved on
+  GHCR, but the running stack keeps whatever it started with until an operator runs `compose pull`.
