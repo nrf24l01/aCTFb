@@ -16,23 +16,68 @@ Serial, low-RAM, one owned stack at a time. The operator stack on 8080 was never
 | --- | --- | --- |
 | Focused real-PG | `ACTFB_TEST_POSTGRES_DSN=… go test -count=1 -v -run 'TestPostgresTaskProgressByModule\|TestStudentTaskProgress\|TestTaskProgressContract' ./internal/boards ./internal/boards/http ./internal/contracttests` | 8/8 passed, 0 skips; fresh migrations to version 20 on every isolated schema |
 | Full Go | `go build ./...`, `go vet ./...`, `ACTFB_TEST_POSTGRES_DSN=… ACTFB_TEST_DATABASE_URL=… go test -count=1 ./...` | build/vet pass; 1069 test events passed, 24 skipped, 63 packages, 0 failures |
-| Frontend unit | `bunx vitest run --maxWorkers=1` | 49 files / 451 tests passed (448 Task 2 baseline + 3 carried-over tests) |
+| Frontend unit | `bunx vitest run --maxWorkers=1` | 49 files / 452 tests passed (448 Task 2 baseline + 3 carried-over tests + 1 editor focus test) |
 | Typecheck | `bunx vue-tsc -b` | pass |
 | Build | `bun run build` | pass; only the existing >500 kB editor chunk warning |
-| Default-profile browser | `e2e/run-default-profile-e2e.sh` (owned native PG 18, backend, Vite, Chromium) | 5/5 default-profile tests passed; frontend specs 68 passed, 1 failed, 21 skipped (phone-only selection) |
-| Full-stack browser (Docker) | `e2e/run-full-e2e.sh` (ephemeral PG/NATS/RustFS/ClamAV, host backend/workers/Vite, Chromium) | 19 passed, 5 skipped, 0 test failures; see cleanup note |
+| Default-profile browser | `e2e/run-default-profile-e2e.sh` (owned native PG 18, backend, Vite, Chromium) | exit 0: 5/5 default-profile tests and 69/69 frontend tests passed (21 phone/chromium-only skips) |
+| Full-stack browser (Docker) | `e2e/run-full-e2e.sh` (ephemeral PG/NATS/RustFS/ClamAV, host backend/workers/Vite, Chromium) | exit 0 twice: 19 passed (18 full-stack = 7 `full-stage` + 11 `organizer-ux`, plus 1 `p1-core`), 5 default-profile skips, 0 new containers/volumes |
 
 The 24 Go skips are the historical dependency groups: real Redis, NATS, RustFS/S3, ClamAV,
 Docker/Gitea, email delivery and full P0/P1 stack integration. No skipped test covers this
 slice; the 8 focused progress tests are the real-PG proof and ran without skips.
 
-The one default-profile failure is the pre-existing `rich-text-editor.spec.ts` Chromium code-block
-toggle (`aria-pressed` stays `false` in the full-suite order). The same test passes when run alone
-(both Chromium and phone projects, 2/2) and the phone project passed in the full run. The spec and
-editor were not changed by this slice; it is recorded as an unrelated flaky order-dependent test,
-not a regression. The full-stack run exited non-zero only because its leak assertion observed one
-transient container mid-removal; re-checking immediately afterwards showed no run containers or
-volumes, and the operator stack was unchanged.
+## Resolved red gates
+
+Both red gates from the first verification pass were investigated with the systematic-debugging
+process and fixed; the original failure records are kept above and below rather than deleted.
+
+**1. `rich-text-editor.spec.ts` Chromium code-block toggle (was 68 passed / 1 failed).**
+
+- Reproduced evidence: the first two full default-profile runs failed the same assertion
+  (`Code block` `aria-pressed` stayed `false` for 10 s); three runs of the same spec subset passed,
+  so the failure was intermittent, not order-deterministic.
+- Trace analysis (`test.trace`, `error-context.md`): the click itself completed in 61 ms with no
+  Playwright retry, so the toolbar command ran but produced no code block.
+- A deterministic probe repeated the exact step 20 times against the real app: iteration 15 left
+  `document.activeElement` on the toolbar **button**, the DOM selection outside the editor, and the
+  first typed character was dropped (`ef g():` instead of `def g():`). Root cause: the toolbar
+  buttons did not cancel the browser's default `mousedown`, so the browser moved focus (and the
+  selection) out of the contenteditable between `mousedown` and `click`; the command then ran
+  against a lost selection — a no-op or a misplaced edit. This is a real authoring bug, not a test
+  artifact.
+- Fix (`frontend/src/shared/components/MarkdownEditorToolbar.vue`): every command control
+  (Bold/Italic/Inline code, lists, blockquote, Code block, Undo/Redo, Link) now cancels the default
+  `mousedown`, keeping the editable focused and the caret intact. The heading/language selects are
+  unchanged because they need focus to open.
+- TDD: `MarkdownEditor.test.ts` gained a failing test first ("keeps the editable selection when a
+  formatting control is pressed"); it failed with `defaultPrevented === false` and passes after the
+  fix. The probe that caught the bug (30/30 clean, focus retained, no dropped character) is the
+  before/after evidence.
+- The browser spec also now asserts the editor keeps focus at the code-block step, so a regression
+  fails at the cause instead of as an opaque 10 s attribute timeout. No assertion was weakened,
+  no timeout raised, no retry added.
+- GREEN: the same full default-profile gate now exits 0 with 69/69 frontend tests (Chromium and
+  phone).
+
+**2. Full-stack leak assertion (was exit 1 with one container).**
+
+- The failing run reported one container ID that no longer existed a couple of minutes later
+  (`docker inspect` → no such object) and the next run reported zero; it was a container created
+  during the run that was gone by the time the run finished, not a persistent leak. `docker ps -aq`
+  on this Docker version returns 12-character IDs, which is why the logged ID looked short.
+- The runtime creates short-lived `*-inject` helper containers while injecting files, and the
+  harness starts background workers, so a single `docker ps -aq` snapshot at the end can catch a
+  container the daemon or a worker is still deleting.
+- Fix (`e2e/lib/run-cleanup.sh`, `e2e/run-full-e2e.sh`): the leak assertion now waits for exactly
+  the container IDs that appeared during the run to reach "no such container" (bounded,
+  condition-based, 60 × 0.5 s), then re-snapshots. Nothing is removed by the wait, no other
+  container is inspected, and a container that genuinely survives still fails the gate — now with
+  its id, name, image and state printed so the next occurrence is self-diagnosing.
+- TDD: `e2e/test-run-cleanup.sh` gained a stub `docker container inspect` plus four regression
+  checks (mid-removal is awaited, a real survivor still fails and is named, empty ID set is a
+  no-op, an already-gone ID costs one inspection). All 30 checks pass.
+- GREEN: `e2e/run-full-e2e.sh` exited 0 twice with `owned Docker resources: 0 new containers,
+  0 new volumes`.
 
 ## Carried-over review findings (tests added, no product change)
 
@@ -141,7 +186,14 @@ configuration change is present.
 Owned browser stack: PostgreSQL cluster, backend, Vite and Chromium process groups stopped; private
 fixtures, config, `.env`, generated passwords/JWT/credential keys and the backend binary removed.
 Owned native PG clusters for the Go and default-profile gates were stopped and their data removed;
-the default-profile script dropped its own database. The full-stack run removed its named containers
-and volumes; a root-owned RustFS scratch directory under `/tmp/opencode/actfb-full-a45641b7` could not
-be deleted by the unprivileged user and remains as inert scratch data. No operator container, volume,
-image or port 8080 resource was touched, and no broad `pkill`/prune/`compose down -v` was used.
+the default-profile script dropped its own database. The full-stack runs removed their named
+containers and volumes and reported `0 new containers, 0 new volumes`; the leak assertion now waits
+(bounded) for containers that appeared during the run before declaring a leak.
+
+One leftover from the first full-stack run, a root-owned RustFS scratch directory at
+`/tmp/opencode/actfb-full-a45641b7` (~76 KB of logs/state written by UID 10001), could not be
+deleted by the unprivileged user. It was cleared afterwards with a throwaway container that mounted
+**only that exact directory** read-write (`alpine:3.22`, `find /cleanup -mindepth 1 -delete`), and
+the now-empty directory was removed from the host; no other path was mounted and no ownership was
+changed. No operator container, volume, image or port 8080 resource was touched, and no broad
+`pkill`/prune/`compose down -v` was used.

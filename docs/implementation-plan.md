@@ -1105,7 +1105,11 @@ API, migration, dependency or provider change and no new fetch/mutation call.
     `desktop-workspaces.spec.ts` **60 passed, 12 expected project skips** (3.4 min final run;
     2.0 min on the preceding clean run). One earlier
     combined run flaked in the pre-existing rich-text `Code language` step and passed alone and on
-    rerun; not hidden or skip-gated.
+    rerun; not hidden or skip-gated. *(Resolved 2026-11-27: the root cause was the editor toolbar not
+    cancelling the default `mousedown`, so the contenteditable lost focus and the selection between
+    `mousedown` and `click`; the command then ran against a lost selection. Fixed in
+    `MarkdownEditorToolbar.vue` with a failing unit test first; see
+    `docs/student-task-progress-verification.md`, "Resolved red gates".)*
 - Measured geometry (real DOM, ±1px assertions): task participant 1920 → 1168 main + 360 rail,
   1440 → 796 + 360, 1024 → 764 stacked; board participant 1920 → 1208 main + 320 rail with four
   modules in 2 columns × 2 rows; module tasks 1920 → three columns × two rows, 1440 → two × three;
@@ -1283,15 +1287,19 @@ section below; both slices passed independent review.
 Status: **Task 3 local integration evidence complete on `feat/student-task-progress`; independent
 final review and publication pending.** Task 1 (`6aa65d5..8154f1b`) and Task 2
 (`8154f1b..12872e1`) both passed independent spec and quality review with no Critical/Important
-findings. Product source is unchanged by Task 3: only carried-over regression tests and this record
-were added. No push, CI run or GHCR publication has been performed.
+findings. Task 3 added carried-over regression tests, this record, and two bounded fixes for the red
+gates the first evidence pass found: the editor toolbar now cancels the default `mousedown` so the
+editable keeps focus and selection (a real authoring bug behind the long-standing
+`rich-text-editor` `Code language` flake), and the full-stack leak assertion now waits for the exact
+container IDs that appeared during the run to finish deleting before it fails. No push, CI run or
+GHCR publication has been performed.
 
 Evidence (`docs/student-task-progress-verification.md`): 8/8 focused real-PG/HTTP/contract tests with
 no skips and fresh migrations to v20; full Go build/vet and 1069 passed / 24 dependency-group skips;
-49 frontend files / 451 tests on one worker plus typecheck and build; real-browser individual, manual,
+49 frontend files / 452 tests on one worker plus typecheck and build; real-browser individual, manual,
 filter, paging (>100 tasks/modules), team-change, all-solved, empty, preview and unjoined journeys with
 15 screenshots and computed contrast/focus/44 px/overflow measurements; default-profile browser gate
-(5 default-profile tests plus 68 frontend specs passed, one unrelated pre-existing rich-text flake that
-passes in isolation); full-stack Docker acceptance 19 passed / 5 intentionally skipped. Cleanup,
-limitations and exact counts are in that document. Publication checkboxes remain open until Main
-authorizes the release phase.
+exit 0 (5 default-profile tests plus 69/69 frontend specs); full-stack Docker acceptance exit 0 twice
+(19 passed = 18 full-stack + 1 `p1-core`, 5 default-profile skips, 0 new containers/volumes). The
+`e2e/test-run-cleanup.sh` guard suite is 30/30. Cleanup, limitations and exact counts are in that
+document. Publication checkboxes remain open until Main authorizes the release phase.
