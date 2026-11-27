@@ -339,8 +339,22 @@ cmp -s "$WORKDIR/vue-before.hash" "$WORKDIR/vue-after.hash" || {
 cleanup_new_docker_resources
 remaining_containers="$(comm -13 "$WORKDIR/containers-before.txt" <(docker ps -aq | sort) 2>/dev/null || true)"
 remaining_volumes="$(comm -13 "$WORKDIR/volumes-before.txt" <(docker volume ls -q | sort) 2>/dev/null | grep -E '^actfb' || true)"
+if [[ -n "$remaining_containers" ]]; then
+  # Docker can acknowledge a forced removal (and a `--rm` exit) before the
+  # container object is gone, so one snapshot can catch a container the daemon
+  # is already deleting. Wait for exactly these IDs, bounded, then re-snapshot:
+  # a container that really survives still fails below.
+  # shellcheck disable=SC2086
+  run_cleanup_wait_containers_gone $remaining_containers || true
+  remaining_containers="$(comm -13 "$WORKDIR/containers-before.txt" <(docker ps -aq | sort) 2>/dev/null || true)"
+fi
 if [[ -n "$remaining_containers" || -n "$remaining_volumes" ]]; then
   echo "owned Docker resources remain after cleanup: containers=[$remaining_containers] volumes=[$remaining_volumes]" >&2
+  if [[ -n "$remaining_containers" ]]; then
+    # Name each survivor: an ID alone cannot be classified after the run.
+    # shellcheck disable=SC2086
+    docker inspect --format '{{.Id}} name={{.Name}} image={{.Config.Image}} status={{.State.Status}}' $remaining_containers >&2 || true
+  fi
   exit 1
 fi
 echo "owned Docker resources: 0 new containers, 0 new volumes" | tee -a "$WORKDIR/summary.txt"

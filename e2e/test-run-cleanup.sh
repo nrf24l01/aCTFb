@@ -50,6 +50,26 @@ case "$cmd" in
     printf 'rm %s\n' "$*" >>"$state/calls"
     for c in "$@"; do grep -vxF -- "$c" "$state/containers" >"$state/containers.tmp" 2>/dev/null || true; mv "$state/containers.tmp" "$state/containers"; done
     ;;
+  container)
+    # container inspect ID: present, or a recorded countdown that removes the
+    # ID after N inspections (a container the daemon is still deleting).
+    [[ "${1:-}" == "inspect" ]] || { echo "stub docker: unsupported container $1" >&2; exit 2; }
+    shift
+    printf 'container inspect %s\n' "$*" >>"$state/calls"
+    id="${1:-}"
+    if [[ -f "$state/countdown.$id" ]]; then
+      remaining="$(cat "$state/countdown.$id")"
+      if [[ "$remaining" -le 1 ]]; then
+        rm -f "$state/countdown.$id"
+        grep -vxF -- "$id" "$state/containers" >"$state/containers.tmp" 2>/dev/null || true
+        mv "$state/containers.tmp" "$state/containers"
+      else
+        printf '%s\n' "$((remaining - 1))" >"$state/countdown.$id"
+      fi
+    fi
+    grep -qxF -- "$id" "$state/containers" || exit 1
+    printf '[{"Id":"%s"}]\n' "$id"
+    ;;
   *) echo "stub docker: unsupported command $cmd" >&2; exit 2 ;;
 esac
 STUB
@@ -204,6 +224,55 @@ set_containers pre1
 ) >/dev/null 2>&1
 rc=$?
 if [[ "$rc" -eq 0 ]]; then pass 'no new resources: cleanup succeeds everywhere'; else fail 'no new resources: cleanup returned non-zero'; fi
+
+# --- 9. owned containers that are still being removed are awaited, bounded -
+# Docker can answer a forced/--rm removal before the container object is gone,
+# so a single `docker ps -aq` snapshot catches it mid-removal. The wait only
+# inspects the exact IDs the run recorded, and still fails when one survives.
+new_state
+set_containers mid-removal survivor
+printf '3\n' >"$WORK/state/countdown.mid-removal"
+(
+  RUN_CLEANUP_POLL_INTERVAL=0.01 run_cleanup_wait_containers_gone mid-removal
+) >/dev/null 2>"$WORK/err9"
+rc=$?
+if [[ "$rc" -eq 0 ]]; then pass 'cleanup wait: a container mid-removal is awaited'; else fail 'cleanup wait: mid-removal container reported as a leak'; fi
+if containers_now | grep -qx 'mid-removal'; then fail 'cleanup wait: awaited container still listed'; else pass 'cleanup wait: awaited container is gone'; fi
+if containers_now | grep -qx 'survivor'; then pass 'cleanup wait: unrelated container untouched'; else fail 'cleanup wait: unrelated container removed'; fi
+if grep -q 'rm ' "$WORK/state/calls"; then fail 'cleanup wait: removal was attempted by the wait'; else pass 'cleanup wait: wait never removes anything'; fi
+
+# A container that genuinely survives is still a failure, after the bound.
+new_state
+set_containers survivor
+(
+  RUN_CLEANUP_POLL_INTERVAL=0.01 RUN_CLEANUP_POLL_ATTEMPTS=3 run_cleanup_wait_containers_gone survivor
+) >/dev/null 2>"$WORK/err9b"
+rc=$?
+if [[ "$rc" -ne 0 ]]; then pass 'cleanup wait: a real leak still fails after the bound'; else fail 'cleanup wait: surviving container was reported clean'; fi
+if grep -q 'survivor' "$WORK/err9b"; then pass 'cleanup wait: survivor is named in the failure'; else fail 'cleanup wait: survivor not reported'; fi
+
+# Nothing to wait for is an immediate success.
+if run_cleanup_wait_containers_gone >/dev/null 2>&1; then
+  pass 'cleanup wait: empty ID set is a no-op'
+else
+  fail 'cleanup wait: empty ID set returned an error'
+fi
+
+# --- 10. an ID that is already gone needs no polling ----------------------
+new_state
+set_containers other
+calls_before="$(calls_now | wc -l)"
+if run_cleanup_wait_containers_gone already-gone >/dev/null 2>&1; then
+  pass 'cleanup wait: absent ID succeeds'
+else
+  fail 'cleanup wait: absent ID returned an error'
+fi
+calls_after="$(calls_now | wc -l)"
+if [[ "$((calls_after - calls_before))" -eq 1 ]]; then
+  pass 'cleanup wait: absent ID costs one inspection'
+else
+  fail 'cleanup wait: absent ID polled more than once'
+fi
 
 printf '\n%d checks passed, %d failed\n' "$passes" "$failures"
 [[ "$failures" -eq 0 ]]

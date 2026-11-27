@@ -67,6 +67,48 @@ run_cleanup_unclassified() {
   return 0
 }
 
+# run_cleanup_wait_containers_gone ID...
+#   Bounded, condition-based wait for the exact container IDs a run created to
+#   reach "no such container".
+#
+#   Docker can acknowledge a forced removal (or a --rm exit) before the
+#   container object is gone, so a single `docker ps -aq` snapshot can catch a
+#   container the daemon is already deleting. Only the recorded IDs are
+#   inspected here: nothing is removed, no other container is examined, and a
+#   container that genuinely survives still fails after the bound.
+#
+#   The default bound is 60 × 0.5s: long enough for an app worker that is still
+#   finishing a short-lived helper container (the runtime injects files through a
+#   `*-inject` container), short enough that a real leak still fails promptly.
+#   RUN_CLEANUP_POLL_INTERVAL / RUN_CLEANUP_POLL_ATTEMPTS are overridable so the
+#   deterministic tests do not sleep.
+run_cleanup_wait_containers_gone() {
+  [[ "$#" -gt 0 ]] || return 0
+
+  local interval="${RUN_CLEANUP_POLL_INTERVAL:-0.5}"
+  local attempts="${RUN_CLEANUP_POLL_ATTEMPTS:-60}"
+  local attempt id
+
+  for ((attempt = 1; attempt <= attempts; attempt += 1)); do
+    local survivors=()
+    for id in "$@"; do
+      if docker container inspect "$id" >/dev/null 2>&1; then
+        survivors+=("$id")
+      fi
+    done
+    if [[ "${#survivors[@]}" -eq 0 ]]; then
+      return 0
+    fi
+    if [[ "$attempt" -lt "$attempts" ]]; then
+      sleep "$interval"
+    fi
+  done
+
+  printf 'WARNING: containers still present after %s inspections: %s\n' \
+    "$attempts" "${survivors[*]}" >&2
+  return 1
+}
+
 # run_cleanup_temp_root -> the directory tree the harness owns.
 # Derived from the base temp directory, never from probing whether a nested
 # `opencode` happens to exist: an existence-dependent root silently changes what
