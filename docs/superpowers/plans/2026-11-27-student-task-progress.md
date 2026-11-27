@@ -55,20 +55,20 @@ by rewriting the historical first-slice record.
   become explicit zero objects only after service has established eligibility.
 - Keep aggregate results independent of completion filters and paging.
 
-- [ ] Write failing real-PG tests: individual/team, zero-point ACCEPTED, multiple
+- [x] Write failing real-PG tests: individual/team, zero-point ACCEPTED, multiple
   attempts, pending/manual acceptance, 101+ tasks and 101+ modules, empty modules,
   audience/group revocation, hidden/disabled/upcoming modules/tasks, joined staff
   restricted audience, no-team/preview/unjoined, cross-board IDs, invalid filters.
-- [ ] Run focused tests and record RED; validate baseline migrations on owned PG.
-- [ ] Add canonical schemas/query, regenerate with `make swagger`, and validate
+- [x] Run focused tests and record RED; validate baseline migrations on owned PG.
+- [x] Add canonical schemas/query, regenerate with `make swagger`, and validate
   Swagger with the repository tooling. No hand edits to generated types.
-- [ ] Implement batch aggregate, participant-only attachment, completion predicates
+- [x] Implement batch aggregate, participant-only attachment, completion predicates
   using EXISTS/NOT EXISTS ACCEPTED and filtered total before LIMIT/OFFSET.
   No exception swallowing that turns dependency failures into zero progress.
-- [ ] Test HTTP real responses against the updated schema, including omission
+- [x] Test HTTP real responses against the updated schema, including omission
   and zero-object cases; default unfiltered behavior stays compatible.
-- [ ] Run `go test ./...`, `go vet ./...` plus real-PG affected-package tests.
-- [ ] Commit contract/backend/tests as one logical group; no push yet.
+- [x] Run `go test ./...`, `go vet ./...` plus real-PG affected-package tests.
+- [x] Commit contract/backend/tests as one logical group; no push yet.
 
 ### Task 2: Student progress surfaces, filters and pagination
 
@@ -89,18 +89,18 @@ Use narrowly scoped styles, never change global card/border defaults.
 - ModulePage keeps unfiltered `module.taskProgress`, separate filtered list total,
   current completion selection, loaded items and offset.
 
-- [ ] Write failing tests for subtle solved-card tint/icon, correct fraction/bar
+- [x] Write failing tests for subtle solved-card tint/icon, correct fraction/bar
   semantics, optional suppression, empty/all-solved states and no duplicate badge.
-- [ ] Write failing ModulePage tests for all three filters, paging beyond 100,
+- [x] Write failing ModulePage tests for all three filters, paging beyond 100,
   reset on filter/route change, out-of-order responses, and preserved error retry.
   Write BoardPage tests proving its summary is not summed from first-page cards.
-- [ ] Implement the exact spec: existing semantic green, borderless hierarchy,
+- [x] Implement the exact spec: existing semantic green, borderless hierarchy,
   thin unanimated bar, concise copy, SVG icons, selected-state semantics.
-- [ ] Add participant module/task Load more using server total; keep preview
+- [x] Add participant module/task Load more using server total; keep preview
   management behavior intact. Do not expose own filters/progress in preview.
-- [ ] Run all frontend tests with one worker, typecheck and build. Pre-audit every
+- [x] Run all frontend tests with one worker, typecheck and build. Pre-audit every
   affected browser selector without deleting behavior assertions.
-- [ ] Commit UI/tests as a logical group; no push yet.
+- [x] Commit UI/tests as a logical group; no push yet.
 
 ### Task 3: Integration evidence, review and publication
 
@@ -108,13 +108,13 @@ Use narrowly scoped styles, never change global card/border defaults.
 update `docs/implementation-plan.md`; temporary sanitized browser artifacts under
 `/tmp/opencode/student-task-progress/`. Review artifact owned by a fresh reviewer.
 
-- [ ] Use one owned stack to walk real individual and team students: wrong flag,
+- [x] Use one owned stack to walk real individual and team students: wrong flag,
   accepted flag, back/reload totals, manual pending/review accepted, each filter,
   Load more, empty and all-solved modules, preview and unauthorized scope.
-- [ ] Capture board/module/card desktop and phone screenshots; main inspects them.
+- [x] Capture board/module/card desktop and phone screenshots; main inspects them.
   Measure 375/1024/1440/1920 overflow, keyboard focus, accessible progress values,
   and actual computed text/graphic contrast. Preserve user-authored content.
-- [ ] Run existing default-profile/full-stack gates serially; record exact tests,
+- [x] Run existing default-profile/full-stack gates serially; record exact tests,
   skips and limitations, migrations, owned-resource cleanup and source commits.
 - [ ] Obtain independent contract/security/behavior review; fix important findings
   with failing tests first. Main reviews integration and visual evidence.

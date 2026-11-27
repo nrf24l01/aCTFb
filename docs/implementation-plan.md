@@ -1275,5 +1275,23 @@ ruled `No solved tasks` / `No unsolved tasks` copy and keep the controls visible
 
 Evidence: frontend unit suites (RED before components, then 448 tests in 49 files with one worker),
 `bunx vue-tsc -b` and `bun run build` pass. No API, RBAC, score, migration, dependency or operator
-configuration change. Browser journeys, screenshots and computed contrast remain Task 3 evidence; the
-independent review is still pending.
+configuration change. Browser journeys, screenshots and computed contrast are recorded in the Task 3
+section below; both slices passed independent review.
+
+## Student task progress verification (2026-11-27, local complete, unpublished)
+
+Status: **Task 3 local integration evidence complete on `feat/student-task-progress`; independent
+final review and publication pending.** Task 1 (`6aa65d5..8154f1b`) and Task 2
+(`8154f1b..12872e1`) both passed independent spec and quality review with no Critical/Important
+findings. Product source is unchanged by Task 3: only carried-over regression tests and this record
+were added. No push, CI run or GHCR publication has been performed.
+
+Evidence (`docs/student-task-progress-verification.md`): 8/8 focused real-PG/HTTP/contract tests with
+no skips and fresh migrations to v20; full Go build/vet and 1069 passed / 24 dependency-group skips;
+49 frontend files / 451 tests on one worker plus typecheck and build; real-browser individual, manual,
+filter, paging (>100 tasks/modules), team-change, all-solved, empty, preview and unjoined journeys with
+15 screenshots and computed contrast/focus/44 px/overflow measurements; default-profile browser gate
+(5 default-profile tests plus 68 frontend specs passed, one unrelated pre-existing rich-text flake that
+passes in isolation); full-stack Docker acceptance 19 passed / 5 intentionally skipped. Cleanup,
+limitations and exact counts are in that document. Publication checkboxes remain open until Main
+authorizes the release phase.
