@@ -110,6 +110,19 @@ afterEach(() => {
 })
 
 describe('AdminBoardPage invite board', () => {
+  it('renders the back link with an SVG chevron instead of a text glyph', async () => {
+    const wrapper = await mountPage()
+
+    const backLink = wrapper.findAll('routerlink').find((link) => link.text().includes('Admin boards'))
+    expect(backLink).toBeDefined()
+    const icon = backLink!.find('svg.lucide-chevron-left')
+    expect(icon.exists()).toBe(true)
+    expect(icon.attributes('aria-hidden')).toBe('true')
+    expect(backLink!.text()).toContain('Admin boards')
+    expect(document.body.textContent ?? '').not.toContain('‹')
+    wrapper.unmount()
+  })
+
   it('opens the canonical join code panel without reading the deprecated invite code', async () => {
     const wrapper = await mountPage()
 

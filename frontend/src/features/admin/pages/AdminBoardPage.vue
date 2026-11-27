@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { ChevronLeftIcon } from '@lucide/vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import EmptyState from '@/components/layout/EmptyState.vue'
@@ -174,8 +175,12 @@ void load()
 <template>
   <PageContainer>
     <div class="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-      <RouterLink to="/admin/boards" class="text-muted-foreground underline decoration-border underline-offset-4">
-        ‹ Admin boards
+      <RouterLink
+        to="/admin/boards"
+        class="inline-flex items-center gap-1 text-muted-foreground underline decoration-border underline-offset-4"
+      >
+        <ChevronLeftIcon aria-hidden="true" class="size-3.5 shrink-0" />
+        Admin boards
       </RouterLink>
       <RouterLink :to="`/boards/${boardUuid}`" class="text-muted-foreground underline decoration-border underline-offset-4">
         Participant view

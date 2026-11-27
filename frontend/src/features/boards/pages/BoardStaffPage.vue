@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { ChevronLeftIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import EmptyState from '@/components/layout/EmptyState.vue'
 import ErrorAlert from '@/components/layout/ErrorAlert.vue'
@@ -85,8 +86,12 @@ void load()
 <template>
   <PageContainer>
     <div class="mb-4 text-sm">
-      <RouterLink :to="`/boards/${boardUuid}`" class="text-muted-foreground underline decoration-border underline-offset-4">
-        ‹ {{ board?.name ?? 'Board' }}
+      <RouterLink
+        :to="`/boards/${boardUuid}`"
+        class="inline-flex items-center gap-1 text-muted-foreground underline decoration-border underline-offset-4"
+      >
+        <ChevronLeftIcon aria-hidden="true" class="size-3.5 shrink-0" />
+        {{ board?.name ?? 'Board' }}
       </RouterLink>
     </div>
 

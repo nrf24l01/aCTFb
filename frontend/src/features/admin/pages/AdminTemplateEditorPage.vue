@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { ChevronLeftIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -257,7 +258,13 @@ void load()
 <template>
   <PageContainer>
     <div class="mb-4 text-sm">
-      <RouterLink to="/admin/templates" class="text-muted-foreground underline decoration-border underline-offset-4">‹ Templates</RouterLink>
+      <RouterLink
+        to="/admin/templates"
+        class="inline-flex items-center gap-1 text-muted-foreground underline decoration-border underline-offset-4"
+      >
+        <ChevronLeftIcon aria-hidden="true" class="size-3.5 shrink-0" />
+        Templates
+      </RouterLink>
     </div>
     <PageHeader :title="template?.name ?? 'Template'" :description="template?.slug ?? templateUuid">
       <template #actions>

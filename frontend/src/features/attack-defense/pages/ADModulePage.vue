@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { ChevronLeftIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -137,7 +138,13 @@ void load()
 <template>
   <PageContainer>
     <div class="mb-4 text-sm">
-      <RouterLink :to="`/boards/${boardUuid}`" class="text-muted-foreground underline decoration-border underline-offset-4">‹ {{ board?.name ?? 'Board' }}</RouterLink>
+      <RouterLink
+        :to="`/boards/${boardUuid}`"
+        class="inline-flex items-center gap-1 text-muted-foreground underline decoration-border underline-offset-4"
+      >
+        <ChevronLeftIcon aria-hidden="true" class="size-3.5 shrink-0" />
+        {{ board?.name ?? 'Board' }}
+      </RouterLink>
     </div>
     <PageHeader :title="module?.name ?? 'Attack & Defense'" description="Exploit and patch are separate verdicts. Logs are bounded and sanitized." />
     <LoadingState v-if="loading" :rows="6" />

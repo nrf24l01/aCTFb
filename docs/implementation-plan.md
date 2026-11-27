@@ -1216,3 +1216,12 @@ production image and auth/proxy smokes `PASS`, Publish images success. Published
 `Incorrect flag. Try again.`, `text-status-success-ink` and `Awaiting review`, and no `Already solved` /
 `points awarded` strings. No migration, `config.yaml`, `.env` or `/api/v2` change, so operators only run
 `docker compose pull && docker compose up -d` in `deploy/`.
+
+## UI emoji audit and back-link icons (2026-11-27)
+
+Status: **implemented locally, pending MAIN review.** No app-owned emoji exist in rendered UI; the
+only decorative text affordance was the `‹` back-link prefix on seven pages, now a Lucide
+`ChevronLeftIcon` (`aria-hidden`, `fill="none" stroke="currentColor"`, 14 px). Details and evidence:
+`docs/ui-icons-verification.md`. 421 frontend unit tests, typecheck and build pass; browser geometry
+sampled at 1440×900 and 390×844. User-authored Markdown, tests fixtures and docs prose keep their
+emoji. No API, RBAC, migration, sanitizer, dependency or config change.

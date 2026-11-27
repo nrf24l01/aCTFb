@@ -93,6 +93,18 @@ beforeEach(() => {
 })
 
 describe('ModulePage staff preview', () => {
+  it('renders the back link with an SVG chevron instead of a text glyph', async () => {
+    listTasks.mockResolvedValue({ items: [task], limit: 100, offset: 0, total: 1 })
+    const wrapper = await mountPage()
+
+    const backLink = wrapper.findAll('a').find((link) => link.text().includes('Staff board'))
+    expect(backLink).toBeDefined()
+    expect(backLink!.find('svg').exists()).toBe(true)
+    expect(backLink!.text()).toContain('Staff board')
+    expect(wrapper.text()).not.toContain('‹')
+    wrapper.unmount()
+  })
+
   it('renders the real staff task list with an organizer preview banner when not joined', async () => {
     listTasks.mockResolvedValue({ items: [task], limit: 100, offset: 0, total: 1 })
     const wrapper = await mountPage()
