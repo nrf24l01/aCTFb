@@ -11,6 +11,17 @@ import (
 	oapimodels "github.com/nrf24l01/actfb/internal/generated/openapi/models"
 )
 
+// taskProgressModel maps the optional own-progress projection. Nil stays nil so
+// the generated omitempty tag omits the field instead of sending null.
+func taskProgressModel(progress *boards.TaskProgress) *oapimodels.TaskProgress {
+	if progress == nil {
+		return nil
+	}
+	solved := int64(progress.SolvedTasks)
+	total := int64(progress.TotalTasks)
+	return &oapimodels.TaskProgress{SolvedTasks: &solved, TotalTasks: &total}
+}
+
 func boardListModel(board boards.Board) *oapimodels.BoardListItem {
 	uuidValue := oapimodels.UUID(board.ID.String())
 	slug := oapimodels.Slug(board.Slug)
@@ -125,6 +136,7 @@ func moduleListModel(module boards.Module) *oapimodels.ModuleListItem {
 		EndsAt:           dateTimeModel(module.EndsAt),
 		Preview:          &preview,
 		CanParticipate:   &canParticipate,
+		TaskProgress:     taskProgressModel(module.TaskProgress),
 	}
 	if module.ExtensionKey != "" {
 		extensionKey := module.ExtensionKey
@@ -165,6 +177,7 @@ func moduleModel(module boards.Module) *oapimodels.Module {
 		EndsAt:           dateTimeModel(module.EndsAt),
 		Preview:          &preview,
 		CanParticipate:   &canParticipate,
+		TaskProgress:     taskProgressModel(module.TaskProgress),
 	}
 	if module.ExtensionKey != "" {
 		extensionKey := module.ExtensionKey
@@ -498,6 +511,7 @@ func boardMeModel(me *boards.BoardMe) *oapimodels.BoardMe {
 		Audiences:         audiences,
 		Preview:           &preview,
 		CanParticipate:    &canParticipate,
+		TaskProgress:      taskProgressModel(me.TaskProgress),
 	}
 	if me.JoinedAt != nil {
 		value := strfmt.DateTime(me.JoinedAt.UTC())

@@ -905,3 +905,64 @@ P1-01..P1-05/L2/L3 findings. Residual: `submission.read` post-read audit side ef
 Non-goals: Team/Audience/AccessGroup flows, `MANUAL`/`INSTANCE`/AD/Pentest mechanics, file/draft submissions,
 score adjustments, all remaining OpenAPI operations, deployment templates, plugins, production TLS/proxy changes,
 new backend dependencies, or a parallel `/api/v3` contract.
+
+## 12. Student task progress (2026-11-27, additive)
+
+This section records the current additive contract for the approved student completion indicators. It does not
+replace the historical first-slice record above; every earlier rule, envelope, route and default behaviour is
+unchanged.
+
+**Schema**
+
+- New `TaskProgress` definition: closed object (`additionalProperties: false`) with required nonnegative
+  integers `solvedTasks` and `totalTasks`. `solvedTasks <= totalTasks` is guaranteed by the single aggregate
+  query, not clamped in a mapper.
+- Optional `taskProgress` (`$ref: '#/definitions/TaskProgress'`) on `BoardMe`, `ModuleListItem` and `Module`.
+  Absent means unavailable, never `null`. `BoardListItem` and `AdminModule` are unchanged (the board summary
+  belongs to the board page; admin scope never exposes own progress).
+- Participant `GET /boards/{boardUuid}/modules/{moduleUuid}/tasks` gains the optional query
+  `completion=SOLVED|UNSOLVED`. Omitted means All. Any other value returns the existing
+  `422 VALIDATION_FAILED` envelope with `fieldErrors[0].field = query.completion` and
+  `code = INVALID_VALUE`. Paging (`limit`/`offset`) is unchanged.
+
+**Semantics**
+
+- `solvedTasks` counts distinct currently visible tasks with an ACCEPTED submission for the caller's current
+  `USER`/`TEAM` subject. Awarded points are irrelevant: a zero-point acceptance counts. `PENDING_REVIEW`,
+  `CHECKING`, `REJECTED` and `ERROR` do not count, and duplicate attempts cannot inflate the count.
+- `totalTasks` counts currently visible tasks in a currently ACTIVE board/module pair of type `TASKS` or
+  `EXTENSION`. Disabled, upcoming, finished, `PENTEST` and `ATTACK_DEFENSE` modules contribute nothing, and
+  hidden tasks are excluded from both numerator and denominator.
+- `BoardMe.taskProgress` sums every currently participant-readable ACTIVE `TASKS`/`EXTENSION` module, not the
+  first module page. `ModuleListItem.taskProgress`/`Module.taskProgress` cover that module only and stay
+  unfiltered when the task list is filtered. `TaskListResponse.total` is the filtered total.
+- An eligible participant with no currently readable active tasks receives an explicit `{solvedTasks:0,
+  totalTasks:0}`. No progress is published for anonymous, unjoined, staff-preview, revoked-access or
+  `TEAM`-without-team reads.
+- Live participation, access-group, audience and team policy are reused exactly: the service resolves the
+  subject and qualifies module IDs through the existing read gates; the store aggregate only enforces the
+  board/module parent scope, `visible = TRUE` and the subject's `ACCEPTED` rows. There is no second SQL copy of
+  the authorization policy.
+- Completion filters are participant-only. A staff preview never publishes own solved results: `SOLVED`
+  returns an empty page and `UNSOLVED`/omitted keep the existing preview list (whose solved flags remain false).
+- Audience lookup failure during `/me` now propagates through the existing error mapping instead of being
+  swallowed; a dependency failure is never reported as partial or zero progress.
+
+**Frontend mirror (implemented by the UI task)**
+
+```ts
+export interface TaskProgress {
+  solvedTasks: number;
+  totalTasks: number;
+}
+// BoardMe / ModuleListItem / Module gain: taskProgress?: TaskProgress
+// listTasks query gains: completion?: 'SOLVED' | 'UNSOLVED'
+```
+
+**Implementation constraints**
+
+- One batched aggregate query per endpoint (`TaskProgressByModule(ctx, boardID, moduleIDs, subject)`); no
+  per-module count fanout and no N+1 task-list calls. No migration, index or dependency was added: the existing
+  `tasks_module_visible_idx` and `submissions_one_accepted_per_subject_task` cover it.
+- `make swagger` regenerates only `task_progress.go`, `board_me.go`, `module.go` and `module_list_item.go`;
+  repeated generation is byte-identical and no generated file is hand-edited.

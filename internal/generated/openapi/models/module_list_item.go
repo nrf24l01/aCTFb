@@ -72,6 +72,9 @@ type ModuleListItem struct {
 	// Required: true
 	Status *ModuleStatus `json:"status"`
 
+	// task progress
+	TaskProgress *TaskProgress `json:"taskProgress,omitempty"`
+
 	// type
 	// Required: true
 	Type *ModuleType `json:"type"`
@@ -127,6 +130,10 @@ func (m *ModuleListItem) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTaskProgress(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -350,6 +357,29 @@ func (m *ModuleListItem) validateStatus(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *ModuleListItem) validateTaskProgress(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.TaskProgress) { // not required
+		return nil
+	}
+
+	if m.TaskProgress != nil {
+		if err := m.TaskProgress.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("taskProgress")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("taskProgress")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *ModuleListItem) validateType(formats strfmt.Registry) error {
 
 	if err := validate.Required("type", "body", m.Type); err != nil {
@@ -415,6 +445,10 @@ func (m *ModuleListItem) ContextValidate(ctx context.Context, formats strfmt.Reg
 	}
 
 	if err := m.contextValidateStatus(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateTaskProgress(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -517,6 +551,31 @@ func (m *ModuleListItem) contextValidateStatus(ctx context.Context, formats strf
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
 				return ce.ValidateName("status")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ModuleListItem) contextValidateTaskProgress(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.TaskProgress != nil {
+
+		if typeutils.IsZero(m.TaskProgress) { // not required
+			return nil
+		}
+
+		if err := m.TaskProgress.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("taskProgress")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("taskProgress")
 			}
 
 			return err

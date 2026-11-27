@@ -1233,3 +1233,25 @@ prefix on seven pages, now a Lucide `ChevronLeftIcon` (`aria-hidden`, `fill="non
 stroke="currentColor"`, 14 px). Details and evidence: `docs/ui-icons-verification.md`. User-authored
 Markdown, test fixtures and docs prose keep their emoji. No API, RBAC, migration, sanitizer, dependency
 or config change, so operators only run `docker compose pull && docker compose up -d` in `deploy/`.
+
+## Student task progress (2026-11-27, backend/contract partial, unpublished)
+
+Status: **Task 1 backend and contract implemented and tested locally on `feat/student-task-progress`;
+frontend and publication pending.** Source base `6aa65d5`; spec
+`docs/superpowers/specs/2026-11-27-student-task-progress-design.md`, plan
+`docs/superpowers/plans/2026-11-27-student-task-progress.md`. No push yet.
+
+Implemented: additive `TaskProgress` (`solvedTasks`, `totalTasks`) on `BoardMe`, `ModuleListItem` and `Module`;
+participant `completion=SOLVED|UNSOLVED` task filter applied before count/pagination; one batched
+`TaskProgressByModule` aggregate over service-qualified module IDs; board summary over all permitted active
+`TASKS`/`EXTENSION` modules (no 100-row cap); acceptance counts distinct visible tasks for the current
+`USER`/`TEAM` subject (zero-point accepted included, pending/rejected excluded); progress omitted for preview,
+revoked, unjoined and team-less subjects and explicit `0/0` for an eligible empty board; `SOLVED` in a staff
+preview returns an empty page without exposing own solved flags. Existing envelopes, routes, RBAC, scores and
+default list behaviour are unchanged; no migration, index, dependency or operator configuration change.
+
+Evidence: real-PostgreSQL aggregate/security/filter tests (individual, team, team change, zeropoint acceptance,
+multiple attempts, manual pending→accepted, audience/access-group revocation, joined staff scope, unjoined and
+preview omission, empty modules, >100 tasks and >100 modules, cross-board IDs, invalid filters) plus real-HTTP
+schema/omission/filter proof. Remaining: Task 2 student UI, Task 3 real-browser evidence, independent review,
+push/CI/GHCR verification.

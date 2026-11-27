@@ -282,7 +282,8 @@ type ModuleFilter struct {
 }
 
 // TaskFilter selects tasks under a module. IncludeHidden is true only for
-// staff with module.tasks.manage.
+// staff with module.tasks.manage. Completion is the optional participant
+// SOLVED/UNSOLVED filter; the zero value lists every task.
 type TaskFilter struct {
 	Limit         int
 	Offset        int
@@ -290,6 +291,7 @@ type TaskFilter struct {
 	IncludeHidden bool
 	UserID        uuid.UUID
 	Subject       *ScoreSubject
+	Completion    string
 }
 
 // CreateModuleParams is the store-level module insert.

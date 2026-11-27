@@ -147,6 +147,25 @@ func (s *PostgresStore) ListTasks(ctx context.Context, boardID, moduleID uuid.UU
 		args = append(args, filter.Query)
 		where = append(where, fmt.Sprintf("t.title ILIKE '%%' || $%d || '%%'", len(args)))
 	}
+
+	subjectType, subjectID := SubjectTypeUser, filter.UserID
+	if filter.Subject != nil {
+		subjectType, subjectID = filter.Subject.Type, filter.Subject.ID
+	}
+	// The completion predicate must live in the shared WHERE clause so the
+	// count and the page stay identical, which means the subject args have to
+	// be bound before the count query when the filter is present. The enum
+	// selects one of two fixed fragments; no request value is interpolated.
+	subjectTypeParam, subjectIDParam := 0, 0
+	if filter.Completion != "" {
+		predicate, predicateErr := completionPredicate(filter.Completion, len(args)+1, len(args)+2)
+		if predicateErr != nil {
+			return nil, 0, predicateErr
+		}
+		args = append(args, subjectType, subjectID)
+		subjectTypeParam, subjectIDParam = len(args)-1, len(args)
+		where = append(where, predicate)
+	}
 	baseWhere := strings.Join(where, " AND ")
 
 	var total int
@@ -157,16 +176,14 @@ func (s *PostgresStore) ListTasks(ctx context.Context, boardID, moduleID uuid.UU
 		return []Task{}, 0, nil
 	}
 
-	subjectType, subjectID := SubjectTypeUser, filter.UserID
-	if filter.Subject != nil {
-		subjectType, subjectID = filter.Subject.Type, filter.Subject.ID
+	if subjectTypeParam == 0 {
+		args = append(args, subjectType, subjectID)
+		subjectTypeParam, subjectIDParam = len(args)-1, len(args)
 	}
-	args = append(args, subjectType, subjectID)
-	typeParam, idParam := len(args)-1, len(args)
 	listArgs := append(append([]any{}, args...), filter.Limit, filter.Offset)
 	query := `SELECT ` + taskColumns + `,
-		EXISTS (SELECT 1 FROM submissions s WHERE s.subject_type=$` + fmt.Sprint(typeParam) +
-		` AND s.subject_id=$` + fmt.Sprint(idParam) +
+		EXISTS (SELECT 1 FROM submissions s WHERE s.subject_type=$` + fmt.Sprint(subjectTypeParam) +
+		` AND s.subject_id=$` + fmt.Sprint(subjectIDParam) +
 		` AND s.task_id=t.id AND s.status='ACCEPTED') AS solved,
 		(SELECT count(*) FROM submissions s WHERE s.task_id=t.id AND s.status='ACCEPTED') AS solves_count
 		FROM tasks t WHERE ` + baseWhere + ` ORDER BY t.created_at ASC, t.id ASC LIMIT $` +
@@ -188,6 +205,21 @@ func (s *PostgresStore) ListTasks(ctx context.Context, boardID, moduleID uuid.UU
 		return nil, 0, fmt.Errorf("iterate tasks: %w", err)
 	}
 	return items, total, nil
+}
+
+// completionPredicate returns the fixed EXISTS/NOT EXISTS fragment for a
+// validated participant completion filter. Only the placeholder numbers vary.
+func completionPredicate(completion string, typeParam, idParam int) (string, error) {
+	switch completion {
+	case TaskCompletionSolved:
+		return fmt.Sprintf(`EXISTS (SELECT 1 FROM submissions s WHERE s.subject_type=$%d`+
+			` AND s.subject_id=$%d AND s.task_id=t.id AND s.status='ACCEPTED')`, typeParam, idParam), nil
+	case TaskCompletionUnsolved:
+		return fmt.Sprintf(`NOT EXISTS (SELECT 1 FROM submissions s WHERE s.subject_type=$%d`+
+			` AND s.subject_id=$%d AND s.task_id=t.id AND s.status='ACCEPTED')`, typeParam, idParam), nil
+	default:
+		return "", Invalid("query.completion", "unknown completion filter", "INVALID_VALUE")
+	}
 }
 
 func (s *PostgresStore) GetTask(ctx context.Context, boardID, moduleID, taskID uuid.UUID) (*Task, error) {

@@ -44,6 +44,13 @@ type Store interface {
 	TaskAcceptedCount(ctx context.Context, taskID uuid.UUID) (int, error)
 	UserSolvedTask(ctx context.Context, userID, taskID uuid.UUID) (bool, error)
 	AllBoardTasks(ctx context.Context, boardID uuid.UUID) ([]Task, error)
+	// TaskProgressByModule aggregates visible-task totals and the subject's
+	// distinct ACCEPTED tasks in one batched query. The caller passes only
+	// service-qualified module IDs: live participation, access-group, audience
+	// and availability policy stay in the service/access layer rather than a
+	// second SQL copy. Empty moduleIDs returns an empty map without querying, and
+	// modules without visible tasks are absent (callers treat absence as 0/0).
+	TaskProgressByModule(ctx context.Context, boardID uuid.UUID, moduleIDs []uuid.UUID, subject ScoreSubject) (map[uuid.UUID]TaskProgress, error)
 
 	JoinBoard(ctx context.Context, boardID, userID uuid.UUID, audit AuditEventParams) (*Participant, error)
 	LeaveBoard(ctx context.Context, boardID, userID uuid.UUID, audit AuditEventParams) error

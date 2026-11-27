@@ -3634,6 +3634,7 @@ paths:
       - $ref: '#/parameters/ModuleUuidParam'
       - $ref: '#/parameters/LimitParam'
       - $ref: '#/parameters/OffsetParam'
+      - $ref: '#/parameters/CompletionParam'
       responses:
         '200':
           description: Tasks.
@@ -25629,6 +25630,18 @@ parameters:
     type: integer
     minimum: 0
     default: 0
+  CompletionParam:
+    name: completion
+    in: query
+    required: false
+    type: string
+    enum:
+    - SOLVED
+    - UNSOLVED
+    description: >-
+      Optional completion filter for participant task lists. Omitted means all tasks. Applied
+      before counting and pagination, so total is the filtered total; module and board progress
+      stay unfiltered. Unknown values return the existing 422 VALIDATION_FAILED envelope.
   QueryParam:
     name: query
     in: query
@@ -26975,6 +26988,30 @@ definitions:
     properties:
       userUuid:
         $ref: '#/definitions/UUID'
+  TaskProgress:
+    type: object
+    required:
+    - solvedTasks
+    - totalTasks
+    additionalProperties: false
+    description: >-
+      Own task completion over currently available discrete tasks. solvedTasks counts distinct
+      currently visible tasks with an ACCEPTED submission for the caller's current USER/TEAM
+      subject; awarded points are irrelevant, so a zero-point acceptance still counts. totalTasks
+      counts currently visible tasks in a currently ACTIVE board/module pair of type TASKS or
+      EXTENSION. solvedTasks <= totalTasks is guaranteed by the single aggregate query. The object
+      is present only when own progress is available; it is omitted (never null) for anonymous,
+      unjoined, staff-preview, revoked-access and TEAM-without-team reads. An eligible subject with
+      no currently readable active tasks receives an explicit 0/0.
+    properties:
+      solvedTasks:
+        type: integer
+        minimum: 0
+        description: Distinct visible tasks with an ACCEPTED submission for the current subject.
+      totalTasks:
+        type: integer
+        minimum: 0
+        description: Visible tasks in the currently ACTIVE TASKS/EXTENSION module scope.
   BoardMe:
     type: object
     required:
@@ -27017,6 +27054,8 @@ definitions:
         type: boolean
         description: True when the caller is currently participant-eligible (joined, current access group). Read-only
           projection.
+      taskProgress:
+        $ref: '#/definitions/TaskProgress'
   ScoreSubject:
     type: object
     required:
@@ -30112,6 +30151,8 @@ definitions:
         type: boolean
         description: True when the caller is participant-eligible for this scope from live state (joined, current
           access group, current module audience). Read-only projection; it never grants anything by itself.
+      taskProgress:
+        $ref: '#/definitions/TaskProgress'
   Module:
     type: object
     properties:
@@ -30171,6 +30212,8 @@ definitions:
         type: boolean
         description: True when the caller is participant-eligible for this scope from live state (joined, current
           access group, current module audience). Read-only projection; it never grants anything by itself.
+      taskProgress:
+        $ref: '#/definitions/TaskProgress'
     required:
     - uuid
     - boardUuid

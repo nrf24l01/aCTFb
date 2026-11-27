@@ -199,9 +199,14 @@ func (s *Service) GetBoardMe(ctx context.Context, principal authorization.Princi
 	if subjectErr != nil {
 		return nil, subjectErr
 	}
-	if audiences, audienceErr := s.store.ListMyAudiences(ctx, boardID, subject); audienceErr == nil {
-		me.Audiences = audiences
+	// Audience lookup failure is a real dependency failure. Propagating it keeps
+	// the board summary honest instead of silently hiding audience-bound modules
+	// or fabricating a partial/zero total.
+	audiences, audienceErr := s.store.ListMyAudiences(ctx, boardID, subject)
+	if audienceErr != nil {
+		return nil, audienceErr
 	}
+	me.Audiences = audiences
 	if board.RatingVisibility == RatingHidden {
 		me.Place = nil
 	} else {
@@ -219,6 +224,11 @@ func (s *Service) GetBoardMe(ctx context.Context, principal authorization.Princi
 			}
 		}
 	}
+	progress, err := s.boardTaskProgress(ctx, board, subject, audiences, s.clock.Now())
+	if err != nil {
+		return nil, err
+	}
+	me.TaskProgress = &progress
 	return me, nil
 }
 
@@ -280,6 +290,42 @@ func (s *Service) ListModules(ctx context.Context, principal authorization.Princ
 		modules[index].Preview = scope.preview
 		modules[index].CanParticipate = scope.participant
 	}
+	// One batched aggregate for the eligible modules on this page. The subject
+	// is resolved once, and only when the caller actually owns a participant
+	// scope (a module-scoped staff preview never manufactures one). Staff callers
+	// without a team keep the preview and simply get no progress.
+	progressIDs := make([]uuid.UUID, 0, len(modules))
+	for index := range modules {
+		if isOwnTaskModule(modules[index]) {
+			progressIDs = append(progressIDs, modules[index].ID)
+		}
+	}
+	if len(progressIDs) > 0 {
+		progressSubject := subject
+		if progressSubject == nil {
+			resolved, resolveErr := s.store.ResolveSubject(ctx, boardID, principal.UserID)
+			if resolveErr != nil {
+				if !(staff || admin) || !errors.Is(resolveErr, ErrTeamRequired) {
+					return Page[Module]{}, resolveErr
+				}
+			} else {
+				progressSubject = &resolved
+			}
+		}
+		if progressSubject != nil {
+			progressByModule, progressErr := s.store.TaskProgressByModule(ctx, boardID, progressIDs, *progressSubject)
+			if progressErr != nil {
+				return Page[Module]{}, progressErr
+			}
+			for index := range modules {
+				if !isOwnTaskModule(modules[index]) {
+					continue
+				}
+				value := progressByModule[modules[index].ID]
+				modules[index].TaskProgress = &value
+			}
+		}
+	}
 	return Page[Module]{Items: modules, Limit: query.Limit, Offset: query.Offset, Total: total}, nil
 }
 
@@ -313,6 +359,22 @@ func (s *Service) GetModule(ctx context.Context, principal authorization.Princip
 		// which is the point of an organizer preview.
 		if module.Status != ModuleStatusActive {
 			return nil, ErrModuleNotAvailable
+		}
+		if isTaskModuleType(module.Type) {
+			subject, subjectErr := s.store.ResolveSubject(ctx, boardID, principal.UserID)
+			if subjectErr != nil {
+				// A team-participant row without a team keeps the existing module
+				// read but has no own subject to report progress for.
+				if !errors.Is(subjectErr, ErrTeamRequired) {
+					return nil, subjectErr
+				}
+			} else {
+				progress, progressErr := s.moduleTaskProgress(ctx, boardID, moduleID, subject)
+				if progressErr != nil {
+					return nil, progressErr
+				}
+				module.TaskProgress = &progress
+			}
 		}
 		return module, nil
 	}

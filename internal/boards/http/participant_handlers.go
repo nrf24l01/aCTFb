@@ -245,7 +245,12 @@ func (h *Handler) ListTasks(c *echo.Context) error {
 	if problem != nil {
 		return problem.write(c)
 	}
-	page, err := h.service.ListTasks(c.Request().Context(), principal, boardID, moduleID, boards.ListQuery{Limit: limit, Offset: offset})
+	completion := strings.TrimSpace(c.QueryParam("completion"))
+	if completion != "" && !validCompletion(completion) {
+		return validationProblem(boards.Invalid("query.completion", "unknown completion filter", "INVALID_VALUE")).write(c)
+	}
+	page, err := h.service.ListTasks(c.Request().Context(), principal, boardID, moduleID,
+		boards.ListQuery{Limit: limit, Offset: offset, Completion: completion})
 	if err != nil {
 		return writeError(c, err)
 	}
@@ -365,6 +370,14 @@ func (h *Handler) ListMyTaskSubmissions(c *echo.Context) error {
 func validModuleType(value string) bool {
 	switch value {
 	case boards.ModuleTypeTasks, boards.ModuleTypeAttackDefense, boards.ModuleTypePentest, boards.ModuleTypeExtension:
+		return true
+	}
+	return false
+}
+
+func validCompletion(value string) bool {
+	switch value {
+	case boards.TaskCompletionSolved, boards.TaskCompletionUnsolved:
 		return true
 	}
 	return false

@@ -111,6 +111,13 @@ const (
 	serviceOperationTimeout    = 10 * time.Second
 )
 
+// Participant task-list completion filters. The zero value means "all tasks";
+// solved/unsolved are the only other accepted values.
+const (
+	TaskCompletionSolved   = "SOLVED"
+	TaskCompletionUnsolved = "UNSOLVED"
+)
+
 // Board is the full board representation used by owner/admin and participant
 // read paths. Joined is computed for the caller and is never persisted.
 type Board struct {
@@ -233,6 +240,12 @@ type Module struct {
 	// the board's joined flag.
 	Preview        bool
 	CanParticipate bool
+
+	// TaskProgress is the caller's own solved/total projection for this module.
+	// Nil means unavailable (preview, revoked access, upcoming/disabled or a
+	// non-task module) and is omitted from the response, never sent as null.
+	// An eligible participant with no visible tasks gets an explicit 0/0.
+	TaskProgress *TaskProgress
 }
 
 // isTaskModuleType reports modules that own /tasks resources. EXTENSION is a
@@ -289,6 +302,15 @@ type Task struct {
 	CanParticipate bool
 }
 
+// TaskProgress is the caller's own solved/total task projection for one module
+// or a whole board. SolvedTasks counts distinct visible tasks with an ACCEPTED
+// submission for the current USER/TEAM subject; awarded points are irrelevant.
+// Both values are nonnegative and zero is a valid empty track (0/0).
+type TaskProgress struct {
+	SolvedTasks int
+	TotalTasks  int
+}
+
 // Participant is a board_participants row.
 type Participant struct {
 	BoardID  uuid.UUID
@@ -340,6 +362,10 @@ type BoardMe struct {
 	// own progress and is marked as a preview.
 	Preview        bool
 	CanParticipate bool
+	// TaskProgress is the caller's own solved/total summary over every
+	// currently readable ACTIVE TASKS/EXTENSION module. Nil means unavailable;
+	// an eligible subject with no readable active tasks still gets 0/0.
+	TaskProgress *TaskProgress
 }
 
 // AudienceSummary mirrors the public audience shape without introducing
@@ -373,12 +399,14 @@ type Page[T any] struct {
 	Total  int
 }
 
-// ListQuery is a validated paging/search request.
+// ListQuery is a validated paging/search request. Completion is consumed only
+// by participant task lists; other callers ignore it.
 type ListQuery struct {
-	Limit  int
-	Offset int
-	Query  string
-	Type   string
+	Limit      int
+	Offset     int
+	Query      string
+	Type       string
+	Completion string
 }
 
 // ListBoardsQuery extends paging with board filters.

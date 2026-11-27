@@ -23,6 +23,11 @@ func (s *Service) ListTasks(ctx context.Context, principal authorization.Princip
 		return Page[Task]{}, err
 	}
 	query.Limit, query.Offset = normalizePage(query.Limit, query.Offset)
+	completion, err := normalizeCompletion(query.Completion)
+	if err != nil {
+		return Page[Task]{}, err
+	}
+	query.Completion = completion
 	board, module, err := s.loadBoardModule(ctx, boardID, moduleID)
 	if err != nil {
 		return Page[Task]{}, err
@@ -53,6 +58,7 @@ func (s *Service) ListTasks(ctx context.Context, principal authorization.Princip
 	}
 	tasks, total, err := s.store.ListTasks(ctx, boardID, moduleID, TaskFilter{
 		Limit: query.Limit, Offset: query.Offset, UserID: principal.UserID, Subject: &subject,
+		Completion: query.Completion,
 	})
 	if err != nil {
 		return Page[Task]{}, err
@@ -133,6 +139,12 @@ func (s *Service) listPreviewTasks(
 	scope readScope,
 	query ListQuery,
 ) (Page[Task], error) {
+	// A staff preview never publishes the caller's own solved results, so the
+	// SOLVED filter has no matches. Every visible preview row is unsolved for
+	// the caller, so UNSOLVED and the default list stay identical.
+	if query.Completion == TaskCompletionSolved {
+		return Page[Task]{Items: []Task{}, Limit: query.Limit, Offset: query.Offset, Total: 0}, nil
+	}
 	tasks, total, err := s.store.ListTasks(ctx, boardID, moduleID, TaskFilter{
 		Limit: query.Limit, Offset: query.Offset, UserID: principal.UserID,
 		IncludeHidden: scope.manageTasks,
@@ -173,6 +185,19 @@ func (s *Service) getPreviewTask(
 		task.SolvesCount = count
 	}
 	return task, nil
+}
+
+// normalizeCompletion validates the optional participant completion filter. It
+// is validated at the service boundary as well as in the HTTP binder so a
+// non-HTTP caller cannot reach the store with an unsupported value.
+func normalizeCompletion(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	switch trimmed {
+	case "", TaskCompletionSolved, TaskCompletionUnsolved:
+		return trimmed, nil
+	default:
+		return "", Invalid("query.completion", "unknown completion filter", "INVALID_VALUE")
+	}
 }
 
 func taskStatus(task Task) string {

@@ -50,6 +50,9 @@ type BoardMe struct {
 	// score
 	Score *int64 `json:"score,omitempty"`
 
+	// task progress
+	TaskProgress *TaskProgress `json:"taskProgress,omitempty"`
+
 	// team
 	Team *Team `json:"team,omitempty"`
 }
@@ -83,6 +86,10 @@ func (m *BoardMe) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validatePreview(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTaskProgress(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -202,6 +209,29 @@ func (m *BoardMe) validatePreview(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *BoardMe) validateTaskProgress(formats strfmt.Registry) error {
+	if typeutils.IsZero(m.TaskProgress) { // not required
+		return nil
+	}
+
+	if m.TaskProgress != nil {
+		if err := m.TaskProgress.Validate(formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("taskProgress")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("taskProgress")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *BoardMe) validateTeam(formats strfmt.Registry) error {
 	if typeutils.IsZero(m.Team) { // not required
 		return nil
@@ -234,6 +264,10 @@ func (m *BoardMe) ContextValidate(ctx context.Context, formats strfmt.Registry) 
 	}
 
 	if err := m.contextValidateParticipationMode(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateTaskProgress(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -288,6 +322,31 @@ func (m *BoardMe) contextValidateParticipationMode(ctx context.Context, formats 
 			ce := new(errors.CompositeError)
 			if stderrors.As(err, &ce) {
 				return ce.ValidateName("participationMode")
+			}
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *BoardMe) contextValidateTaskProgress(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.TaskProgress != nil {
+
+		if typeutils.IsZero(m.TaskProgress) { // not required
+			return nil
+		}
+
+		if err := m.TaskProgress.ContextValidate(ctx, formats); err != nil {
+			ve := new(errors.Validation)
+			if stderrors.As(err, &ve) {
+				return ve.ValidateName("taskProgress")
+			}
+			ce := new(errors.CompositeError)
+			if stderrors.As(err, &ce) {
+				return ce.ValidateName("taskProgress")
 			}
 
 			return err
