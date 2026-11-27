@@ -1178,3 +1178,22 @@ stack.
 
 Published state is unchanged: GHCR `latest` still resolves to the baseline `0da549e` images. Nothing from
 this pass, and nothing from the desktop UI work, is published until this reaches `main` and a new run passes.
+
+## Quieter student UI (2026-11-27)
+
+Status: **partial — implementation and local verification complete; independent review and publication pending.**
+Spec `docs/superpowers/specs/2026-11-27-quieter-student-ui-design.md`, plan
+`docs/superpowers/plans/2026-11-27-quieter-student-ui.md`, evidence `docs/quieter-student-ui-verification.md`.
+Base `08a6df4`; local commits only, nothing pushed.
+
+Implemented: unframed task description (`section[aria-label="Task description"]`), flag/manual submission
+surfaces and history; one compact accepted/solved/review outcome using the response's `scoreAwarded`; concise
+wrong-flag/network copy; duplicate solved badge and duplicate form status pills removed; card outlines replaced
+by spacing plus existing hover/focus cues; student standing/participate/pentest frames removed; instance
+developer copy and the fabricated-log placeholder removed. No API, authorization, persistence, TTL,
+dependency or configuration change.
+
+Verified locally: RED 14/28 before implementation; 416 frontend unit tests, typecheck and build pass; 12
+real-browser checks and 12 geometry samples (375/1024/1440/1920) pass; `desktop-workspaces` 16 desktop + 5
+phone tests pass; `rich-text-editor` 1 test passes. The full-stack 18-spec Docker gate and publication remain
+pending; its helper is unsafe beside the live operator stack. Nothing is published.
