@@ -128,6 +128,11 @@ async function selectCodeLanguage(dialog: Locator, label: string): Promise<void>
   // `aria-pressed` is the toggle's own state; `data-state` belongs to the
   // tooltip wrapper, so it is not the pressed condition.
   await expect(codeBlock).toHaveAttribute('aria-pressed', 'true')
+  // The formatting controls cancel the browser's default mousedown, so the
+  // contenteditable keeps focus and the caret stays inside the new block. If
+  // that invariant regresses, fail here with the cause instead of letting the
+  // next keystrokes land in the previous paragraph.
+  await expect(dialog.locator('.ProseMirror')).toBeFocused()
   // While the listbox is open reka-ui hides the rest of the tree from the
   // accessibility tree (the dialog's role stops resolving), so the trigger and
   // the option are addressed at page level and by their stable attributes.

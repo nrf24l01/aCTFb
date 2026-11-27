@@ -46,6 +46,33 @@ describe('toolbar', () => {
     wrapper.unmount()
   })
 
+  it('keeps the editable selection when a formatting control is pressed', async () => {
+    // A toolbar press must not move focus to the button. When the browser is
+    // allowed to blur the contenteditable between mousedown and click, the
+    // command can run against a selection that is no longer in the document,
+    // which silently drops the first typed character (or the whole toggle).
+    const wrapper = mountEditor('plain')
+    await flushPromises()
+
+    const editable = document.querySelector<HTMLElement>('.ProseMirror')!
+    editable.focus()
+    expect(document.activeElement).toBe(editable)
+
+    const observed: Array<{ label: string; prevented: boolean; active: Element | null }> = []
+    for (const label of ['Bold', 'Bullet list', 'Code block']) {
+      const control = document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!
+      const mousedown = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+      control.dispatchEvent(mousedown)
+      observed.push({ label, prevented: mousedown.defaultPrevented, active: document.activeElement })
+    }
+    wrapper.unmount()
+
+    for (const entry of observed) {
+      expect(entry.prevented, `${entry.label} must not hand focus to the button`).toBe(true)
+      expect(entry.active, `${entry.label} must keep the editable focused`).toBe(editable)
+    }
+  })
+
   it('does not render the code-language picker outside a code block', async () => {
     const wrapper = mountEditor('plain text\n\n```python\nx = 1\n```')
     await flushPromises()

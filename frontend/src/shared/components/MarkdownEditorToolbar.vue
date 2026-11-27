@@ -39,6 +39,13 @@ import { DEFAULT_CODE_LANGUAGE, HIGHLIGHT_LANGUAGES } from '@/shared/lib/highlig
  * them; nothing depends on colour alone. Active marks come from
  * `editor.isActive(...)` re-read on each transaction, so the state never goes
  * stale after a keyboard shortcut or a selection change.
+ *
+ * Command buttons cancel the default mousedown. Without that, the browser
+ * moves focus to the button before `click`, and the command can run against a
+ * selection the contenteditable has already lost: the toggle then does nothing
+ * or the first typed character after it is dropped. Cancelling mousedown keeps
+ * the editable focused and the selection intact, which is also why the command
+ * chain's `focus()` is a no-op in the common case.
  */
 
 const props = withDefaults(
@@ -196,6 +203,7 @@ const insertControls: ToolbarControl[] = [
             type="button"
             aria-label="Undo"
             :disabled="isDisabled || !canRun('undo')"
+            @mousedown.prevent
             @click="undo"
           >
             <Undo2Icon />
@@ -211,6 +219,7 @@ const insertControls: ToolbarControl[] = [
             type="button"
             aria-label="Redo"
             :disabled="isDisabled || !canRun('redo')"
+            @mousedown.prevent
             @click="redo"
           >
             <Redo2Icon />
@@ -248,6 +257,7 @@ const insertControls: ToolbarControl[] = [
             :aria-label="control.label"
             :disabled="control.disabled()"
             size="sm"
+            @mousedown.prevent
             @update:model-value="control.activate()"
           >
             <component :is="control.icon" />
@@ -265,6 +275,7 @@ const insertControls: ToolbarControl[] = [
             :aria-label="control.label"
             :disabled="control.disabled()"
             size="sm"
+            @mousedown.prevent
             @update:model-value="control.activate()"
           >
             <component :is="control.icon" />
@@ -283,6 +294,7 @@ const insertControls: ToolbarControl[] = [
             type="button"
             aria-label="Link"
             :disabled="isDisabled"
+            @mousedown.prevent
             @click="emit('requestLink')"
           >
             <LinkIcon />
@@ -298,6 +310,7 @@ const insertControls: ToolbarControl[] = [
             :aria-label="control.label"
             :disabled="control.disabled()"
             size="sm"
+            @mousedown.prevent
             @update:model-value="control.activate()"
           >
             <component :is="control.icon" />
