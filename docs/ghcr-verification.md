@@ -1,10 +1,55 @@
 # GHCR publication verification
 
-Status: **published and verified from `main` at commit `5ac573f`** (desktop workspaces, direct authoring,
-plus the CI pipeline change). Ten separate images are publicly pullable without registry credentials, each
-with `latest` and an immutable `sha-<full-sha>` tag resolving to the same digest.
+Status: **published and verified from `main` at commit `bc266be`** (quieter student UI: less routine copy,
+fewer decorative borders, semantic success ink). Ten separate images are publicly pullable without registry
+credentials, each with `latest` and an immutable `sha-<full-sha>` tag resolving to the same digest.
 
-## Current publication (`5ac573f`)
+## Current publication (`bc266be`)
+
+| Field | Value |
+| --- | --- |
+| Workflow run (push) | https://github.com/nrf24l01/aCTFb/actions/runs/45974501044 |
+| Commit (image source) | `bc266beafdb78aeaea22c2d16de3b0037c3b4615` |
+| `main` HEAD at publication record | `bc266be` — same commit; the docs update that records this publication touches only `docs/`, which the workflow path filter excludes, so no further run or image rebuild is expected |
+| Conclusion | success 4/4 (Backend quality, Frontend quality, Integration, Publish images) |
+| Run duration | 09:32:04Z → 09:50:05Z (~18 min) |
+| Immutable tag | `sha-bc266beafdb78aeaea22c2d16de3b0037c3b4615` |
+| Platform | `linux/amd64` only (read from each image config) |
+| Registry visibility | public; anonymous manifest + config-blob reads for all ten images (no stored credentials, no tokens printed) |
+| `latest` vs `sha-*` | same manifest digest for every image, verified on all ten |
+| `org.opencontainers.image.revision` | `bc266beafdb78aeaea22c2d16de3b0037c3b4615` on all ten |
+| `org.opencontainers.image.version` | `sha-bc266be…` |
+| Provenance attestations | none; single OCI image manifests |
+
+| Image | Digest | Compressed |
+| --- | --- | --- |
+| `actfb-backend` | `sha256:6cb218a54d4d4afdc850d04eac45606b3aaea03783a8468f0937813da609bb0d` | 20,454,126 B |
+| `actfb-frontend` | `sha256:9229964e5dbd8a65bbaf681061f343b26ee1fdb722619c4f29ef8c7c986260af` | 23,877,220 B |
+| `actfb-notification` | `sha256:1fa9bc772fc5c9890a3125cd57cd04721443d6a0f0d8a310284b8386a7982015` | 12,342,732 B |
+| `actfb-retention` | `sha256:12c61569398f779511194d6ac0da40d711d4495e61a8a6d2130c24057bcbe33f` | 10,940,563 B |
+| `actfb-events-dispatcher` | `sha256:73dae0459cc59a733daa54ee1c67d0730bfee4158e4624b4a491c4feb98d63d9` | 12,001,243 B |
+| `actfb-file-scanner` | `sha256:3c77641dff2927583840cc30a6f3cdd0216da129401c08ef4bd2799f02ec7253` | 13,359,289 B |
+| `actfb-storage-init` | `sha256:c96f2beef5451946866f26e009d2bd52d2df6619e4f4ab3a574a267400fd4189` | 10,956,257 B |
+| `actfb-plugin-runner` | `sha256:4767c35e316435e31579c08db3821f7a41de65269270e35dc1f28d343056be87` | 10,292,879 B |
+| `actfb-ad-worker` | `sha256:373c60909c99590b6dbbdbd1d9f7784154561ba11b3cb8198cd5c111b211bf6c` | 27,023,864 B |
+| `actfb-instance-worker` | `sha256:8b97083e2c92e95a709c2e9ef5921830c21f6b946a9d7ff7cc8e86234835bca1` | 13,932,167 B |
+
+Total compressed 155,180,340 B.
+
+Verification method: each package was resolved over HTTPS against `ghcr.io` with an anonymous pull token
+obtained per repository; the tag manifest digest was compared between `latest` and `sha-bc266be…`, the config
+blob was read for `os`/`architecture` and the OCI labels, and layer sizes were summed. Raw output:
+`/tmp/opencode/quieter-student-ui/ghcr-verify.json`. No credential, cookie or token value is recorded here.
+
+Published frontend assets were inspected from the published image layers only (not a full application run):
+the static bundle contains `Incorrect flag. Try again.`, `text-status-success-ink` and `Awaiting review`, and
+contains neither `Already solved` nor `points awarded`.
+
+This publication ships the quieter student UI. **There is no migration, no `config.yaml` and no `.env` change**
+in this range and no `/api/v2` contract change, so operators only need `docker compose pull && docker compose
+up -d` in `deploy/`; nothing new is applied on boot.
+
+## Previous publication (`5ac573f`)
 
 | Field | Value |
 | --- | --- |

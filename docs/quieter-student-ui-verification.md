@@ -1,8 +1,11 @@
 # Quieter student UI verification
 
-Status: **implemented and locally verified; independent review and publication pending.** Base `08a6df4`.
+Status: **published and verified.** Source `bc266beafdb78aeaea22c2d16de3b0037c3b4615`, CI run
+https://github.com/nrf24l01/aCTFb/actions/runs/45974501044 — success 4/4 (Backend quality, Frontend quality,
+Integration, Publish images). Base of the slice: `08a6df4`.
 Spec: `docs/superpowers/specs/2026-11-27-quieter-student-ui-design.md`.
 Plan: `docs/superpowers/plans/2026-11-27-quieter-student-ui.md`.
+Registry evidence: `docs/ghcr-verification.md`.
 
 This is a presentation-only slice. No backend, API, authorization, persistence, configuration, dependency or
 TTL change is included. All request payloads, idempotency keys, verdicts, score values, history rows and
@@ -187,15 +190,52 @@ New gates after this wave: 419 unit tests (45 files; 3 new contrast/semantic ass
 `desktop-workspaces` 16 desktop + 5 phone, `rich-text-editor` 1, 12 real-browser checks + 12 geometry samples,
 4 success lines + pixel proof, and the local full-stack 18-spec run above.
 
+## Publication and CI result
+
+| Field | Value |
+| --- | --- |
+| Source commit (image source) | `bc266beafdb78aeaea22c2d16de3b0037c3b4615` |
+| `main` HEAD at publication | `bc266be` (same commit; this docs update touches only `docs/`, which the workflow path filter excludes, so no further run or rebuild is expected) |
+| Workflow run | https://github.com/nrf24l01/aCTFb/actions/runs/45974501044 |
+| Conclusion | **success 4/4** — Backend quality, Frontend quality, Integration, Publish images |
+| Run start / finish | 09:32:04Z → 09:50:05Z (~18 min) |
+| Immutable tag | `sha-bc266beafdb78aeaea22c2d16de3b0037c3b4615` on all ten images |
+| Registry | public; all ten verified by anonymous manifest + config-blob reads (`latest` digest equals the `sha-*` digest, `linux/amd64`, `org.opencontainers.image.revision` = source commit) |
+| Published frontend assets | contain `Incorrect flag. Try again.`, `text-status-success-ink` and `Awaiting review`; no `Already solved` and no `points awarded` string |
+
+Counts read from the job logs of that run (not inferred):
+
+| Job | Step | Result |
+| --- | --- | --- |
+| Backend quality | Test all packages / Race detector | **50 packages `ok`, 13 without test files, 0 FAIL** (both runs) |
+| Frontend quality | Unit tests | **45 files, 419 tests passed** |
+| Frontend quality | Typecheck / build | pass / `built in 1.25s` |
+| Integration | Real-browser acceptance (`p1-core`) | **1 passed** |
+| Integration | Default-profile acceptance | **5 passed**, then **69 passed / 21 project-exclusive skipped** |
+| Integration | Full-stack acceptance (`full-stage` + `organizer-ux`) | **18 passed** |
+| Integration | Isolated P0 / P1 HTTP / RustFS integration | `ok` (42.2 s / 75.5 s / 67.9 s) |
+| Integration | Real PostgreSQL auth / admin CLI / domain+boot / retention / Redis | `ok` (9.8 s / 1.1 s / 1.3 s / 2.3 s / 0.004 s) |
+| Integration | Migration backfill and down/up | `ok` (2.3 s) |
+| Integration | Packaging contract / CI-contract / cleanup guards | **424 / 14 / 21 checks passed, 0 failed** |
+| Integration | Production image runtime + auth/proxy smokes | `PASS` |
+| Publish images | Publish containers + summary | success; ten digests recorded in `docs/ghcr-verification.md` |
+
+The `ManualSubmissionForm` `ACCEPTED` branch is unreachable through the browser (a manual submission answers
+`PENDING_REVIEW`), so it is covered by a unit assertion and the browser token probe; no synthetic product
+workflow was invented to exercise it. The manual *history* pill contrast (7.75:1 on its tinted surface) is
+lower than the 11.74:1 black-background figure and is reported as measured.
+
 ## Limits
 
 - Network failure is a clearly labelled simulated abort of one POST, not a real outage.
 - Runtime instances are disabled in the default profile; `InstancePanel` copy was checked by source and unit
   tests, not by starting a real instance.
 - One scripted student account; this is not a usability study.
-- The CI full-stack suite is the remaining execution gate. Nothing is pushed or published before review.
+- The `ManualSubmissionForm` accepted branch is unreachable in the real flow; see above.
 
 ## Cleanup
 
 The owned PostgreSQL cluster, backend and Vite process groups were stopped with
-`/tmp/opencode/quieter-student-ui/stack.sh stop`; no operator resource was started, stopped or pruned.
+`/tmp/opencode/quieter-student-ui/stack.sh stop`; no operator resource was started, stopped or pruned. The
+operator stack (`actfb-prod`, 7 containers, port 8080) was untouched throughout, and its container/volume
+counts were unchanged before and after the local runs.

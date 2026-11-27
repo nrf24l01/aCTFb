@@ -1182,10 +1182,13 @@ this pass, and nothing from the desktop UI work, is published until this reaches
 
 ## Quieter student UI (2026-11-27)
 
-Status: **partial — implementation and local verification complete; independent review and publication pending.**
+Status: **published and verified.** Source `bc266beafdb78aeaea22c2d16de3b0037c3b4615`, CI run
+https://github.com/nrf24l01/aCTFb/actions/runs/45974501044 — success 4/4 (Backend quality, Frontend quality,
+Integration, Publish images), ~18 min. All ten images verified anonymously on GHCR (`latest` digest equals
+`sha-bc266be…`, `linux/amd64`, revision = source commit): `docs/ghcr-verification.md`.
 Spec `docs/superpowers/specs/2026-11-27-quieter-student-ui-design.md`, plan
 `docs/superpowers/plans/2026-11-27-quieter-student-ui.md`, evidence `docs/quieter-student-ui-verification.md`.
-Base `08a6df4`; local commits only, nothing pushed.
+Base `08a6df4`.
 
 Implemented: unframed task description (`section[aria-label="Task description"]`), flag/manual submission
 surfaces and history; one compact accepted/solved/review outcome using the response's `scoreAwarded`; concise
@@ -1203,4 +1206,13 @@ semantic success ink `--status-success-ink` `#9ccf8f` (11.74:1), asserted by uni
 rendered pixels; the card `transition-colors` was removed; the history `Rejected` assertion is restored; and
 the full-stack 18-spec Docker gate now **passes locally** (`18 passed (4.2m)`, 0 new containers/volumes).
 419 unit tests, typecheck, build, both `desktop-workspaces` projects, `rich-text-editor`, the real-browser
-script and the pixel proof all pass. Publication and CI remain pending. Nothing is published.
+script and the pixel proof all pass.
+
+Published CI counts from the run logs: Backend quality 50 packages `ok` (13 without test files, 0 failures,
+also under the race detector), Frontend quality 45 files / 419 tests plus typecheck and build, Integration
+`p1-core` 1 passed, default-profile 5 + 69 passed with 21 project-exclusive skips, full-stack 18 passed, all
+real-PostgreSQL/Redis/migration groups `ok`, packaging 424 checks, CI-contract 14 and cleanup-guard 21 checks,
+production image and auth/proxy smokes `PASS`, Publish images success. Published frontend assets contain
+`Incorrect flag. Try again.`, `text-status-success-ink` and `Awaiting review`, and no `Already solved` /
+`points awarded` strings. No migration, `config.yaml`, `.env` or `/api/v2` change, so operators only run
+`docker compose pull && docker compose up -d` in `deploy/`.
