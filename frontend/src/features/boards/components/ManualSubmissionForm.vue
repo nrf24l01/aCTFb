@@ -58,7 +58,7 @@ const outcome = computed(() => {
 })
 
 const outcomeTone = computed(() => {
-  if (verdict.value?.status === 'ACCEPTED') return 'text-pine'
+  if (verdict.value?.status === 'ACCEPTED') return 'text-status-success-ink'
   if (verdict.value?.status === 'REJECTED') return 'text-love'
   return 'text-gold'
 })

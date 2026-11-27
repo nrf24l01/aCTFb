@@ -72,7 +72,7 @@ const outcome = computed(() => {
 })
 
 const outcomeTone = computed(() => {
-  if (verdict.value?.status === 'ACCEPTED') return 'text-pine'
+  if (verdict.value?.status === 'ACCEPTED') return 'text-status-success-ink'
   if (verdict.value?.status === 'REJECTED') return 'text-love'
   return 'text-muted-foreground'
 })
@@ -157,7 +157,7 @@ async function retry() {
       <Alert v-else-if="outcome" class="border-0 bg-transparent px-0 py-0" :class="outcomeTone">
         <AlertTitle>{{ outcome }}</AlertTitle>
       </Alert>
-      <Alert v-else-if="task.solved" class="border-0 bg-transparent px-0 py-0 text-pine">
+      <Alert v-else-if="task.solved" class="border-0 bg-transparent px-0 py-0 text-status-success-ink">
         <CircleCheckIcon aria-hidden="true" class="size-4" />
         <AlertTitle>Solved</AlertTitle>
       </Alert>

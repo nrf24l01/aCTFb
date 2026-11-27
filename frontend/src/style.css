@@ -69,6 +69,7 @@
   --color-status-attention-surface: var(--status-attention-surface);
   --color-status-attention-border: var(--status-attention-border);
   --color-status-error-ink: var(--status-error-ink);
+  --color-status-success-ink: var(--status-success-ink);
 
   --radius-sm: 0px;
   --radius-md: 0px;

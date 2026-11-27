@@ -10,7 +10,7 @@ defineProps<{ module: ModuleListItem }>()
 <template>
   <RouterLink
     :to="`/boards/${module.boardUuid}/modules/${module.uuid}`"
-    class="block bg-black px-4 py-3 transition-colors hover:bg-muted focus-visible:outline-offset-4"
+    class="block bg-black px-4 py-3 hover:bg-muted focus-visible:outline-offset-4"
   >
     <div class="flex flex-wrap items-center justify-between gap-2">
       <h3 class="font-semibold">{{ module.name }}</h3>
