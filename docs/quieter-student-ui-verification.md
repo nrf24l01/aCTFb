@@ -75,7 +75,7 @@ cd frontend && bun run test -- \
 
 # Green
 cd frontend && bun run test -- --maxWorkers=1
-# 45 files, 416 tests passed
+# 45 files, 419 tests passed
 
 cd frontend && bun run typecheck
 cd frontend && bun run build
@@ -111,11 +111,18 @@ cd frontend && bunx playwright test e2e/rich-text-editor.spec.ts --project=chrom
 # 1 passed
 ```
 
-The full-stack 18-spec Docker gate (`run-full-e2e.sh full-stage.spec.ts organizer-ux.spec.ts`) was **not**
-run locally: its helper owns and force-removes containers and is unsafe beside the live operator stack. The
-affected full-stack selectors were pre-audited and updated; the actual CI run remains the publication gate.
+The full-stack 18-spec Docker gate (`run-full-e2e.sh full-stage.spec.ts organizer-ux.spec.ts`) now **passes
+locally**: `18 passed (4.2m)`, `0 new containers, 0 new volumes`, core and Vue artifact hashes unchanged. It
+was deferred in the first wave only because a second full Docker stack (PostgreSQL, NATS, RustFS, ClamAV) costs
+CPU/RAM and the final CI run is the publication gate — not because of cleanup danger. `e2e/lib/run-cleanup.sh`
+removes only exact owned names on any host and permits broad removal solely on a hosted ephemeral GitHub
+runner (`GITHUB_ACTIONS=true` **and** `RUNNER_ENVIRONMENT=github-hosted`); beside a live operator stack it
+refuses and reports instead of deleting. Observed locally: RustFS writes its temp data as uid 10001, so the
+harness workdir `rm -rf` cannot unlink those files as the invoking user; the leftover directory was removed
+with a throwaway container and no container or volume was left behind.
 `frontend/e2e/board-flow.spec.ts` was updated but not executed because it needs `E2E_PROVISIONER_URL` to join
-its private fixture; the equivalent wrong→accepted→history path is covered by the real-browser run above.
+its private fixture; the equivalent wrong→accepted→history path is covered by the real-browser run above, and
+the spec now asserts the history row's real `Rejected` status.
 
 ## Screenshots
 
@@ -126,12 +133,59 @@ After (this slice, `/tmp/opencode/quieter-student-ui/`):
 `taskUnsolved`, `taskWrong`, `taskAccepted`, `taskAlreadySolved`, `taskManualPending`,
 `boardmodulecards`, `module-tasks` at phone 375.
 
+Fix-wave captures with animations disabled (contrast evidence): `fix-taskAccepted-desktop-1440`,
+`fix-taskAlreadySolved-desktop-1440`, `fix-taskManualPending-desktop-1440`,
+`fix-taskManualAccepted-desktop-1440`, `fix-taskAlreadySolved-phone-375`; the accepted phone state is
+`taskAccepted-phone-375`.
+
 Before (base `08a6df4`, `/tmp/opencode/student-ux-audit/shots/`):
 `10-task-read-1440`, `11-wrong-flag-1440`, `12-accepted-flag-1440`, `33-task-solved-1920`,
 `44-phone-task-read-375`, `45-phone-wrong-flag-375`, `46-phone-accepted-375`,
 `49-phone-manual-pending-375`, `08-joined-board-1440`, `09-module-http-1440`.
 
 Main owns the visual judgement of these images.
+
+## Review fix wave (contrast + evidence truth)
+
+The independent review requested two changes; both are implemented and verified.
+
+**Success ink.** The compact `Accepted` and `Solved` lines used the brand accent `--pine` (`#31748f`), which
+measures **4.03:1** on black — below the 4.5:1 bar for normal text — and mismatched the green `Solved` pill.
+They now use the existing semantic success ink. `frontend/src/style.css` maps
+`--color-status-success-ink: var(--status-success-ink)` in the `@theme inline` block (the same narrow pattern
+already used for the attention/error tones), and `FlagSubmitForm.vue` (`ACCEPTED` tone and the `Solved` line)
+plus `ManualSubmissionForm.vue` (`ACCEPTED` tone) use `text-status-success-ink`. No global palette, primitive
+or organizer change; the check icon inherits `currentColor`.
+
+| Location | Rendered colour | Background | Contrast |
+| --- | --- | --- | --- |
+| Flag accepted, 1440 | `#9ccf8f` | `#000000` | **11.74:1** |
+| Flag solved, 1440 | `#9ccf8f` | `#000000` | **11.74:1** |
+| Flag accepted, 375 | `#9ccf8f` | `#000000` | **11.74:1** |
+| Flag solved, 375 | `#9ccf8f` | `#000000` | **11.74:1** |
+| Manual accepted (history pill), 1440 | `#9ccf8f` | `#292d31` | **7.75:1** |
+| Manual pending, 1440 (unchanged) | `#f6c177` | `#000000` | 12.81:1 |
+
+Evidence: `contrast.json` (computed styles in Chromium) and `pixel-proof.json` (exact pixels in the committed
+PNG captures, 0 old-pine pixels in every success image). The `ManualSubmissionForm` `ACCEPTED` branch is not
+reachable through the normal review flow (a manual submit answers `PENDING_REVIEW`), so its colour is covered
+by a unit assertion on the semantic token plus the in-browser `text-status-success-ink` probe that resolves to
+`rgb(156, 207, 143)`.
+
+**Evidence hygiene.** The accepted screenshot had caught the shared `Badge` mid colour transition (cyan while
+the label already read `Solved`). Captures now pass `animations: 'disabled'` and the run waits for the header
+pill's settled success ink before asserting and shooting; the mapping was never wrong.
+
+**History classification.** `frontend/e2e/board-flow.spec.ts` and the real-browser script again assert the
+history row's real `Rejected` status after a wrong flag, scoped to the history table, so the concise form copy
+does not hide the server classification.
+
+**Animation rule.** `transition-colors` was removed from `ModuleCard`/`TaskCard`; hover feedback is immediate,
+so the slice adds no new transition.
+
+New gates after this wave: 419 unit tests (45 files; 3 new contrast/semantic assertions), typecheck, build,
+`desktop-workspaces` 16 desktop + 5 phone, `rich-text-editor` 1, 12 real-browser checks + 12 geometry samples,
+4 success lines + pixel proof, and the local full-stack 18-spec run above.
 
 ## Limits
 

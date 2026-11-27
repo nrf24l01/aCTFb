@@ -1174,7 +1174,8 @@ plus 11 self-test fixtures, and 19 failures against the pre-change workflow (gat
 scoped full gate, the scoped `run-e2e.sh` and the unchanged operator default. `actionlint` was **not** run —
 not installed on this host. The full-stack runner was **not** executed locally: its cleanup force-removes every
 container created during the run, which is correct on an ephemeral CI host and unsafe beside the live operator
-stack.
+stack. (Superseded 2026-11-27: `e2e/lib/run-cleanup.sh` now removes only exact owned names on any host and
+refuses broad removal outside a hosted ephemeral runner; see the quieter-student-ui entry below.)
 
 Published state is unchanged: GHCR `latest` still resolves to the baseline `0da549e` images. Nothing from
 this pass, and nothing from the desktop UI work, is published until this reaches `main` and a new run passes.
@@ -1195,5 +1196,11 @@ dependency or configuration change.
 
 Verified locally: RED 14/28 before implementation; 416 frontend unit tests, typecheck and build pass; 12
 real-browser checks and 12 geometry samples (375/1024/1440/1920) pass; `desktop-workspaces` 16 desktop + 5
-phone tests pass; `rich-text-editor` 1 test passes. The full-stack 18-spec Docker gate and publication remain
-pending; its helper is unsafe beside the live operator stack. Nothing is published.
+phone tests pass; `rich-text-editor` 1 test passes.
+
+Review fix wave: the compact success lines moved from the brand accent `--pine` (4.03:1 on black) to the
+semantic success ink `--status-success-ink` `#9ccf8f` (11.74:1), asserted by unit tests and measured from
+rendered pixels; the card `transition-colors` was removed; the history `Rejected` assertion is restored; and
+the full-stack 18-spec Docker gate now **passes locally** (`18 passed (4.2m)`, 0 new containers/volumes).
+419 unit tests, typecheck, build, both `desktop-workspaces` projects, `rich-text-editor`, the real-browser
+script and the pixel proof all pass. Publication and CI remain pending. Nothing is published.
