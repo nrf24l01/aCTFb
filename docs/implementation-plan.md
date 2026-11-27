@@ -1219,9 +1219,17 @@ production image and auth/proxy smokes `PASS`, Publish images success. Published
 
 ## UI emoji audit and back-link icons (2026-11-27)
 
-Status: **implemented locally, pending MAIN review.** No app-owned emoji exist in rendered UI; the
-only decorative text affordance was the `‹` back-link prefix on seven pages, now a Lucide
-`ChevronLeftIcon` (`aria-hidden`, `fill="none" stroke="currentColor"`, 14 px). Details and evidence:
-`docs/ui-icons-verification.md`. 421 frontend unit tests, typecheck and build pass; browser geometry
-sampled at 1440×900 and 390×844. User-authored Markdown, tests fixtures and docs prose keep their
-emoji. No API, RBAC, migration, sanitizer, dependency or config change.
+Status: **published and verified.** Source `f10fbf5`, published from `main` at
+`3ac89c04fa0f9c41a4263093f099fb9a0a9fa987` (the source commit plus the review-artifact commit), CI run
+https://github.com/nrf24l01/aCTFb/actions/runs/45982934703 — success 4/4, 10:32:18Z → 10:57:49Z. CI
+counts from the run logs: Frontend quality 45 files / 421 tests plus typecheck and build; Backend
+quality 50 packages `ok`, 13 without test files, 0 failures; Integration `p1-core` 1 passed,
+default-profile 5 + 69 passed, full-stack 18 passed, packaging 424 / CI-contract 14 / cleanup-guard 21
+checks. All ten GHCR images verified anonymously — `latest` digest equals `sha-3ac89c0…`, `linux/amd64`,
+`org.opencontainers.image.revision` = the full source SHA: `docs/ghcr-verification.md`.
+
+No app-owned emoji exist in rendered UI; the only decorative text affordance was the `‹` back-link
+prefix on seven pages, now a Lucide `ChevronLeftIcon` (`aria-hidden`, `fill="none"
+stroke="currentColor"`, 14 px). Details and evidence: `docs/ui-icons-verification.md`. User-authored
+Markdown, test fixtures and docs prose keep their emoji. No API, RBAC, migration, sanitizer, dependency
+or config change, so operators only run `docker compose pull && docker compose up -d` in `deploy/`.

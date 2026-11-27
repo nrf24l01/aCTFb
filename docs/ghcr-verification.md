@@ -1,10 +1,52 @@
 # GHCR publication verification
 
-Status: **published and verified from `main` at commit `bc266be`** (quieter student UI: less routine copy,
-fewer decorative borders, semantic success ink). Ten separate images are publicly pullable without registry
-credentials, each with `latest` and an immutable `sha-<full-sha>` tag resolving to the same digest.
+Status: **published and verified from `main` at commit `3ac89c0`** (UI icon cleanup: the seven `‹`
+back-link prefixes are now Lucide `ChevronLeftIcon` SVGs). Ten separate images are publicly pullable
+without registry credentials, each with `latest` and an immutable `sha-<full-sha>` tag resolving to the
+same digest.
 
-## Current publication (`bc266be`)
+## Current publication (`3ac89c0`)
+
+| Field | Value |
+| --- | --- |
+| Workflow run (push) | https://github.com/nrf24l01/aCTFb/actions/runs/45982934703 |
+| Commit (image source) | `3ac89c04fa0f9c41a4263093f099fb9a0a9fa987` |
+| `main` HEAD at publication record | `3ac89c0` — same commit; the docs update that records this publication touches only `docs/`, which the workflow path filter excludes, so no further run or image rebuild is expected |
+| Conclusion | success 4/4 (Backend quality, Frontend quality, Integration, Publish images) |
+| Run duration | 10:32:18Z → 10:57:49Z (~25.5 min) |
+| Immutable tag | `sha-3ac89c04fa0f9c41a4263093f099fb9a0a9fa987` |
+| Platform | `linux/amd64` only (read from each image config) |
+| Registry visibility | public; anonymous manifest + config-blob reads for all ten images (no stored credentials, no tokens printed) |
+| `latest` vs `sha-*` | same manifest digest for every image, verified on all ten |
+| `org.opencontainers.image.revision` | `3ac89c04fa0f9c41a4263093f099fb9a0a9fa987` on all ten |
+| `org.opencontainers.image.version` | `sha-3ac89c0…` |
+| Provenance attestations | none; single OCI image manifests |
+
+| Image | Digest | Compressed |
+| --- | --- | --- |
+| `actfb-backend` | `sha256:e8f76359c80b270a5eae2f9840289e51e72ff6f854d593ab6bdfda587a73471a` | 20,454,124 B |
+| `actfb-frontend` | `sha256:a8be52e1507a2499f0156fa4527d45ede6751476ceacfd561a5e278ece72ffc1` | 23,877,481 B |
+| `actfb-notification` | `sha256:6d1f09b8f12bfd36e59e7db987c693d3c94e7a425193a5ba806d3db6290abbc1` | 12,342,732 B |
+| `actfb-retention` | `sha256:1b9ab597092ab3ac53cfd14feced5dfc6ddb61cb4aeaeff1635292767eb62262` | 10,940,563 B |
+| `actfb-events-dispatcher` | `sha256:b2b9f0a33be4b1f9d591e412fa7477be62bea8585a021f5f6d8310324cd5910d` | 12,001,243 B |
+| `actfb-file-scanner` | `sha256:b4aeda7744f0b3103d7af040efcb26ea8849e9621289c0c60c66c9c15b8d881c` | 13,359,289 B |
+| `actfb-storage-init` | `sha256:42f7434360c0ab5e30c0388dd492d91bed0959f6991662c8166f788a72ef6c83` | 10,956,257 B |
+| `actfb-plugin-runner` | `sha256:c9ee531d5d2c8b5af49a5f150566514046413a0a7bf97acd6f1200f8a93614bc` | 10,292,879 B |
+| `actfb-ad-worker` | `sha256:8ff17e908b906948ce64b38259bb9f7003acc3cd471cc979e10c6ce0f3f8275f` | 27,023,875 B |
+| `actfb-instance-worker` | `sha256:3d398b0d67112dba1e8ffa3911ac38a8b6fd4f4e6121409f4c205986e6aeb3c1` | 13,932,167 B |
+
+Total compressed 155,180,610 B.
+
+Verification method: each package was resolved over HTTPS against `ghcr.io` with an anonymous pull token
+obtained per repository; the `latest` manifest digest was compared with the `sha-3ac89c0…` manifest digest,
+the config blob was read for `os`/`architecture` and the OCI labels, and layer sizes were summed. Raw
+output: `/tmp/opencode/ui-icons/ghcr-verify.json`. No credential, cookie or token value is recorded here.
+
+This publication ships the UI icon cleanup. **There is no migration, no `config.yaml` and no `.env` change**
+in this range and no `/api/v2` contract change, so operators only need `docker compose pull && docker compose
+up -d` in `deploy/`; nothing new is applied on boot.
+
+## Previous publication (`bc266be`)
 
 | Field | Value |
 | --- | --- |

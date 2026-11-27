@@ -49,8 +49,8 @@ Accessible link text is the same human label as before (`Board`, `Admin boards`,
 
 - RED first: `ModulePage.test.ts` asserted an `svg` inside the back link before the change and
   failed (`expected false to be true`).
-- `bunx vitest run --maxWorkers=1`: **421 passed / 45 files** (419 before + 2 new assertions:
-  `ModulePage.test.ts` student back link, `AdminBoardPage.test.ts` admin back link; both assert an
+- `bunx vitest run --maxWorkers=1`: **421 passed / 45 files** (419 before + 2 new tests:
+  `ModulePage.test.ts` staff-preview back link, `AdminBoardPage.test.ts` admin back link; both assert an
   SVG icon, unchanged link text and no literal `‹`).
 - `bunx vue-tsc -b`: clean. `bunx vite build`: success (pre-existing >500 kB chunk warning only).
   Built chunks contain `chevron-left` and no `‹`.
@@ -59,8 +59,29 @@ Accessible link text is the same human label as before (`Board`, `Admin boards`,
   `fill="none"`, `stroke="currentColor"`, 14×14 px, link text `Board`, no `‹` on the page.
   Screenshots: `/tmp/opencode/ui-icons/back-link-{desktop,phone}.png`.
 
-Not run: the 18-spec Docker gate, e2e suites and any second backend stack — the change is a pure
-inline SVG swap, and the unit DOM plus browser geometry above cover it. Nothing published.
+Not run locally: the 18-spec Docker gate and a second backend stack — the change is a pure inline SVG
+swap, and the unit DOM plus browser geometry above cover it.
+
+## Publication
+
+**Published and verified from `main` at `3ac89c0`** (source `f10fbf5` + the review-artifact commit).
+Workflow run https://github.com/nrf24l01/aCTFb/actions/runs/45982934703 — success 4/4
+(Backend quality, Frontend quality, Integration, Publish images), 10:32:18Z → 10:57:49Z.
+
+CI counts from the run logs, not from local runs:
+
+- Frontend quality: `45 passed (45)` files, `421 passed (421)` tests, `bun run typecheck` clean,
+  `bun run build` built in 1.07s.
+- Backend quality: `go test ./... -count=1` — 50 packages `ok`, 13 `[no test files]`, 0 failures.
+- Integration: `p1-core` 1 passed (36.3s); default-profile 5 passed (30.4s) and 69 passed (4.0m);
+  full-stack 18 passed (5.1m); packaging contract 424 checks, CI-contract 14, cleanup-guard 21, all
+  `0 failed`.
+- All ten GHCR images resolved anonymously: `latest` digest equals `sha-3ac89c0…`, platform
+  `linux/amd64`, `org.opencontainers.image.revision` = the full source SHA. Details and digests:
+  `docs/ghcr-verification.md`.
+- Published frontend bundle read from the published `sha-3ac89c0…` layers only (no application run):
+  84 JS assets; nine chunks reference `chevron-left` (the seven changed pages plus the shared chunk and
+  the entry bundle) and **no** asset contains a literal `‹`.
 
 ## Deliberately untouched
 
