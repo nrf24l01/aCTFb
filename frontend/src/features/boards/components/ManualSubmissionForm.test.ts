@@ -113,4 +113,26 @@ describe('ManualSubmissionForm', () => {
     expect(wrapper.text()).toContain('120–4000 characters. Required.')
     expect(wrapper.get('#manual-submission-text').attributes('maxlength')).toBe('4000')
   })
+
+  it('renders an accepted review outcome with the semantic success ink, not the brand pine', async () => {
+    submitTaskBody.mockResolvedValueOnce({
+      ...pendingReview(),
+      uuid: 'submission-accepted',
+      status: 'ACCEPTED',
+      scoreAwarded: 50,
+    })
+    const wrapper = mountForm()
+
+    await wrapper.get('#manual-submission-text').setValue(draft)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    const line = wrapper
+      .findAll('[data-slot="alert"]')
+      .find((alert) => alert.text().includes('Accepted · +50 points'))
+    expect(line, 'missing accepted outcome alert').toBeTruthy()
+    expect(line!.classes()).toContain('text-status-success-ink')
+    expect(line!.classes()).not.toContain('text-pine')
+    expect(wrapper.html()).not.toContain('text-pine')
+  })
 })

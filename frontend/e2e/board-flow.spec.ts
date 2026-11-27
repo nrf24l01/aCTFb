@@ -170,6 +170,11 @@ test.describe('real private board flow', () => {
     await page.getByLabel('Flag').fill('flag{definitely-wrong}')
     await page.getByRole('button', { name: 'Submit flag' }).click()
     await expect(page.getByText('Incorrect flag. Try again.')).toBeVisible()
+    // The form copy is concise, but the history keeps the real server
+    // classification. Scope to the history table so this is the status row,
+    // not a generic page match.
+    const historyTable = page.locator('section[aria-labelledby="history-heading"] table')
+    await expect(historyTable.locator('tbody tr').filter({ hasText: 'Rejected' }).first()).toBeVisible()
     await expect(page.getByLabel('Flag')).toHaveValue('')
 
     await page.getByLabel('Flag').fill(fixture.flag)

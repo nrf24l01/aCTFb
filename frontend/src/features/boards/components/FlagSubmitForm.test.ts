@@ -276,4 +276,43 @@ describe('FlagSubmitForm', () => {
     expect(wrapper.text()).not.toContain('That flag is not correct')
     expect(wrapper.text()).not.toContain('Submitted answers are never shown again')
   })
+
+  it('renders the accepted line with the semantic success ink, not the brand pine', async () => {
+    submitTask.mockResolvedValueOnce(accepted(100))
+    const wrapper = mountForm()
+
+    await wrapper.get('#task-flag').setValue('flag{semantic}')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    const line = wrapper
+      .findAll('[data-slot="alert"]')
+      .find((alert) => alert.text().includes('Accepted · +100 points'))
+    expect(line, 'missing accepted outcome alert').toBeTruthy()
+    expect(line!.classes()).toContain('text-status-success-ink')
+    expect(line!.classes()).not.toContain('text-pine')
+    expect(wrapper.html()).not.toContain('text-pine')
+  })
+
+  it('renders the solved line with the semantic success ink and a currentColor icon', () => {
+    const wrapper = mount(FlagSubmitForm, {
+      props: {
+        boardUuid: 'board-1',
+        moduleUuid: 'module-1',
+        task: { ...task, status: 'SOLVED', solved: true },
+      },
+    })
+
+    const line = wrapper
+      .findAll('[data-slot="alert"]')
+      .find((alert) => alert.text().includes('Solved'))
+    expect(line, 'missing solved alert').toBeTruthy()
+    expect(line!.classes()).toContain('text-status-success-ink')
+    expect(line!.classes()).not.toContain('text-pine')
+    // The check icon inherits the line colour; it must not carry a colour of its own.
+    const icon = line!.find('svg')
+    expect(icon.exists()).toBe(true)
+    expect(icon.attributes('class') ?? '').not.toContain('text-')
+    expect(wrapper.html()).not.toContain('text-pine')
+  })
 })
