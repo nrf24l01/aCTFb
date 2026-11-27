@@ -237,18 +237,16 @@ void load()
         </section>
 
         <aside class="workspace-aside space-y-4" data-slot="workspace-aside">
-          <section v-if="!isAuthenticated" class="border border-border px-4 py-4 text-sm">
+          <section v-if="!isAuthenticated" class="space-y-3 text-sm">
             <h2 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Participate</h2>
-            <p class="mt-2 text-muted-foreground">Sign in to join this board, see its modules and submit answers.</p>
-            <Button as-child class="mt-3 w-full">
+            <p class="text-muted-foreground">Sign in to join this board, see its modules and submit answers.</p>
+            <Button as-child class="w-full">
               <RouterLink :to="{ name: 'sign-in', query: { redirect: route.fullPath } }">Sign in</RouterLink>
             </Button>
           </section>
-          <section v-else class="border border-border">
-            <div class="border-b border-border px-4 py-3">
-              <h2 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Your standing</h2>
-            </div>
-            <div class="space-y-2 px-4 py-4 text-sm">
+          <section v-else class="space-y-3">
+            <h2 class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Your standing</h2>
+            <div class="space-y-2 text-sm">
               <p>Joined: {{ me?.joined ? 'yes' : 'no' }}</p>
               <p v-if="me?.joinedAt" class="text-xs text-muted-foreground">Since {{ formatDateTime(me.joinedAt) }}</p>
               <p>Score: {{ me?.score ?? '—' }}</p>

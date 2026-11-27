@@ -5,11 +5,12 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import ErrorAlert from '@/components/layout/ErrorAlert.vue'
 import FormField from '@/components/layout/FormField.vue'
-import StatusPill from '@/components/layout/StatusPill.vue'
 import FileDraftUploader from '@/features/files/components/FileDraftUploader.vue'
 import { boardsApi } from '@/features/boards/api/boards'
 import { createIdempotencyKey } from '@/shared/api/idempotency'
 import { isApiError, isNetworkError } from '@/shared/api/errors'
+import { formatPoints } from '@/shared/lib/format'
+import { statusLabel } from '@/shared/lib/status'
 import type { Submission, Task } from '@/shared/types/api'
 
 const props = defineProps<{
@@ -42,6 +43,25 @@ const filesRequired = computed(() => filesPolicy.value?.required ?? false)
 const canSubmit = computed(
   () => props.task.status === 'AVAILABLE' || props.task.status === 'SOLVED',
 )
+
+/** One compact outcome line. Review points come only from the response. */
+const outcome = computed(() => {
+  const current = verdict.value
+  if (!current) return null
+  if (current.status === 'PENDING_REVIEW') return 'Awaiting review'
+  if (current.status === 'ACCEPTED') {
+    const points = current.scoreAwarded
+    if (points === null || points === undefined) return 'Accepted'
+    return `Accepted · +${formatPoints(points)} points`
+  }
+  return statusLabel(current.status)
+})
+
+const outcomeTone = computed(() => {
+  if (verdict.value?.status === 'ACCEPTED') return 'text-pine'
+  if (verdict.value?.status === 'REJECTED') return 'text-love'
+  return 'text-gold'
+})
 
 function validate(): string | undefined {
   if (needsText.value && textRequired.value && !text.value.trim()) return 'Text is required.'
@@ -119,25 +139,19 @@ async function retry() {
 </script>
 
 <template>
-  <section class="border border-border" aria-labelledby="manual-submit-heading">
-    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-      <h2 id="manual-submit-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-        Submit for review
-      </h2>
-      <StatusPill :status="task.status" />
-    </div>
-    <div class="space-y-4 px-4 py-4">
-      <Alert v-if="verdict" class="rounded-none border-gold/60 bg-black">
-        <AlertTitle>Submitted</AlertTitle>
-        <AlertDescription>
-          Status: {{ verdict.status }}. Points are awarded only when a reviewer accepts the submission.
-        </AlertDescription>
+  <section class="space-y-4" aria-labelledby="manual-submit-heading">
+    <h2 id="manual-submit-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+      Submit for review
+    </h2>
+    <div class="space-y-4">
+      <Alert v-if="outcome" class="border-0 bg-transparent px-0 py-0" :class="outcomeTone">
+        <AlertTitle>{{ outcome }}</AlertTitle>
       </Alert>
       <ErrorAlert v-if="serverError" :error="serverError" title="Submission failed" />
-      <Alert v-if="networkFailure" class="rounded-none border-gold/60 bg-black">
+      <Alert v-if="networkFailure" class="border-0 bg-transparent px-0 py-0">
         <AlertTitle>Network error</AlertTitle>
         <AlertDescription>
-          Retry uses the same idempotency key and payload.
+          The request may not have reached the server. Your submission is kept for a retry.
           <Button variant="outline" class="mt-3" :disabled="pending" @click="retry">Retry same submission</Button>
         </AlertDescription>
       </Alert>

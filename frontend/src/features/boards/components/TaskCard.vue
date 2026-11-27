@@ -10,7 +10,7 @@ defineProps<{ task: TaskListItem; boardUuid: string; moduleUuid: string }>()
 <template>
   <RouterLink
     :to="`/boards/${boardUuid}/modules/${moduleUuid}/tasks/${task.uuid}`"
-    class="flex flex-wrap items-center justify-between gap-3 border border-border bg-black px-4 py-3 hover:border-muted-foreground focus-visible:outline-offset-4"
+    class="flex flex-wrap items-center justify-between gap-3 bg-black px-4 py-3 transition-colors hover:bg-muted focus-visible:outline-offset-4"
   >
     <div class="min-w-0">
       <div class="flex flex-wrap items-center gap-2">

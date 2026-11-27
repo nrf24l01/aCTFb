@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import EmptyState from '@/components/layout/EmptyState.vue'
 import ErrorAlert from '@/components/layout/ErrorAlert.vue'
@@ -165,15 +164,12 @@ void load()
 </script>
 
 <template>
-  <section class="border border-border" aria-labelledby="instance-heading">
-    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-      <div>
-        <h2 id="instance-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Instance</h2>
-        <p class="mt-1 text-xs text-muted-foreground">Actions are backend-authorized and idempotent. No client-side lifecycle override.</p>
-      </div>
+  <section class="space-y-3" aria-labelledby="instance-heading">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h2 id="instance-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Instance</h2>
       <Button variant="outline" size="sm" :disabled="loading" @click="load()">Refresh</Button>
     </div>
-    <div class="space-y-3 px-4 py-4">
+    <div class="space-y-3">
       <LoadingState v-if="loading" :rows="2" />
       <template v-else>
         <!-- A failed action must not hide the instance: the retry button lives
@@ -182,10 +178,10 @@ void load()
         <EmptyState
           v-if="!instance"
           title="No instance"
-          :description="task.instance.cannotStartReason || 'Start the lab when the backend permits it.'"
+          :description="task.instance.cannotStartReason || undefined"
         >
           <Button v-if="canStart" :disabled="busy" @click="start">{{ busy ? 'Starting…' : 'Start instance' }}</Button>
-          <p v-else class="text-xs text-muted-foreground">Starting is not currently allowed for this task/subject.</p>
+          <p v-else class="text-xs text-muted-foreground">Starting is not available right now.</p>
         </EmptyState>
         <template v-else>
           <div class="flex flex-wrap items-center gap-2">
@@ -234,17 +230,13 @@ void load()
           >
             {{ extendDisabledReason }}
           </p>
-          <Alert class="rounded-none border-border bg-black">
-            <AlertTitle>Instance logs</AlertTitle>
-            <AlertDescription>No log endpoint exists in the current Swagger; the UI does not fabricate logs. Provider status/endpoints above are real.</AlertDescription>
-          </Alert>
         </template>
       </template>
     </div>
     <ConfirmDialog
       v-model:open="destroyOpen"
       title="Destroy instance"
-      description="The provider must confirm destroy before ports/leases are released. This cannot be undone."
+      description="This cannot be undone."
       confirm-label="Destroy instance"
       destructive
       :pending="busy"

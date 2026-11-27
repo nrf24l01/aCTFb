@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { CircleCheckIcon } from '@lucide/vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import ErrorAlert from '@/components/layout/ErrorAlert.vue'
 import FormField from '@/components/layout/FormField.vue'
-import StatusPill from '@/components/layout/StatusPill.vue'
 import { boardsApi } from '@/features/boards/api/boards'
 import { createIdempotencyKey } from '@/shared/api/idempotency'
 import { isApiError, isNetworkError } from '@/shared/api/errors'
+import { formatPoints } from '@/shared/lib/format'
+import { statusLabel } from '@/shared/lib/status'
 import type { Submission, Task } from '@/shared/types/api'
 
 const props = defineProps<{
@@ -55,6 +57,25 @@ const minLength = computed(() => props.task.submission.text?.minLength ?? 1)
 const canSubmit = computed(
   () => supportsFlag.value && (props.task.status === 'AVAILABLE' || props.task.status === 'SOLVED'),
 )
+
+/** One compact outcome line. Points come only from the response, never the task maximum. */
+const outcome = computed(() => {
+  const current = verdict.value
+  if (!current) return null
+  if (current.status === 'ACCEPTED') {
+    const points = current.scoreAwarded
+    if (points === null || points === undefined) return 'Accepted'
+    return `Accepted · +${formatPoints(points)} points`
+  }
+  if (current.status === 'REJECTED') return 'Incorrect flag. Try again.'
+  return statusLabel(current.status)
+})
+
+const outcomeTone = computed(() => {
+  if (verdict.value?.status === 'ACCEPTED') return 'text-pine'
+  if (verdict.value?.status === 'REJECTED') return 'text-love'
+  return 'text-muted-foreground'
+})
 
 function clearFeedback() {
   fieldError.value = undefined
@@ -124,42 +145,29 @@ async function retry() {
 </script>
 
 <template>
-  <section class="border border-border" aria-labelledby="submit-heading">
-    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-      <h2 id="submit-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-        Submit flag
-      </h2>
-      <StatusPill :status="task.status" />
-    </div>
+  <section class="space-y-4" aria-labelledby="submit-heading">
+    <h2 id="submit-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+      Submit flag
+    </h2>
 
-    <div class="space-y-4 px-4 py-4">
-      <Alert v-if="task.status === 'LOCKED'" class="rounded-none border-gold/60 bg-black">
+    <div class="space-y-4">
+      <Alert v-if="task.status === 'LOCKED'" class="border-0 bg-transparent px-0 py-0">
         <AlertTitle>Task is not available</AlertTitle>
-        <AlertDescription>The board, module or schedule does not allow submissions right now.</AlertDescription>
       </Alert>
-      <Alert v-else-if="task.solved" class="rounded-none border-pine/60 bg-black">
-        <AlertTitle>Already solved</AlertTitle>
-        <AlertDescription>Accepted answers are never returned by the server. Further submissions cannot add score.</AlertDescription>
+      <Alert v-else-if="outcome" class="border-0 bg-transparent px-0 py-0" :class="outcomeTone">
+        <AlertTitle>{{ outcome }}</AlertTitle>
       </Alert>
-
-      <Alert v-if="verdict" class="rounded-none" :class="verdict.status === 'ACCEPTED' ? 'border-pine/60 bg-black' : 'border-love/60 bg-black'">
-        <AlertTitle>{{ verdict.status === 'ACCEPTED' ? 'Accepted' : verdict.status === 'REJECTED' ? 'Rejected' : 'Recorded' }}</AlertTitle>
-        <AlertDescription>
-          <span v-if="verdict.status === 'ACCEPTED'">
-            {{ verdict.scoreAwarded ?? 0 }} points awarded.
-          </span>
-          <span v-else-if="verdict.status === 'REJECTED'">That flag is not correct.</span>
-          <span v-else>Status: {{ verdict.status }}.</span>
-          <span class="block text-xs text-muted-foreground">Submitted answers are never shown again.</span>
-        </AlertDescription>
+      <Alert v-else-if="task.solved" class="border-0 bg-transparent px-0 py-0 text-pine">
+        <CircleCheckIcon aria-hidden="true" class="size-4" />
+        <AlertTitle>Solved</AlertTitle>
       </Alert>
 
       <ErrorAlert v-if="serverError" :error="serverError" title="Submission failed" />
 
-      <Alert v-if="networkFailure" class="rounded-none border-gold/60 bg-black">
+      <Alert v-if="networkFailure" class="border-0 bg-transparent px-0 py-0">
         <AlertTitle>Network error</AlertTitle>
         <AlertDescription>
-          The request may not have reached the server. Retry uses the same idempotency key and the same answer.
+          The request may not have reached the server. Your answer is kept for a retry.
           <Button variant="outline" class="mt-3" :disabled="pending" @click="retry">
             {{ pending ? 'Retrying…' : 'Retry same submission' }}
           </Button>
@@ -171,7 +179,7 @@ async function retry() {
           label="Flag"
           for-id="task-flag"
           :error="fieldError"
-          :hint="`${minLength}–${maxLength} characters. The input clears immediately after submit.`"
+          :hint="`${minLength}–${maxLength} characters.`"
         >
           <Input
             id="task-flag"
@@ -192,9 +200,6 @@ async function retry() {
 
       <p v-else-if="!task.solved && !supportsFlag" class="text-sm text-muted-foreground">
         This task does not accept automatic flag submissions.
-      </p>
-      <p v-else-if="!task.solved" class="text-sm text-muted-foreground">
-        This task does not accept automatic flag submissions right now.
       </p>
     </div>
   </section>

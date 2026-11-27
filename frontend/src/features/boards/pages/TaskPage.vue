@@ -181,7 +181,6 @@ void load()
           <div class="flex flex-wrap items-center gap-2">
             <StatusPill :status="task.status" />
             <Badge variant="outline" class="rounded-none">{{ taskTypeLabel(task.type) }}</Badge>
-            <Badge v-if="task.solved" variant="secondary" class="rounded-none">Solved</Badge>
             <Button v-if="canEdit" as-child variant="outline" size="sm">
               <RouterLink :to="`/admin/boards/${boardUuid}`">Edit task</RouterLink>
             </Button>
@@ -211,25 +210,18 @@ void load()
 
       <div class="workspace-layout workspace-layout--task" data-slot="workspace">
         <div class="workspace-main space-y-6" data-slot="workspace-main">
-          <section class="border border-border" aria-labelledby="description-heading">
-            <div class="border-b border-border px-4 py-3">
-              <h2 id="description-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                Description
-              </h2>
-            </div>
+          <section aria-label="Task description">
             <!-- Sanitised by renderMarkdown. -->
-            <article class="markdown-body workspace-prose space-y-3 px-4 py-4 text-sm" v-html="description" />
-            <p v-if="!task.description" class="px-4 pb-4 text-sm text-muted-foreground">No description.</p>
+            <article class="markdown-body workspace-prose space-y-3 text-sm" v-html="description" />
+            <p v-if="!task.description" class="text-sm text-muted-foreground">No description.</p>
           </section>
 
-          <section v-if="task.attachments.length > 0" class="border border-border" aria-labelledby="attachments-heading">
-            <div class="border-b border-border px-4 py-3">
-              <h2 id="attachments-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                Task files
-              </h2>
-            </div>
-            <ul class="divide-y divide-border">
-              <li v-for="file in task.attachments" :key="file.uuid" class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
+          <section v-if="task.attachments.length > 0" class="space-y-3" aria-labelledby="attachments-heading">
+            <h2 id="attachments-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              Task files
+            </h2>
+            <ul class="space-y-2">
+              <li v-for="file in task.attachments" :key="file.uuid" class="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span>
                   <span class="font-medium">{{ file.filename }}</span>
                   <span class="ml-2 text-xs text-muted-foreground">{{ formatBytes(file.size) }}</span>
@@ -256,7 +248,7 @@ void load()
               :task="task"
               @submitted="onSubmitted"
             />
-            <p v-else class="border border-border px-4 py-3 text-sm text-muted-foreground">
+            <p v-else class="text-sm text-muted-foreground">
               Use the module-specific workflow for this task.
             </p>
             <InstancePanel
@@ -267,7 +259,7 @@ void load()
               @changed="load"
             />
           </template>
-          <p v-else class="border border-border px-4 py-3 text-sm text-muted-foreground">
+          <p v-else class="text-sm text-muted-foreground">
             Submission and instance actions are available after joining the board.
           </p>
         </div>

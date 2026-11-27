@@ -117,14 +117,14 @@ void load()
         </AlertDescription>
       </Alert>
 
-      <section v-if="isPentest" class="mb-6 border border-border px-4 py-4" aria-labelledby="pentest-heading">
+      <section v-if="isPentest" class="mb-6 space-y-3" aria-labelledby="pentest-heading">
         <h2 id="pentest-heading" class="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           Pentest lab
         </h2>
-        <p class="mt-1 text-sm text-muted-foreground">
+        <p class="text-sm text-muted-foreground">
           Start the approved lab environment and submit your report. The environment expires with the module/board.
         </p>
-        <Button as-child class="mt-3">
+        <Button as-child>
           <RouterLink :to="`/boards/${boardUuid}/modules/${moduleUuid}/pentest`">Open Pentest lab</RouterLink>
         </Button>
       </section>
