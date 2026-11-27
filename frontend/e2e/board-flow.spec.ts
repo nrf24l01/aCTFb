@@ -169,14 +169,14 @@ test.describe('real private board flow', () => {
     await page.goto(`/boards/${fixture.boardUuid}/modules/${fixture.moduleUuid}/tasks/${fixture.taskUuid}`)
     await page.getByLabel('Flag').fill('flag{definitely-wrong}')
     await page.getByRole('button', { name: 'Submit flag' }).click()
-    await expect(page.getByText('Rejected', { exact: true }).first()).toBeVisible()
+    await expect(page.getByText('Incorrect flag. Try again.')).toBeVisible()
     await expect(page.getByLabel('Flag')).toHaveValue('')
 
     await page.getByLabel('Flag').fill(fixture.flag)
     await page.getByRole('button', { name: 'Submit flag' }).click()
-    await expect(page.getByText('Accepted', { exact: true }).first()).toBeVisible()
+    await expect(page.getByText('Accepted · +50 points')).toBeVisible()
     await expect(page.getByLabel('Flag')).toHaveValue('')
-    await expect(page.getByText('Your submission history')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Your submissions' })).toBeVisible()
 
     await page.goto(`/boards/${fixture.boardUuid}/scoreboard`)
     await expect(page.getByRole('heading', { name: 'Scoreboard' })).toBeVisible()

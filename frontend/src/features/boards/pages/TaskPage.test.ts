@@ -161,7 +161,7 @@ describe('TaskPage description rendering', () => {
     })
     const wrapper = await mountPage()
 
-    const article = wrapper.get('section[aria-labelledby="description-heading"] article')
+    const article = wrapper.get('section[aria-label="Task description"] article')
     expect(article.classes()).toContain('markdown-body')
     expect(article.find('strong').exists()).toBe(true)
     expect(article.find('.hljs-keyword').exists()).toBe(true)
@@ -170,19 +170,28 @@ describe('TaskPage description rendering', () => {
     wrapper.unmount()
   })
 
+  it('keeps the description region semantic without a visible Description header', async () => {
+    const wrapper = await mountPage()
+
+    const region = wrapper.get('section[aria-label="Task description"]')
+    expect(region.find('article').exists()).toBe(true)
+    expect(region.find('h2').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Description')
+    wrapper.unmount()
+  })
+
   it('escapes raw HTML in the description instead of rendering it', async () => {
     getTask.mockResolvedValue({ ...task, description: '<script>alert(1)</script>' })
     const wrapper = await mountPage()
 
-    const article = wrapper.get('section[aria-labelledby="description-heading"] article')
+    const article = wrapper.get('section[aria-label="Task description"] article')
     expect(article.find('script').exists()).toBe(false)
     expect(article.text()).toContain('<script>alert(1)</script>')
     wrapper.unmount()
   })
 })
 
-describe('TaskPage desktop workspace regions', () => {
-  it('keeps the description in the main column, participation in the rail and history below the workspace', async () => {
+describe('TaskPage desktop workspace regions', () => {  it('keeps the description in the main column, participation in the rail and history below the workspace', async () => {
     getBoard.mockResolvedValue({ ...board, joined: true, preview: false, canParticipate: true })
     getModule.mockResolvedValue({ ...moduleItem, preview: false, canParticipate: true })
     getTask.mockResolvedValue({ ...task, preview: false, canParticipate: true })
@@ -193,7 +202,7 @@ describe('TaskPage desktop workspace regions', () => {
     const aside = workspace.get('[data-slot="workspace-aside"]')
     const history = wrapper.get('#history-heading')
 
-    expect(main.find('#description-heading').exists()).toBe(true)
+    expect(main.find('section[aria-label="Task description"]').exists()).toBe(true)
     expect(aside.find('[data-test="flag-form"]').exists()).toBe(true)
     expect(workspace.find('#history-heading').exists()).toBe(false)
     expect(
@@ -216,6 +225,55 @@ describe('TaskPage desktop workspace regions', () => {
     expect(wrapper.find('#history-heading').exists()).toBe(false)
     expect(listMySubmissions).not.toHaveBeenCalled()
 
+    wrapper.unmount()
+  })
+})
+
+describe('TaskPage student outcome presentation', () => {
+  it('does not render a second grey Solved badge beside the status pill', async () => {
+    getBoard.mockResolvedValue({ ...board, joined: true, preview: false, canParticipate: true })
+    getModule.mockResolvedValue({ ...moduleItem, preview: false, canParticipate: true })
+    getTask.mockResolvedValue({
+      ...task,
+      preview: false,
+      canParticipate: true,
+      status: 'SOLVED',
+      solved: true,
+    })
+    const wrapper = await mountPage()
+
+    const solvedBadges = wrapper
+      .findAll('[data-slot="badge"]')
+      .filter((badge) => badge.text().trim() === 'Solved')
+    expect(solvedBadges).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('renders the history heading once and labels the table for assistive technology', async () => {
+    getBoard.mockResolvedValue({ ...board, joined: true, preview: false, canParticipate: true })
+    getModule.mockResolvedValue({ ...moduleItem, preview: false, canParticipate: true })
+    getTask.mockResolvedValue({ ...task, preview: false, canParticipate: true })
+    listMySubmissions.mockResolvedValue({
+      items: [
+        {
+          uuid: 'submission-1',
+          status: 'ACCEPTED',
+          text: null,
+          files: [],
+          scoreAwarded: 100,
+          createdAt: '2026-01-01T00:00:00Z',
+        },
+      ],
+      limit: 100,
+      offset: 0,
+      total: 1,
+    })
+    const wrapper = await mountPage()
+
+    expect(wrapper.findAll('#history-heading')).toHaveLength(1)
+    expect(wrapper.get('#history-heading').text()).toBe('Your submissions')
+    expect(wrapper.get('table caption').text()).toBe('Your submissions')
+    expect(wrapper.text()).not.toContain('Your submission history')
     wrapper.unmount()
   })
 })

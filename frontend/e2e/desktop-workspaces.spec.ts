@@ -904,7 +904,7 @@ test.describe('desktop authoring workspaces', () => {
 
     // Prose text blocks keep the 80ch measure; code uses the panel and scrolls
     // inside itself instead of widening the document.
-    const description = page.locator('section[aria-labelledby="description-heading"]')
+    const description = page.locator('section[aria-label="Task description"]')
     const paragraphBox = await box(description.locator('.markdown-body p').first())
     // 80ch at the 14px reader size is ~672px, far below the 1136px panel.
     expect(paragraphBox.width).toBeGreaterThan(600)

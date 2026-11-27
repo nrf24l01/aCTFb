@@ -34,13 +34,25 @@ const task: Task = {
   instance: { required: false, status: 'NOT_CREATED', canStart: false },
 }
 
-function accepted(): Submission {
+function accepted(scoreAwarded: number | null = 100): Submission {
   return {
     uuid: 'submission-1',
     status: 'ACCEPTED',
     text: null,
     files: [],
-    scoreAwarded: 100,
+    scoreAwarded,
+    createdAt: '2026-01-01T00:00:00Z',
+  }
+}
+
+function rejected(): Submission {
+  return {
+    uuid: 'submission-2',
+    status: 'REJECTED',
+    text: null,
+    files: [],
+    scoreAwarded: null,
+    message: 'That flag is not correct',
     createdAt: '2026-01-01T00:00:00Z',
   }
 }
@@ -194,5 +206,74 @@ describe('FlagSubmitForm', () => {
     })
     expect(wrapper.find('#task-flag').exists()).toBe(false)
     expect(wrapper.text()).toContain('does not accept automatic flag submissions')
+  })
+
+  it('shows only the concise solved line without the old explanation', () => {
+    const wrapper = mount(FlagSubmitForm, {
+      props: {
+        boardUuid: 'board-1',
+        moduleUuid: 'module-1',
+        task: { ...task, status: 'SOLVED', solved: true },
+      },
+    })
+
+    expect(wrapper.text()).toContain('Solved')
+    expect(wrapper.text()).not.toContain('Already solved')
+    expect(wrapper.text()).not.toContain('Accepted answers are never returned')
+    expect(wrapper.text()).not.toContain('Further submissions cannot add score')
+    expect(wrapper.find('#task-flag').exists()).toBe(false)
+  })
+
+  it('shows the awarded response points, not the task maximum', async () => {
+    submitTask.mockResolvedValueOnce(accepted(40))
+    const wrapper = mountForm()
+
+    await wrapper.get('#task-flag').setValue('flag{partial}')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Accepted · +40 points')
+    expect(wrapper.text()).not.toContain('+100 points')
+  })
+
+  it('omits the points suffix when the response has no awarded score', async () => {
+    submitTask.mockResolvedValueOnce(accepted(null))
+    const wrapper = mountForm()
+
+    await wrapper.get('#task-flag').setValue('flag{no-score}')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Accepted')
+    expect(wrapper.text()).not.toContain('points')
+  })
+
+  it('does not stack already-solved and accepted outcomes after the parent reloads the task', async () => {
+    submitTask.mockResolvedValueOnce(accepted(100))
+    const wrapper = mountForm()
+
+    await wrapper.get('#task-flag').setValue('flag{accepted}')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    await wrapper.setProps({ task: { ...task, status: 'SOLVED', solved: true } })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Accepted · +100 points')
+    expect(wrapper.text()).not.toContain('Already solved')
+    expect(wrapper.text()).not.toContain('Further submissions cannot add score')
+    expect(wrapper.text().match(/Accepted/g)).toHaveLength(1)
+  })
+
+  it('shows the concise wrong-flag line and no routine answer-replay explanation', async () => {
+    submitTask.mockResolvedValueOnce(rejected())
+    const wrapper = mountForm()
+
+    await wrapper.get('#task-flag').setValue('flag{wrong}')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Incorrect flag. Try again.')
+    expect(wrapper.text()).not.toContain('That flag is not correct')
+    expect(wrapper.text()).not.toContain('Submitted answers are never shown again')
   })
 })

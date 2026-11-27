@@ -448,7 +448,7 @@ test.describe('rich-text authoring acceptance', () => {
       await participant.goto(
         `/boards/${fixture.boardUuid}/modules/${fixture.moduleUuid}/tasks/${fixture.taskUuid}`,
       )
-      const description = participant.locator('section[aria-labelledby="description-heading"] article')
+      const description = participant.locator('section[aria-label="Task description"] article')
       await expect(description).toHaveClass(/markdown-body/)
       await expect(description.locator('.hljs-keyword').first()).toBeVisible()
       await expect(description).toContainText('Paste x')

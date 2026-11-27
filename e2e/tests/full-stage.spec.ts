@@ -197,10 +197,12 @@ test('P1R TEAM manual text reload, clean file scan, and reviewer accept', async 
       await expect(studentPage.getByText('Ready', { exact: true }).first()).toBeVisible({ timeout: 30_000 })
       await studentPage.locator('#manual-submission-text').fill('durable manual answer')
       await studentPage.getByRole('button', { name: 'Submit for review' }).click()
-      await expect(studentPage.getByText(/PENDING_REVIEW|Needs review/).first()).toBeVisible({ timeout: 20_000 })
+      await expect(
+        studentPage.getByRole('region', { name: 'Submit for review' }).getByText('Awaiting review'),
+      ).toBeVisible({ timeout: 20_000 })
 
       await studentPage.reload()
-      await expect(studentPage.getByText(/PENDING_REVIEW|Needs review/).first()).toBeVisible({ timeout: 20_000 })
+      await expect(studentPage.getByText('Needs review').first()).toBeVisible({ timeout: 20_000 })
       
       const reviewerContext = await browser.newContext({ viewport: { width: 1280, height: 900 } })
       try {

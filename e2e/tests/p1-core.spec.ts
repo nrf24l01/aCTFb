@@ -151,7 +151,7 @@ test.describe('P1 board to flag to score', () => {
       await studentPage.locator('#task-flag').fill(flag)
       await studentPage.getByRole('button', { name: 'Submit flag' }).click()
       await expect(studentPage.getByText('Accepted', { exact: true }).first()).toBeVisible()
-      await expect(studentPage.getByText('100 points awarded.')).toBeVisible()
+      await expect(studentPage.getByText('Accepted · +100 points')).toBeVisible()
       await expect(studentPage.getByRole('table').getByText('Accepted').first()).toBeVisible()
       await expect(studentPage.getByRole('link', { name: 'Manage board' })).toHaveCount(0)
       await expect(studentPage.getByRole('link', { name: 'Staff & access' })).toHaveCount(0)
