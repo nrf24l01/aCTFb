@@ -93,6 +93,11 @@ Real-browser checks (`/tmp/opencode/quieter-student-ui/verify.mjs`) passed 12 ch
 - staff preview → no flag/manual fields, no own history, zero `/submissions/me` requests;
 - module/task card hover background and keyboard `:focus-visible` + Enter navigation.
 
+A direct student API check after the retry found exactly one `ACCEPTED` flag submission with
+`scoreAwarded = 100`; the repeated wrong attempts and the aborted/retried POST added no second accepted row.
+The manual task kept its `PENDING_REVIEW` rows with the submitted text stored, while the visible textarea had
+cleared after the successful retry.
+
 Existing browser specs against the same stack:
 
 ```bash
