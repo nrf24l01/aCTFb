@@ -2,6 +2,7 @@
 import StatusPill from '@/components/layout/StatusPill.vue'
 import { moduleFormatLabel } from '@/features/boards/format'
 import { Badge } from '@/components/ui/badge'
+import TaskProgress from '@/features/boards/components/TaskProgress.vue'
 import type { ModuleListItem } from '@/shared/types/api'
 
 defineProps<{ module: ModuleListItem }>()
@@ -18,6 +19,13 @@ defineProps<{ module: ModuleListItem }>()
     </div>
     <div class="mt-2 flex flex-wrap gap-2">
       <Badge variant="outline" class="rounded-none">{{ moduleFormatLabel(module.type, module.allowedTaskTypes) }}</Badge>
+    </div>
+    <div v-if="module.taskProgress && module.preview !== true" class="mt-3">
+      <TaskProgress
+        :solved-tasks="module.taskProgress.solvedTasks"
+        :total-tasks="module.taskProgress.totalTasks"
+        :label="`Task progress for ${module.name}`"
+      />
     </div>
   </RouterLink>
 </template>

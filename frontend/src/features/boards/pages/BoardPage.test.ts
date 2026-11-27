@@ -153,3 +153,83 @@ describe('BoardPage desktop workspace', () => {
     wrapper.unmount()
   })
 })
+
+describe('BoardPage task progress summary', () => {
+  it('reads the server aggregate instead of summing the visible module cards', async () => {
+    getBoardMe.mockResolvedValue({
+      ...me,
+      taskProgress: { solvedTasks: 42, totalTasks: 150 },
+    })
+    listModules.mockResolvedValue({
+      items: [
+        { ...firstModule, taskProgress: { solvedTasks: 1, totalTasks: 2 } },
+        { ...secondModule, taskProgress: { solvedTasks: 2, totalTasks: 2 } },
+      ],
+      limit: 100,
+      offset: 0,
+      total: 2,
+    })
+    const wrapper = await mountPage()
+
+    const summary = wrapper.get('[data-slot="board-task-progress"]')
+    expect(summary.text()).toContain('Task progress')
+    expect(summary.text()).toContain('42/150 solved')
+    expect(summary.text()).not.toContain('3/4 solved')
+    expect(summary.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('42')
+    expect(summary.get('[role="progressbar"]').attributes('aria-valuemax')).toBe('150')
+    wrapper.unmount()
+  })
+
+  it('omits the summary when the server publishes no own aggregate', async () => {
+    const wrapper = await mountPage()
+
+    expect(wrapper.find('[data-slot="board-task-progress"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('does not expose own progress in a staff preview read', async () => {
+    getBoardMe.mockResolvedValue({
+      ...me,
+      joined: false,
+      preview: true,
+      taskProgress: { solvedTasks: 42, totalTasks: 150 },
+    })
+    const wrapper = await mountPage()
+
+    expect(wrapper.find('[data-slot="board-task-progress"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+
+describe('BoardPage module pagination', () => {
+  it('loads modules beyond the first 100 with the server total', async () => {
+    const firstItems = Array.from({ length: 100 }, (_, index) => ({
+      ...firstModule,
+      uuid: `module-${index}`,
+      name: `Module ${index}`,
+      order: index,
+    }))
+    const secondItems = Array.from({ length: 20 }, (_, index) => ({
+      ...firstModule,
+      uuid: `module-${index + 100}`,
+      name: `Module ${index + 100}`,
+      order: index + 100,
+    }))
+    listModules
+      .mockResolvedValueOnce({ items: firstItems, limit: 100, offset: 0, total: 120 })
+      .mockResolvedValueOnce({ items: secondItems, limit: 100, offset: 100, total: 120 })
+
+    const wrapper = await mountPage()
+    expect(wrapper.get('[data-slot="board-modules"]').findAll('a')).toHaveLength(100)
+
+    const loadMore = wrapper.findAll('button').find((button) => button.text() === 'Load more')
+    expect(loadMore).toBeDefined()
+    await loadMore!.trigger('click')
+    await flushPromises()
+
+    expect(listModules).toHaveBeenLastCalledWith('board-1', { limit: 100, offset: 100 })
+    expect(wrapper.get('[data-slot="board-modules"]').findAll('a')).toHaveLength(120)
+    expect(wrapper.findAll('button').find((button) => button.text() === 'Load more')).toBeUndefined()
+    wrapper.unmount()
+  })
+})

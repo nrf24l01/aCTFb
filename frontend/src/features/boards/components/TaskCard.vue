@@ -10,7 +10,8 @@ defineProps<{ task: TaskListItem; boardUuid: string; moduleUuid: string }>()
 <template>
   <RouterLink
     :to="`/boards/${boardUuid}/modules/${moduleUuid}/tasks/${task.uuid}`"
-    class="flex flex-wrap items-center justify-between gap-3 bg-black px-4 py-3 hover:bg-muted focus-visible:outline-offset-4"
+    class="flex flex-wrap items-center justify-between gap-3 px-4 py-3 focus-visible:outline-offset-4"
+    :class="task.solved ? 'task-card--solved' : 'bg-black hover:bg-muted'"
   >
     <div class="min-w-0">
       <div class="flex flex-wrap items-center gap-2">
@@ -28,3 +29,18 @@ defineProps<{ task: TaskListItem; boardUuid: string; moduleUuid: string }>()
     </div>
   </RouterLink>
 </template>
+
+<style scoped>
+/*
+ * Only solved cards leave the neutral black surface. The existing success ink
+ * is mixed into black so the card stays quiet; there is no new border, outline
+ * or motion, and the Solved pill remains the only status icon.
+ */
+.task-card--solved {
+  background-color: color-mix(in srgb, var(--status-success-ink) 8%, black);
+}
+
+.task-card--solved:hover {
+  background-color: color-mix(in srgb, var(--status-success-ink) 12%, black);
+}
+</style>

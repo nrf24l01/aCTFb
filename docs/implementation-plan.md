@@ -1255,3 +1255,25 @@ multiple attempts, manual pending→accepted, audience/access-group revocation, 
 preview omission, empty modules, >100 tasks and >100 modules, cross-board IDs, invalid filters) plus real-HTTP
 schema/omission/filter proof. Remaining: Task 2 student UI, Task 3 real-browser evidence, independent review,
 push/CI/GHCR verification.
+
+## Student task progress UI (2026-11-27, frontend partial, unpublished)
+
+Status: **Task 2 frontend implemented and tested locally on `feat/student-task-progress`; real-browser
+evidence, independent review and publication pending.** Source base for the UI slice `8154f1b`; spec and
+plan as above. No push yet.
+
+Implemented: solved task cards use the existing semantic success ink at 8% over black (12% on hover) with
+no new border, badge or motion; participant module cards show a 4 px unanimated server-backed fraction and
+a check-circle only for fully solved nonempty modules; module task pages keep the unfiltered module total,
+add server-side `All / Unsolved / Solved` filtering with `aria-pressed` and 44 px targets, and load tasks
+beyond the first 100; the board module area shows one compact `Task progress` summary read from
+`BoardMe.taskProgress` (not summed cards or score); module lists also load beyond 100 using the server
+total. Filters/progress stay hidden for preview, unjoined, unavailable, `PENTEST` and `ATTACK_DEFENSE`
+surfaces. `TASKS` and `EXTENSION` task lists share the existing task endpoint. Route changes, rapid filter
+changes, load-more double clicks and out-of-order responses are guarded; filtered empty states use the
+ruled `No solved tasks` / `No unsolved tasks` copy and keep the controls visible.
+
+Evidence: frontend unit suites (RED before components, then 448 tests in 49 files with one worker),
+`bunx vue-tsc -b` and `bun run build` pass. No API, RBAC, score, migration, dependency or operator
+configuration change. Browser journeys, screenshots and computed contrast remain Task 3 evidence; the
+independent review is still pending.

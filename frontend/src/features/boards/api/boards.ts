@@ -44,6 +44,7 @@ import type {
   SubmissionListResponse,
   SubmissionStatus,
   Task,
+  TaskCompletion,
   TaskListResponse,
   UserSummary,
 } from '@/shared/types/api'
@@ -59,6 +60,15 @@ function withQuery(path: string, query: Record<string, string | number | undefin
 
 function pageQuery(query: PageQuery = {}): Record<string, string | number | undefined> {
   return { limit: query.limit, offset: query.offset, query: query.query }
+}
+
+export interface TaskListQuery extends PageQuery {
+  /** Omitted means All; the server only accepts SOLVED|UNSOLVED. */
+  completion?: TaskCompletion
+}
+
+function taskPageQuery(query: TaskListQuery = {}): Record<string, string | number | undefined> {
+  return { ...pageQuery(query), completion: query.completion }
 }
 
 export interface SubmissionListQuery extends PageQuery {
@@ -139,8 +149,15 @@ export const boardsApi = {
     return apiRequest<Module>(`/boards/${boardUuid}/modules/${moduleUuid}`)
   },
 
-  listTasks(boardUuid: string, moduleUuid: string, query: PageQuery = {}): Promise<TaskListResponse> {
-    return apiRequest<TaskListResponse>(withQuery(`${taskPath(boardUuid, moduleUuid)}/tasks`, pageQuery(query)))
+  listTasks(
+    boardUuid: string,
+    moduleUuid: string,
+    query: TaskListQuery = {},
+    signal?: AbortSignal,
+  ): Promise<TaskListResponse> {
+    return apiRequest<TaskListResponse>(withQuery(`${taskPath(boardUuid, moduleUuid)}/tasks`, taskPageQuery(query)), {
+      signal,
+    })
   },
 
   getTask(boardUuid: string, moduleUuid: string, taskUuid: string): Promise<Task> {

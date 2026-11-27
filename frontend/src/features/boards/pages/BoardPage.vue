@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ import PageHeader from '@/components/layout/PageHeader.vue'
 import StatusPill from '@/components/layout/StatusPill.vue'
 import ConfirmDialog from '@/components/layout/ConfirmDialog.vue'
 import ModuleCard from '@/features/boards/components/ModuleCard.vue'
+import TaskProgress from '@/features/boards/components/TaskProgress.vue'
 import JoinBoardDialog from '@/features/boards/components/JoinBoardDialog.vue'
 import TeamPanel from '@/features/teams/components/TeamPanel.vue'
 import { boardsApi } from '@/features/boards/api/boards'
@@ -36,6 +37,10 @@ const board = ref<Board | null>(null)
 const me = ref<BoardMe | null>(null)
 const permissions = ref<BoardPermissionsResponse | null>(null)
 const modules = ref<ModuleListItem[]>([])
+const modulesTotal = ref(0)
+const modulesOffset = ref(0)
+const modulesLoading = ref(false)
+const modulesError = ref<unknown>(null)
 const loading = ref(true)
 const error = ref<unknown>(null)
 const permissionsError = ref<unknown>(null)
@@ -45,6 +50,7 @@ const joinNotice = ref<string | null>(null)
 const leaveOpen = ref(false)
 const leaving = ref(false)
 const leaveError = ref<unknown>(null)
+let loadId = 0
 
 const isGlobalAdmin = computed(() => state.user?.roles.includes('admin') ?? false)
 const isAuthenticated = computed(() => state.status === 'authenticated')
@@ -77,45 +83,99 @@ const schedule = computed(() => {
   if (!board.value.startsAt && !board.value.endsAt) return 'No schedule set'
   return `${formatDateTime(board.value.startsAt)} → ${formatDateTime(board.value.endsAt)}`
 })
+const boardTaskProgress = computed(() =>
+  me.value?.joined && me.value.preview !== true ? (me.value.taskProgress ?? null) : null,
+)
+const hasMoreModules = computed(() => modulesOffset.value < modulesTotal.value)
+
+function mergeModules(existing: ModuleListItem[], incoming: ModuleListItem[]): ModuleListItem[] {
+  const seen = new Set(existing.map((module) => module.uuid))
+  return [...existing, ...incoming.filter((module) => !seen.has(module.uuid))]
+}
 
 async function load() {
+  const id = ++loadId
   loading.value = true
   error.value = null
   accessDenied.value = false
   permissionsError.value = null
+  modulesError.value = null
+  modulesLoading.value = false
+  modules.value = []
+  modulesTotal.value = 0
+  modulesOffset.value = 0
+  me.value = null
+  permissions.value = null
+  board.value = null
   try {
     const loadedBoard = await boardsApi.getBoard(boardUuid.value)
+    if (id !== loadId) return
     board.value = loadedBoard
     if (!isAuthenticated.value) {
       return
     }
-    me.value = await boardsApi.getBoardMe(boardUuid.value)
+    const loadedMe = await boardsApi.getBoardMe(boardUuid.value)
+    if (id !== loadId) return
+    me.value = loadedMe
     try {
-      modules.value = (await boardsApi.listModules(boardUuid.value, { limit: 100 })).items
+      const page = await boardsApi.listModules(boardUuid.value, { limit: 100 })
+      if (id !== loadId) return
+      modules.value = page.items
+      modulesTotal.value = page.total
+      modulesOffset.value = page.offset + page.items.length
     } catch (caught) {
+      if (id !== loadId) return
       // A TEAM board has no score subject before the participant joins.
       // Modules are not needed to render the join affordance; the page reloads
       // them after the real join succeeds.
       if (isApiError(caught) && caught.code === 'WRONG_PARTICIPATION_MODE') {
         modules.value = []
+        modulesTotal.value = 0
+        modulesOffset.value = 0
       } else {
         throw caught
       }
     }
     try {
-      permissions.value = await boardsApi.getMyPermissions(boardUuid.value)
+      const loadedPermissions = await boardsApi.getMyPermissions(boardUuid.value)
+      if (id !== loadId) return
+      permissions.value = loadedPermissions
     } catch (caught) {
+      if (id !== loadId) return
       permissions.value = null
       permissionsError.value = caught
     }
   } catch (caught) {
+    if (id !== loadId) return
     if (isApiError(caught) && (caught.code === 'BOARD_ACCESS_DENIED' || caught.code === 'BOARD_NOT_FOUND' || caught.code === 'FORBIDDEN' || caught.status === 404 || caught.status === 403)) {
       accessDenied.value = true
     } else {
       error.value = caught
     }
   } finally {
-    loading.value = false
+    if (id === loadId) loading.value = false
+  }
+}
+
+async function loadMoreModules() {
+  if (modulesLoading.value || !hasMoreModules.value) return
+  const id = loadId
+  modulesLoading.value = true
+  modulesError.value = null
+  try {
+    const page = await boardsApi.listModules(boardUuid.value, {
+      limit: 100,
+      offset: modulesOffset.value,
+    })
+    if (id !== loadId) return
+    modules.value = mergeModules(modules.value, page.items)
+    modulesTotal.value = page.total
+    modulesOffset.value = page.offset + page.items.length
+  } catch (caught) {
+    if (id !== loadId) return
+    modulesError.value = caught
+  } finally {
+    if (id === loadId) modulesLoading.value = false
   }
 }
 
@@ -144,7 +204,7 @@ async function leave() {
   }
 }
 
-void load()
+watch(boardUuid, () => void load(), { immediate: true })
 </script>
 
 <template>
@@ -220,6 +280,17 @@ void load()
           <h2 id="modules-heading" class="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             Modules
           </h2>
+          <div v-if="boardTaskProgress" class="mb-3 max-w-96" data-slot="board-task-progress">
+            <p class="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground" aria-hidden="true">
+              Task progress
+            </p>
+            <TaskProgress
+              :solved-tasks="boardTaskProgress.solvedTasks"
+              :total-tasks="boardTaskProgress.totalTasks"
+              label="Task progress"
+              compact
+            />
+          </div>
           <div v-if="!isAuthenticated" class="border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
             Sign in to see this board's modules and submit answers.
           </div>
@@ -230,6 +301,18 @@ void load()
             <div class="workspace-card-grid gap-2">
               <ModuleCard v-for="module in modules" :key="module.uuid" :module="module" />
             </div>
+            <Button
+              v-if="hasMoreModules"
+              variant="outline"
+              class="mt-3"
+              :disabled="modulesLoading"
+              @click="loadMoreModules"
+            >
+              {{ modulesLoading ? 'Loading…' : 'Load more' }}
+            </Button>
+            <ErrorAlert v-if="modulesError" :error="modulesError" title="Could not load more modules" class="mt-3">
+              <Button variant="ghost" class="mt-2" @click="loadMoreModules">Retry</Button>
+            </ErrorAlert>
           </div>
           <div v-if="board.participationMode === 'TEAM' && me?.joined" class="mt-6">
             <TeamPanel :board-uuid="board.uuid" />
@@ -253,7 +336,7 @@ void load()
               <p v-if="board.rating.visibility === 'PUBLIC'">Place: {{ me?.place ?? '—' }}</p>
               <p v-else class="text-xs text-muted-foreground">Place hidden while rating is hidden.</p>
               <p class="text-xs text-muted-foreground">
-                {{ plural(modules.length, 'module') }} · {{ participationLabel(board.participationMode) }} · {{ accessModeLabel(board.accessMode) }}
+                {{ plural(modulesTotal, 'module') }} · {{ participationLabel(board.participationMode) }} · {{ accessModeLabel(board.accessMode) }}
               </p>
               <Button
                 v-if="me?.joined"

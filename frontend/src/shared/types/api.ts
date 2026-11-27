@@ -70,6 +70,15 @@ export interface PageQuery {
   query?: string
 }
 
+/** Participant task-list completion filter; omission means All. */
+export type TaskCompletion = 'SOLVED' | 'UNSOLVED'
+
+/** Server-computed distinct-task progress for the current participant subject. */
+export interface TaskProgress {
+  solvedTasks: number
+  totalTasks: number
+}
+
 export interface UserSummary {
   uuid: string
   username: string
@@ -182,6 +191,8 @@ export interface BoardMe {
   preview?: boolean
   /** Live participant eligibility, computed server-side. */
   canParticipate?: boolean
+  /** Own progress over currently accessible tasks; omitted when unavailable. */
+  taskProgress?: TaskProgress
 }
 
 export interface ModuleListItem {
@@ -200,6 +211,8 @@ export interface ModuleListItem {
   preview?: boolean
   /** Live participant eligibility for this exact module. */
   canParticipate?: boolean
+  /** Unfiltered own progress for this module; omitted when unavailable. */
+  taskProgress?: TaskProgress
 }
 
 export interface Module extends ModuleListItem {
