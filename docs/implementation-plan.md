@@ -1238,12 +1238,12 @@ stroke="currentColor"`, 14 px). Details and evidence: `docs/ui-icons-verificatio
 Markdown, test fixtures and docs prose keep their emoji. No API, RBAC, migration, sanitizer, dependency
 or config change, so operators only run `docker compose pull && docker compose up -d` in `deploy/`.
 
-## Student task progress (2026-11-27, backend/contract, implemented locally, unpublished)
+## Student task progress (2026-11-27, backend/contract, implemented and published)
 
-Status: **Task 1 backend and contract implemented, tested and independently reviewed (spec + quality
-APPROVED) on `feat/student-task-progress`; publication pending.** Source base `6aa65d5`; spec
+Status: **Task 1 backend and contract implemented, tested, independently reviewed (spec + quality
+APPROVED) and published.** Source base `6aa65d5`; spec
 `docs/superpowers/specs/2026-11-27-student-task-progress-design.md`, plan
-`docs/superpowers/plans/2026-11-27-student-task-progress.md`. No push yet.
+`docs/superpowers/plans/2026-11-27-student-task-progress.md`. Published from `main` at `91d76b6`.
 
 Implemented: additive `TaskProgress` (`solvedTasks`, `totalTasks`) on `BoardMe`, `ModuleListItem` and `Module`;
 participant `completion=SOLVED|UNSOLVED` task filter applied before count/pagination; one batched
@@ -1258,13 +1258,15 @@ Evidence: real-PostgreSQL aggregate/security/filter tests (individual, team, tea
 multiple attempts, manual pending→accepted, audience/access-group revocation, joined staff scope, unjoined and
 preview omission, empty modules, >100 tasks and >100 modules, cross-board IDs, invalid filters) plus real-HTTP
 schema/omission/filter proof. Task 2 delivered the student UI, Task 3 the real-browser evidence; the whole-branch final review is
-`docs/student-task-progress-review.md`. Remaining: push/CI/GHCR verification (publication).
+`docs/student-task-progress-review.md`. Publication is closed: run `46132838936` (push, `91d76b6`) passed
+4/4 jobs and all ten GHCR images were verified anonymously (`docs/student-task-progress-verification.md`,
+`docs/ghcr-verification.md`).
 
-## Student task progress UI (2026-11-27, frontend, implemented locally, unpublished)
+## Student task progress UI (2026-11-27, frontend, implemented and published)
 
-Status: **Task 2 frontend implemented, tested and independently reviewed (spec + quality APPROVED) on
-`feat/student-task-progress`; publication pending.** Source base for the UI slice `8154f1b`; spec and
-plan as above. No push yet.
+Status: **Task 2 frontend implemented, tested, independently reviewed (spec + quality APPROVED) and
+published.** Source base for the UI slice `8154f1b`; published from `main` at `91d76b6`; spec and
+plan as above.
 
 Implemented: solved task cards use the existing semantic success ink at 8% over black (12% on hover) with
 no new border, badge or motion; participant module cards show a 4 px unanimated server-backed fraction and
@@ -1283,10 +1285,11 @@ configuration change. Browser journeys, screenshots and computed contrast are re
 section below; both slices passed independent review, and the whole-branch final review is
 `docs/student-task-progress-review.md`.
 
-## Student task progress verification (2026-11-28, implemented locally, final review approved, unpublished)
+## Student task progress verification (2026-11-28, final review approved, published)
 
-Status: **implemented locally on `feat/student-task-progress`; whole-branch final review APPROVED
-(Spec + Quality, no Critical/Important findings); publication pending.** Task 1
+Status: **published from `main` at `91d76b6`; whole-branch final review APPROVED
+(Spec + Quality, no Critical/Important findings); one push-triggered CI run passed 4/4 jobs and all ten
+GHCR images verified anonymously.** Task 1
 (`6aa65d5..8154f1b`) and Task 2 (`8154f1b..12872e1`) both passed independent spec and quality review.
 Task 3 added carried-over regression tests, this record, and two bounded fixes for the red gates the
 first evidence pass found: the editor toolbar now cancels the default `mousedown` so the editable
@@ -1294,8 +1297,13 @@ keeps focus and selection (a real authoring bug behind the long-standing `rich-t
 `Code language` flake), and the full-stack leak assertion now waits for the exact container IDs that
 appeared during the run to finish deleting before it fails. The final review artifact is
 `docs/student-task-progress-review.md`; its six Minor items were closed as documentation/cleanup only,
-with product code frozen at the reviewed commit. No push, CI run or GHCR publication has been
-performed, so this feature is **not** published.
+with product code frozen at the reviewed commit.
+
+Publication is closed with actual evidence: run
+https://github.com/nrf24l01/aCTFb/actions/runs/46132838936 (push, `91d76b6`) — Backend quality, Frontend
+quality, Integration and Publish images all succeeded; the ten GHCR images were verified anonymously
+with matching `latest`/`sha-*` digests, `linux/amd64` configs and the full `91d76b6…` revision label
+(`docs/ghcr-verification.md`).
 
 Evidence (`docs/student-task-progress-verification.md`): 8/8 focused real-PG/HTTP/contract tests with
 no skips and fresh migrations to v20; full Go build/vet and 1069 passed / 24 dependency-group skips;
@@ -1305,5 +1313,7 @@ filter, paging (>100 tasks/modules), team-change, all-solved, empty, preview and
 exit 0 (5 default-profile tests plus 69 passed / 21 project-specific skips); full-stack Docker
 acceptance exit 0 twice (19 passed = 18 full-stack + 1 `p1-core`, 5 default-profile skips, 0 new
 containers/volumes). The `e2e/test-run-cleanup.sh` guard suite is 30/30. Cleanup, limitations and
-exact counts are in that document. Publication checkboxes remain open until Main authorizes the
-release phase.
+exact counts are in that document. The CI run re-confirmed the same gates on the exact published
+commit (49 files / 452 frontend tests, 63 Go packages with 0 `FAIL`, 1 `p1-core` + 5 default-profile +
+69 passed / 21 skipped + 18 full-stack browser tests, 424 packaging checks, 14 CI-contract guards,
+30 cleanup guards).

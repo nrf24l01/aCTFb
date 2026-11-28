@@ -1,13 +1,62 @@
-# Student task progress — local verification
+# Student task progress — verification and publication
 
-Scope: Task 3 local integration evidence for the approved student task progress slice
+Scope: Task 3 evidence for the approved student task progress slice
 (`docs/superpowers/specs/2026-11-27-student-task-progress-design.md`, plan
-`docs/superpowers/plans/2026-11-27-student-task-progress.md`). Branch
-`feat/student-task-progress`; product source `8154f1b` (backend/contract) + `12872e1` (UI/filters),
-plus one editor fix `5d840ab` for a proven authoring bug found by the Task 3 gates. The whole branch
-`6aa65d5..2114af4` passed an independent final review — Spec and Quality APPROVED, no Critical or
-Important findings (`docs/student-task-progress-review.md`). This record covers **local**
-verification only. Push, CI and GHCR publication remain pending; no pipeline was run.
+`docs/superpowers/plans/2026-11-27-student-task-progress.md`). Product source `8154f1b`
+(backend/contract) + `12872e1` (UI/filters), plus one editor fix `5d840ab` for a proven authoring bug
+found by the Task 3 gates. The whole branch `6aa65d5..2114af4` passed an independent final review —
+Spec and Quality APPROVED, no Critical or Important findings (`docs/student-task-progress-review.md`).
+Main inspected five screenshots and approved the composition with no UI redesign.
+
+The slice is **published**: `main` at `91d76b6a1a8a2c8f292fe6941d9d8472827049ed` ran one push-triggered
+CI workflow, all four jobs succeeded, and all ten GHCR images were verified anonymously. Sections below
+keep the local gate record and add the actual CI and registry evidence.
+
+## Publication (actual CI + GHCR, `91d76b6`)
+
+| Field | Value |
+| --- | --- |
+| Workflow run (push) | https://github.com/nrf24l01/aCTFb/actions/runs/46132838936 |
+| Commit (image source) | `91d76b6a1a8a2c8f292fe6941d9d8472827049ed` |
+| Run window | 09:57:05Z → 10:20:45Z (~23.7 min) |
+| Jobs | Backend quality success, Frontend quality success, Integration success, Publish images success (4/4) |
+| Immutable tag | `sha-91d76b6a1a8a2c8f292fe6941d9d8472827049ed` |
+| Platform | `linux/amd64` only (read from each image config) |
+| Registry visibility | public; anonymous manifest + config-blob reads for all ten images |
+| `latest` vs `sha-*` | same manifest digest on all ten |
+| `org.opencontainers.image.revision` | full `91d76b6a1a8a2c8f292fe6941d9d8472827049ed` on all ten |
+| Anonymous verification result | 10/10 verified, 0 failures, total compressed 155,188,577 B |
+
+Counts derived from the actual CI job logs (not copied from the local runs):
+
+| Job | Log evidence |
+| --- | --- |
+| Backend quality | `go test ./... -count=1`: 63 packages (50 with tests, 13 `[no test files]`), 0 `FAIL`; `go test -race ./... -count=1`: same 63/50/13, 0 `FAIL`; `go vet` and the command/package build steps passed |
+| Frontend quality | `vue-tsc -b` passed; `vitest` **49 test files / 452 tests passed**; `vite build` passed (only the pre-existing large-editor-chunk warning) |
+| Integration | migrations on a clean schema + backfill/down-up, real PostgreSQL auth/admin-CLI/retention, real Redis limiter, real-PG domain/HTTP/boot, P0 smoke, P1 HTTP, RustFS full-stack, p1-core browser **1 passed**, default-profile **5 passed** then **69 passed / 21 skipped**, full-stack **18 passed**, `0 new containers, 0 new volumes`; packaging contract **424 checks passed**; CI contract guards **14 passed**; cleanup guards **30 passed**; production image runtime smoke and production auth/proxy smoke all `PASS` |
+| Publish images | all ten packages pushed with `latest` + `sha-91d76b6…` |
+
+The Integration job's only non-`PASS` console line is the known pre-existing RustFS scratch cleanup
+(`rm: cannot remove '/tmp/opencode/actfb-full-d622e591/rustfs-data/...': Permission denied`). It is the
+same root-owned-UID 10001 artifact documented under Limitations, it lives only in the ephemeral runner
+`/tmp`, and the step exited 0 — it is not a gate failure.
+
+Published frontend artifact static check (anonymous blob read of `actfb-frontend:sha-91d76b6…`, 93
+`js/css/html` entries scanned; this is a bundle-content check, not a full production-app run):
+`Task progress` in `BoardPage`/`ModulePage`, `No solved tasks` and `No unsolved tasks` plus
+`completion`/`SOLVED`/`UNSOLVED` in `ModulePage`, and the shipped rule
+`.task-card--solved{background-color:color-mix(in srgb, var(--status-success-ink) 8%, black)}` with its
+`12%` hover variant in the bundled CSS.
+
+Raw evidence: `/tmp/opencode/student-task-progress/publication/` (`publication.json`, `ghcr-verify.json`,
+`ci-run-46132838936.json`, `artifact-check.log`, job logs). No credential, cookie or token value is
+recorded.
+
+Operator action: this range adds no migration (schema stays at v20), no dependency, no `config.yaml` or
+`.env` change and no required secret; `/api/v2` changes are additive fields plus an optional filter.
+Pull and restart in `deploy/` with `docker compose pull && docker compose up -d`. The docs commit that
+records this publication touches only `docs/`, which the workflow path filter excludes, so it starts no
+new run and rebuilds no image.
 
 ## Gates actually run
 
@@ -180,6 +229,12 @@ configuration change is present.
 
 - No screen-reader study; accessibility was checked through the DOM/ARIA contract and keyboard focus.
 - Contrast was computed from actual Chromium CSS values, not sampled from rendered pixels.
+- The published-artifact check above is a static scan of the bundled `js/css` entries; it proves the
+  progress UI and the success tint shipped in the image, not that a deployed production stack renders
+  them.
+- The CI Integration job logs a root-owned RustFS scratch `rm: Permission denied` under
+  `/tmp/opencode/actfb-full-d622e591/`; the step still exited 0 and the directory was on the ephemeral
+  runner only. The equivalent local leftovers were cleaned as described below.
 - The >100 dataset is SQL-seeded valid published rows (documented fixture), not 150 HTTP-created
   tasks; the API still serves and counts them.
 - PENTEST, ATTACK_DEFENSE and EXTENSION runtime browser journeys were not exercised. Their absence of
@@ -189,7 +244,9 @@ configuration change is present.
   participant is correctly refused by the availability gate.
 - Team-without-team `GetModule` keeps the existing denial under the live access policy; the service's
   defensive success branch is not reachable in the shipped configuration.
-- Publication gates (push, CI, anonymous GHCR verification) were intentionally not run.
+- Publication gates were run afterwards and are recorded at the top of this document: one push-triggered
+  CI run (`46132838936`) with 4/4 successful jobs and all ten images verified anonymously. That record is
+  separate from the local gates above, which were not re-run.
 
 ## Owned-resource cleanup
 

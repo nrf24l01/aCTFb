@@ -121,8 +121,10 @@ update `docs/implementation-plan.md`; temporary sanitized browser artifacts unde
   (Whole-branch review `docs/student-task-progress-review.md`: Spec + Quality APPROVED, no
   Critical/Important findings; Main inspected five screenshots and approved. Minor factual
   follow-ups closed as docs/cleanup only.)
-- [ ] After approval, normal commit/push, one actual CI run, anonymous verification
+- [x] After approval, normal commit/push, one actual CI run, anonymous verification
   of all GHCR image tags/digests/revisions; only then mark published.
+  (Run `46132838936` on `91d76b6`: 4/4 jobs success; 10/10 images verified anonymously with
+  matching `latest`/`sha-*` digests and the full revision label.)
 
 ## Main technical rulings after builder recon
 

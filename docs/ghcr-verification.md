@@ -1,11 +1,61 @@
 # GHCR publication verification
 
-Status: **published and verified from `main` at commit `3ac89c0`** (UI icon cleanup: the seven `‹`
-back-link prefixes are now Lucide `ChevronLeftIcon` SVGs). Ten separate images are publicly pullable
-without registry credentials, each with `latest` and an immutable `sha-<full-sha>` tag resolving to the
-same digest.
+Status: **published and verified from `main` at commit `91d76b6`** (student task progress: server-backed
+task progress, solved-card tint and participant completion filters). Ten separate images are publicly
+pullable without registry credentials, each with `latest` and an immutable `sha-<full-sha>` tag resolving
+to the same digest.
 
-## Current publication (`3ac89c0`)
+## Current publication (`91d76b6`)
+
+| Field | Value |
+| --- | --- |
+| Workflow run (push) | https://github.com/nrf24l01/aCTFb/actions/runs/46132838936 |
+| Commit (image source) | `91d76b6a1a8a2c8f292fe6941d9d8472827049ed` |
+| `main` HEAD at publication record | `91d76b6` — same commit; the docs update that records this publication touches only `docs/`, which the workflow path filter excludes, so no further run or image rebuild is expected |
+| Conclusion | success 4/4 (Backend quality, Frontend quality, Integration, Publish images) |
+| Run duration | 09:57:05Z → 10:20:45Z (~23.7 min) |
+| Immutable tag | `sha-91d76b6a1a8a2c8f292fe6941d9d8472827049ed` |
+| Platform | `linux/amd64` only (read from each image config) |
+| Registry visibility | public; anonymous manifest + config-blob reads for all ten images (no stored credentials, no tokens printed) |
+| `latest` vs `sha-*` | same manifest digest for every image, verified on all ten |
+| `org.opencontainers.image.revision` | `91d76b6a1a8a2c8f292fe6941d9d8472827049ed` on all ten |
+| `org.opencontainers.image.version` | `sha-91d76b6…` |
+| Provenance attestations | none; single OCI image manifests |
+
+| Image | Digest | Compressed |
+| --- | --- | --- |
+| `actfb-backend` | `sha256:7444b6858747691356cdbce5ab81994dd3933b63d5b01e9d3e9d72e9066d0928` | 20,458,709 B |
+| `actfb-frontend` | `sha256:f98317a15cbb98b1c125f96a75feb0675974d260ec61dfeb15365059e2f9e36d` | 23,880,841 B |
+| `actfb-notification` | `sha256:a05fa65942511d1f28dbe972629e62c2ebbb11bc354366561e56fdf5f6cc7382` | 12,342,732 B |
+| `actfb-retention` | `sha256:1c4828b9e4d2f530abf941f297d4c40e76b2e92dc1abe8d6573faa2cf4c87d5a` | 10,940,563 B |
+| `actfb-events-dispatcher` | `sha256:826206e8f14150ecc9e5ee80f52747b423f7db2e174e8991b8450862781cbd3d` | 12,001,243 B |
+| `actfb-file-scanner` | `sha256:05f29280e4eaa15d033e4de680258296111078c49552d61ae9ac7feefe4f202d` | 13,359,289 B |
+| `actfb-storage-init` | `sha256:230f5d01b7c9ffc9a1a45385bf7f1917ac8d1a5428486ae271990a4e64b07c62` | 10,956,257 B |
+| `actfb-plugin-runner` | `sha256:64c9198171e4bb3b1d91b29dbbe6ee324f1f568c1a7b7beeb9a335085acd1a36` | 10,292,879 B |
+| `actfb-ad-worker` | `sha256:ddaa11ea2f4a15ac85ab498320d72af8cf795158128b8543261e0148d80c1fef` | 27,023,897 B |
+| `actfb-instance-worker` | `sha256:b335e044ee6e5050a6803f6c0f36067045519633215aa7b5aeff84e5ef3e8940` | 13,932,167 B |
+
+Total compressed 155,188,577 B.
+
+Verification method: each package was resolved over HTTPS against `ghcr.io` with an anonymous pull token
+obtained per repository; the `latest` manifest digest was compared with the `sha-91d76b6…` manifest digest,
+the config blob was read for `os`/`architecture` and the OCI labels, and layer sizes were summed. Raw
+output: `/tmp/opencode/student-task-progress/publication/ghcr-verify.json` and `publication.json`. No
+credential, cookie or token value is recorded here.
+
+The frontend bundle was additionally checked by reading the published image's blobs anonymously (no
+operator pull, no Docker daemon): 93 `js/css/html` entries were scanned and the progress UI shipped —
+`Task progress`, `No solved tasks`, `No unsolved tasks`, the `completion`/`SOLVED`/`UNSOLVED` filter
+values and `.task-card--solved{… color-mix(in srgb, var(--status-success-ink) 8%, black)}` with its 12%
+hover variant. This is a static bundle check, not a deployed-app claim.
+
+This publication ships the student task progress slice. **There is no migration (schema stays at v20), no
+dependency, no `config.yaml` and no `.env` change** in this range and no breaking `/api/v2` change (the
+progress fields and the optional `completion` filter are additive), so operators only need
+`docker compose pull && docker compose up -d` in `deploy/`; nothing new is applied on boot and no new
+secret is required.
+
+## Previous publication (`3ac89c0`)
 
 | Field | Value |
 | --- | --- |
