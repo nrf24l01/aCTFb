@@ -3,10 +3,11 @@
 Scope: Task 3 local integration evidence for the approved student task progress slice
 (`docs/superpowers/specs/2026-11-27-student-task-progress-design.md`, plan
 `docs/superpowers/plans/2026-11-27-student-task-progress.md`). Branch
-`feat/student-task-progress`; product source `8154f1b` (backend/contract) + `12872e1`
-(UI/filters), both independently reviewed with spec APPROVED and quality APPROVED, no
-Critical/Important findings. This record covers **local** verification only. Push, CI and
-GHCR publication remain pending; no pipeline was run.
+`feat/student-task-progress`; product source `8154f1b` (backend/contract) + `12872e1` (UI/filters),
+plus one editor fix `5d840ab` for a proven authoring bug found by the Task 3 gates. The whole branch
+`6aa65d5..2114af4` passed an independent final review — Spec and Quality APPROVED, no Critical or
+Important findings (`docs/student-task-progress-review.md`). This record covers **local**
+verification only. Push, CI and GHCR publication remain pending; no pipeline was run.
 
 ## Gates actually run
 
@@ -19,7 +20,7 @@ Serial, low-RAM, one owned stack at a time. The operator stack on 8080 was never
 | Frontend unit | `bunx vitest run --maxWorkers=1` | 49 files / 452 tests passed (448 Task 2 baseline + 3 carried-over tests + 1 editor focus test) |
 | Typecheck | `bunx vue-tsc -b` | pass |
 | Build | `bun run build` | pass; only the existing >500 kB editor chunk warning |
-| Default-profile browser | `e2e/run-default-profile-e2e.sh` (owned native PG 18, backend, Vite, Chromium) | exit 0: 5/5 default-profile tests and 69/69 frontend tests passed (21 phone/chromium-only skips) |
+| Default-profile browser | `e2e/run-default-profile-e2e.sh` (owned native PG 18, backend, Vite, Chromium) | exit 0: 5/5 default-profile tests, then 69 passed / 21 project-specific skips (16 phone + 5 chromium; 90 collected) |
 | Full-stack browser (Docker) | `e2e/run-full-e2e.sh` (ephemeral PG/NATS/RustFS/ClamAV, host backend/workers/Vite, Chromium) | exit 0 twice: 19 passed (18 full-stack = 7 `full-stage` + 11 `organizer-ux`, plus 1 `p1-core`), 5 default-profile skips, 0 new containers/volumes |
 
 The 24 Go skips are the historical dependency groups: real Redis, NATS, RustFS/S3, ClamAV,
@@ -56,8 +57,9 @@ process and fixed; the original failure records are kept above and below rather 
 - The browser spec also now asserts the editor keeps focus at the code-block step, so a regression
   fails at the cause instead of as an opaque 10 s attribute timeout. No assertion was weakened,
   no timeout raised, no retry added.
-- GREEN: the same full default-profile gate now exits 0 with 69/69 frontend tests (Chromium and
-  phone).
+- GREEN: the same full default-profile gate now exits 0 with 69 passed and 21 project-specific skips
+  (16 phone + 5 chromium; 90 collected) — the skips are the mutually exclusive project selections, not
+  disabled gates.
 
 **2. Full-stack leak assertion (was exit 1 with one container).**
 
@@ -65,9 +67,13 @@ process and fixed; the original failure records are kept above and below rather 
   (`docker inspect` → no such object) and the next run reported zero; it was a container created
   during the run that was gone by the time the run finished, not a persistent leak. `docker ps -aq`
   on this Docker version returns 12-character IDs, which is why the logged ID looked short.
-- The runtime creates short-lived `*-inject` helper containers while injecting files, and the
-  harness starts background workers, so a single `docker ps -aq` snapshot at the end can catch a
-  container the daemon or a worker is still deleting.
+- Leading **hypothesis** for the late snapshot: the runtime injects files through short-lived
+  `*-inject` helper containers and the harness starts background workers, so a single `docker ps -aq`
+  snapshot at the end could catch a container the daemon or a worker was still deleting. This is
+  explicitly a hypothesis, not a proven cause: the first container's identity was not recovered (its
+  workdir was deleted before instrumentation), and the next two runs reported zero without it
+  recurring. The shipped mitigation does not depend on the hypothesis being true — it waits for
+  whatever exact IDs the run actually produced.
 - Fix (`e2e/lib/run-cleanup.sh`, `e2e/run-full-e2e.sh`): the leak assertion now waits for exactly
   the container IDs that appeared during the run to reach "no such container" (bounded,
   condition-based, 60 × 0.5 s), then re-snapshots. Nothing is removed by the wait, no other
@@ -122,10 +128,12 @@ Journeys (all passed):
   tasks solved"`, never Complete. Upcoming module card has no progress and no hidden task count.
 - Filters: `completion=UNSOLVED|SOLVED` is visible in the decoded request URL; rows contain only the
   matching state; module progress stays unfiltered.
-- Paging board: 101 modules, 150 tasks, 120 solved. Module Load more requests `offset=100` and reaches
-  101; task Load more requests `offset=100`; failed Load more + Retry reuses `offset=100` and keeps
-  the filter/pages; Solved filter requests `offset=0&completion=SOLVED`, Load more requests
-  `offset=100&completion=SOLVED`, and all 120 solved rows are reachable. Board summary stays `120/250`.
+- Paging board: 101 modules, 150 tasks in the paging module and 250 tasks board-wide (100 extra
+  one-task modules), 120 solved; the board summary is `120/250`. Module Load more requests
+  `offset=100` and reaches 101; task Load more requests `offset=100`; failed Load more + Retry reuses
+  `offset=100` and keeps the filter/pages; Solved filter requests `offset=0&completion=SOLVED`, Load
+  more requests `offset=100&completion=SOLVED`, and all 120 solved rows are reachable. The board
+  summary stays `120/250` while paging and while a filter is applied.
 - Team: member B sees member A's two accepted tasks (`2/4`), solves a third (`3/4`) and reloads; A
   sees `3/4`. B leaves and creates a new team: `0/4`; the old team keeps `3/4`.
 - Staff preview and unjoined reader: no own progress, no participant filters.
@@ -150,7 +158,9 @@ Computed measurements (Chromium, actual CSS):
 Responsive: 18 samples at 375/1024/1440/1920 across board, module, solved task and paging board;
 `scrollWidth === clientWidth` in every sample (no document overflow).
 
-Screenshots (main inspects these; `/tmp/opencode/student-task-progress/shots/`, 15 files):
+Screenshots (`/tmp/opencode/student-task-progress/shots/`, 15 files; Main personally inspected five of
+them — `board-1440`, `module-mixed-1440`, `module-mixed-375`, `module-allsolved-1440`,
+`module-empty-1440` — and approved the composition, with no UI redesign requested):
 `board-1440`, `module-mixed-1440`, `module-mixed-375`, `module-filter-unsolved-1440`,
 `module-filter-solved-1440`, `module-allsolved-1440`, `module-empty-1440`, `manual-awaiting-1440`,
 `module-manual-accepted-1440`, `team-shared-1440`, `board-paging-1440`,
@@ -190,10 +200,23 @@ the default-profile script dropped its own database. The full-stack runs removed
 containers and volumes and reported `0 new containers, 0 new volumes`; the leak assertion now waits
 (bounded) for containers that appeared during the run before declaring a leak.
 
-One leftover from the first full-stack run, a root-owned RustFS scratch directory at
-`/tmp/opencode/actfb-full-a45641b7` (~76 KB of logs/state written by UID 10001), could not be
-deleted by the unprivileged user. It was cleared afterwards with a throwaway container that mounted
-**only that exact directory** read-write (`alpine:3.22`, `find /cleanup -mindepth 1 -delete`), and
-the now-empty directory was removed from the host; no other path was mounted and no ownership was
-changed. No operator container, volume, image or port 8080 resource was touched, and no broad
-`pkill`/prune/`compose down -v` was used.
+Three full-stack runs each left a root-owned RustFS scratch directory (`rustfs-data`/`rustfs-logs`
+written by UID 10001, ~76 KB each) that the host user could not delete: the first run's
+`/tmp/opencode/actfb-full-a45641b7`, and the two green runs' `/tmp/opencode/actfb-full-12541a58` and
+`/tmp/opencode/actfb-full-966aeb92` (both named in `diag/full18-green-1.log` and
+`diag/full18-green-2.log`). Each was verified to exist before removal, then cleared with a throwaway
+container (`alpine:3.22`, already present locally) that mounted **only that exact directory**
+read-write (`find /cleanup -mindepth 1 -exec rm -rf {} +`); the empty directory was then removed from
+the host. No other path, the Docker socket, the repo or operator data was mounted, and no ownership
+was changed. All three paths are now absent (`0` remaining), and the container was ephemeral
+(`--rm`).
+
+The historical record stands: the first path was initially blocked and only cleaned afterwards, so
+the earlier "remains as inert scratch data" note was true when written, not a claim of zero leftovers
+before the paths were checked.
+
+Docker state was snapshotted immediately before and after this cleanup and is byte-identical:
+9 running / 35 stored containers and 1801 volumes, with the same names (the operator `actfb-prod-*`
+stack plus one unrelated `canonizator-dev-*` container started by another job). Only the two
+run-scoped directories changed; no container, volume, image or port 8080 resource was touched, and no
+broad `pkill`/prune/`compose down -v` was used.

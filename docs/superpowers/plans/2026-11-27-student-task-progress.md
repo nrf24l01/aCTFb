@@ -116,8 +116,11 @@ update `docs/implementation-plan.md`; temporary sanitized browser artifacts unde
   and actual computed text/graphic contrast. Preserve user-authored content.
 - [x] Run existing default-profile/full-stack gates serially; record exact tests,
   skips and limitations, migrations, owned-resource cleanup and source commits.
-- [ ] Obtain independent contract/security/behavior review; fix important findings
+- [x] Obtain independent contract/security/behavior review; fix important findings
   with failing tests first. Main reviews integration and visual evidence.
+  (Whole-branch review `docs/student-task-progress-review.md`: Spec + Quality APPROVED, no
+  Critical/Important findings; Main inspected five screenshots and approved. Minor factual
+  follow-ups closed as docs/cleanup only.)
 - [ ] After approval, normal commit/push, one actual CI run, anonymous verification
   of all GHCR image tags/digests/revisions; only then mark published.
 
